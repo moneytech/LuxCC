@@ -4,6 +4,6 @@
 
 int main(void)
 {
-    preprocess("test.c");
+    preprocess("src/test.c");
 	return 0;
 }

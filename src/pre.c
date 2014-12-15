@@ -22,11 +22,6 @@ typedef enum {
     PRE_TOK_OTHER
 } PreToken;
 
-// typedef struct TokenLine TokenLine;
-// struct TokenLine {
-    // PreToken tok;
-    // int line; /* source code line in which the token appears */
-// };
 
 PreToken get_token(void);
 
@@ -34,14 +29,15 @@ typedef struct PreTokenNode PreTokenNode;
 struct PreTokenNode {
     PreToken token;
     char *lexeme;
-    PreTokenNode *next, *prev;
+    PreTokenNode *next;
     char next_char; /* needed to distinguish between
                       "name(" and "name (" in #define */
+    char deleted; /* TRUE/FALSE */
 };
 
-char *buf, *curr;
+char *buf, *curr, *curr_source_file;
 char token_string[128];
-PreTokenNode *curr_tok;
+PreTokenNode *curr_tok, *token_list;
 
 PreTokenNode *new_node(PreToken token, char *lexeme)
 {
@@ -50,8 +46,8 @@ PreTokenNode *new_node(PreToken token, char *lexeme)
     temp = malloc(sizeof(PreTokenNode));
     temp->token = token;
     temp->lexeme = strdup(lexeme);
-    temp->next_char = *curr; // !!!
-    temp->prev = temp->next = NULL;
+    temp->next = NULL;
+    temp->deleted = FALSE;
 
     return temp;
 }
@@ -77,8 +73,8 @@ char *get_lexeme(int i)
 }
 
 /*
- * Tokenize the buffer 'buf' and return the resulting
- * chain of tokens.
+ * Tokenize the buffer 'buf' and return
+ * the resulting chain of tokens.
  */
 PreTokenNode *tokenize(void)
 {
@@ -87,20 +83,15 @@ PreTokenNode *tokenize(void)
 
     t = get_token();
     n = p = new_node(t, token_string);
+    p->next_char = *curr;
 
-    /*
-     * there was only one token (EOF)
-     */
     if (t == PRE_TOK_EOF)
         return n;
 
-    /*
-     * make doubly linked list of tokens
-     */
     do {
         t = get_token();
         p->next = new_node(t, token_string);
-        p->next->prev = p;
+        p->next->next_char = *curr;
         p = p->next;
 
     } while (t != PRE_TOK_EOF);
@@ -108,19 +99,22 @@ PreTokenNode *tokenize(void)
     return n;
 }
 
-void consume(void)
-{
-    // lookahead[buf_index].tok = get_token();
-    // buf_index = (buf_index+1) % LOOKAHEAD;
-}
-
 void match(PreToken x)
 {
     if (curr_tok->token == x)
-        // consume();
         curr_tok = curr_tok->next;
     else
         ERROR("error at match");
+}
+
+void match2(PreToken x)
+{
+    if (curr_tok->token == x) {
+        curr_tok->deleted = TRUE;
+        curr_tok = curr_tok->next;
+    } else {
+        ERROR("error at match2");
+    }
 }
 
 void preprocessing_file(void);
@@ -173,11 +167,18 @@ void init(FILE *fp)
 void preprocess(char *source_file)
 {
     FILE *fp;
+
+    curr_source_file = source_file;
     fp = fopen(source_file, "rb");
     init(fp);
     fclose(fp);
-    curr_tok = tokenize();
+    token_list = curr_tok = tokenize();
     preprocessing_file();
+    while (token_list != NULL) {
+        if (!token_list->deleted)
+            printf("%d, %s\n", token_list->token, token_list->lexeme);
+        token_list = token_list->next;
+    }
 }
 
 
@@ -454,12 +455,11 @@ void preprocessing_token(int skip);
 
 int is_group_part(void)
 {
-    if (lookahead(1)==PRE_TOK_PUNCTUATOR && !strcmp(get_lexeme(1), "#"))
-        if (lookahead(2) == PRE_TOK_ID)
-            if (!strcmp(get_lexeme(2), "elif")
-            ||  !strcmp(get_lexeme(2), "else")
-            ||  !strcmp(get_lexeme(2), "endif"))
-                return FALSE;
+    if (!strcmp(get_lexeme(1), "#")
+    && (!strcmp(get_lexeme(2), "elif")
+    ||  !strcmp(get_lexeme(2), "else")
+    ||  !strcmp(get_lexeme(2), "endif")))
+        return FALSE;
     return TRUE;
 }
 
@@ -490,18 +490,17 @@ void group(int skip)
  */
 void group_part(int skip)
 {
-    if (lookahead(1)==PRE_TOK_PUNCTUATOR && !strcmp(get_lexeme(1), "#")) {
-        if (lookahead(2)==PRE_TOK_ID
-        && (!strcmp(get_lexeme(2), "if")
-        || !strcmp(get_lexeme(2), "ifdef")
-        || !strcmp(get_lexeme(2), "ifndef")))
+    if (!strcmp(get_lexeme(1), "#")) {
+        if (!strcmp(get_lexeme(2), "if")
+        ||  !strcmp(get_lexeme(2), "ifdef")
+        ||  !strcmp(get_lexeme(2), "ifndef"))
             if_section(skip);
         else
             control_line(skip);
     } else {
         if (lookahead(1) != PRE_TOK_NL)
             pp_tokens(skip);
-        match(PRE_TOK_NL);
+        match2(PRE_TOK_NL);
     }
 }
 
@@ -513,16 +512,27 @@ void if_section(int skip)
     int if_cond, elif_cond = 0;
 
     if_cond = if_group(skip);
-    if (lookahead(1)==PRE_TOK_PUNCTUATOR && !strcmp(get_lexeme(1), "#")) {
-        if (lookahead(2)==PRE_TOK_ID && !strcmp(get_lexeme(2), "elif"))
-            elif_cond = elif_groups(skip || if_cond);
-    }
-    if (lookahead(1)==PRE_TOK_PUNCTUATOR && !strcmp(get_lexeme(1), "#")) {
-        if (lookahead(2)==PRE_TOK_ID && !strcmp(get_lexeme(2), "else"))
-            else_group(skip || if_cond || elif_cond);
-    }
+    if (!strcmp(get_lexeme(1), "#") && !strcmp(get_lexeme(2), "elif"))
+        elif_cond = elif_groups(skip || if_cond);
+    if (!strcmp(get_lexeme(1), "#") && !strcmp(get_lexeme(2), "else"))
+        else_group(skip || if_cond || elif_cond);
     endif_line();
 }
+
+typedef enum {
+    SIMPLE,
+    PARAMETERIZED
+} MacroKind;
+
+typedef struct Macro Macro;
+struct Macro {
+    char *name;
+    MacroKind kind;
+    PreTokenNode *rep, *params;
+    Macro *next;
+};
+
+Macro *lookup(char *s);
 
 /*
  * if_group = "#" "if" constant_expression new_line [ group ] |
@@ -536,14 +546,27 @@ int if_group(int skip)
     /*
      * group_part() confirmed either #if, #ifdef or #ifndef
      */
-    match(PRE_TOK_PUNCTUATOR); /* match # */
+    match2(PRE_TOK_PUNCTUATOR);
     if (!strcmp(get_lexeme(1), "if")) {
-        match(PRE_TOK_ID); /* match if */
-        /* condition */
-        cond_res = atoi(get_lexeme(1));
-        match(PRE_TOK_NUM);
-        /* --- */
-        match(PRE_TOK_NL);
+        match2(PRE_TOK_ID);
+
+        /*
+         * The only constant expressions supported
+         * are decimal numbers or macro names that
+         * expand directly into decimal numbers.
+         */
+        if (lookahead(PRE_TOK_ID)) {
+            Macro *m;
+            if ((m=lookup(get_lexeme(1))) != NULL)
+                cond_res = atoi(m->rep->lexeme);
+            else
+                cond_res = 0; /* undefined macro names evaluate to zero */
+        } else {
+            cond_res = atoi(get_lexeme(1));
+        }
+        match2(lookahead(1)); /* id or number */
+
+        match2(PRE_TOK_NL);
         if (is_group_part())
             group(skip || !cond_res);
     } else if (!strcmp(get_lexeme(1), "ifdef")) {
@@ -562,11 +585,9 @@ int elif_groups(int skip)
     int cond_res;
 
     cond_res = elif_group(skip);
-    while (lookahead(1)==PRE_TOK_PUNCTUATOR && !strcmp(get_lexeme(1), "#")
-    && lookahead(2)==PRE_TOK_ID && !strcmp(get_lexeme(2), "elif")) {
+    while (!strcmp(get_lexeme(1), "#") && !strcmp(get_lexeme(2), "elif"))
         if (elif_group(skip || cond_res))
             cond_res = TRUE;
-    }
     return cond_res;
 }
 
@@ -580,13 +601,13 @@ int elif_group(int skip)
     /*
      * if_section()/elif_groups() confirmed # and elif
      */
-    match(PRE_TOK_PUNCTUATOR);
-    match(PRE_TOK_ID);
+    match2(PRE_TOK_PUNCTUATOR);
+    match2(PRE_TOK_ID);
     /* condition */
     cond_res = atoi(get_lexeme(1));
-    match(PRE_TOK_NUM);
+    match2(PRE_TOK_NUM);
     /* --- */
-    match(PRE_TOK_NL);
+    match2(PRE_TOK_NL);
     if (is_group_part())
         group(skip || !cond_res);
 
@@ -601,9 +622,9 @@ void else_group(int skip)
     /*
      * if_section() confirmed # and else
      */
-    match(PRE_TOK_PUNCTUATOR); /* # */
-    match(PRE_TOK_ID); /* else */
-    match(PRE_TOK_NL);
+    match2(PRE_TOK_PUNCTUATOR); /* # */
+    match2(PRE_TOK_ID); /* else */
+    match2(PRE_TOK_NL);
     if (is_group_part())
         group(skip);
 }
@@ -614,48 +635,67 @@ void else_group(int skip)
 void endif_line(void)
 {
     if (!strcmp(get_lexeme(1), "#"))
-        match(PRE_TOK_PUNCTUATOR);
+        match2(PRE_TOK_PUNCTUATOR);
     else
         ERROR("error at endif_line()");
     if (!strcmp(get_lexeme(1), "endif"))
-        match(PRE_TOK_ID);
+        match2(PRE_TOK_ID);
     else
         ERROR("error at endif_line()");
-    match(PRE_TOK_NL);
+    match2(PRE_TOK_NL);
 }
 
 void simple_define(void);
 void parameterized_define(void);
 
-// control_line = "#" "include" pp_tokens new_line |
-               // "#" "define" identifier replacement_list new_line |
-               // "#" "define" identifier lparen [ identifier_list ] ")" replacement_list new_line |
-               // "#" "undef" identifier new_line |
-               // "#" "line" pp_tokens new_line |
-               // "#" "error" [ pp_tokens ] new_line |
-               // "#" "pragma" [ pp_tokens ] new_line |
-               // "#" new_line
+/*
+control_line = "#" "include" pp_tokens new_line |
+               "#" "define" identifier replacement_list new_line |
+               "#" "define" identifier lparen [ identifier_list ] ")" replacement_list new_line |
+               "#" "undef" identifier new_line |
+               "#" "line" pp_tokens new_line |
+               "#" "error" [ pp_tokens ] new_line |
+               "#" "pragma" [ pp_tokens ] new_line |
+               "#" new_line
+*/
 void control_line(int skip)
 {
-    if (skip) {
-        while (lookahead(1) != PRE_TOK_NL)
-            match(lookahead(1));
-        match(PRE_TOK_NL);
-        return;
-    }
+    if (skip)
+        goto bottom;
 
     /* by group_part(), we know we have # */
-    match(PRE_TOK_PUNCTUATOR);
-    if (!strcmp(get_lexeme(1), "include"))
-        ;
-    else if (!strcmp(get_lexeme(1), "define")) {
-        match(PRE_TOK_ID); /* match define */
+    match2(PRE_TOK_PUNCTUATOR);
+
+    /*
+     * Identify and interpret directive.
+     */
+    if (!strcmp(get_lexeme(1), "include")) {
+        match2(PRE_TOK_ID);
+        if (!strcmp(get_lexeme(1), "\"") {
+            /*
+             * Search for the file in the same directory as
+             * the file that contains the #include directive.
+             */
+            char *p;
+            match(lookahead(1));
+            p = curr_source_file+strlen(curr_source_file);
+    // fp = fopen(source_file, "rb");
+    // init(fp);
+    // fclose(fp);
+    // token_list = curr_tok = tokenize();
+    // preprocessing_file();
+        } else if (!strcmp(get_lexeme(1), "<")) {
+            /* ... */
+        } else {
+            /* error */
+        }
+    } else if (!strcmp(get_lexeme(1), "define")) {
+        match2(PRE_TOK_ID);
         if (lookahead(1) == PRE_TOK_ID) {
             if (curr_tok->next_char == '(')
                 parameterized_define();
             else
                 simple_define();
-            // exit(EXIT_SUCCESS);
         } else {
             ERROR("define: name expected");
         }
@@ -666,22 +706,28 @@ void control_line(int skip)
     } else {
         ERROR("unknow directive");
     }
-    match(PRE_TOK_NL);
+
+bottom:
+    /*
+     * Mark the rest of the line as deleted.
+     */
+    while (lookahead(1) != PRE_TOK_NL)
+        match2(lookahead(1));
+    match2(PRE_TOK_NL);
 }
 
-typedef enum {
-    SIMPLE,
-    PARAMETERIZED
-} MacroKind;
+// typedef enum {
+    // SIMPLE,
+    // PARAMETERIZED
+// } MacroKind;
 
-typedef struct Macro Macro;
-struct Macro {
-    char *name;
-    MacroKind kind;
-    PreTokenNode *rep;
-    void *args;
-    Macro *next;
-};
+// typedef struct Macro Macro;
+// struct Macro {
+    // char *name;
+    // MacroKind kind;
+    // PreTokenNode *rep, *params;
+    // Macro *next;
+// };
 
 #define MACRO_TABLE_SIZE 31
 
@@ -704,7 +750,7 @@ Macro *lookup(char *s)
 	return NULL;
 }
 
-void install(MacroKind kind, char *name, PreTokenNode *rep, void *args)
+void install(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params)
 {
     Macro *np;
     unsigned int hashval;
@@ -714,7 +760,7 @@ void install(MacroKind kind, char *name, PreTokenNode *rep, void *args)
         np->kind = kind;
         np->name = name;
         np->rep = rep;
-        np->args = args;
+        np->params = params;
         hashval = hash(name);
         np->next = macro_table[hashval];
         macro_table[hashval] = np;
@@ -725,30 +771,42 @@ void install(MacroKind kind, char *name, PreTokenNode *rep, void *args)
     // np->rep = copy_string(rep);
 }
 
+/* duplicate a replacement list */
+PreTokenNode *dup_rep_list(PreTokenNode *r)
+{
+    PreTokenNode *new_rep_list, *temp;
+
+    /*
+     * Test for empty replacement list.
+     */
+    if (r->token == PRE_TOK_NL)
+        return NULL;
+
+    /*
+     * Make the duplicate.
+     */
+    new_rep_list = temp = new_node(r->token, r->lexeme);
+    r = r->next;
+    while (r->token != PRE_TOK_NL) {
+        temp->next = new_node(r->token, r->lexeme);
+        temp = temp->next;
+        r = r->next;
+    }
+
+    return new_rep_list;
+}
+
 void simple_define(void)
 {
-    install(SIMPLE, curr_tok->lexeme, curr_tok->next, NULL);
-    while (lookahead(1) != PRE_TOK_NL)
-        match(lookahead(1));
-
-    // PreTokenNode *p = lookup("ABC")->rep;
-    // while (p->token != PRE_TOK_NL) {
-        // printf("%d, %s\n", p->token, p->lexeme);
-        // p = p->next;
-    // }
-    // exit(EXIT_SUCCESS);
+    install(SIMPLE, get_lexeme(1), curr_tok->next, NULL);
 }
 
 void parameterized_define(void)
 {
+    PreTokenNode *rep;
+    for (rep = curr_tok; strcmp(rep->lexeme, ")") != 0 ; rep = rep->next);
+    install(PARAMETERIZED, get_lexeme(1), rep->next, curr_tok->next->next);
 }
-
-// lparen:
-  // "the" "left-parenthesis" "character" "without" "preceding" "white" "space" ;
-
-// replacement_list = [ pp_tokens ]
-
-// identifier_list = identifier { "," identifier }
 
 /*
  * pp_tokens = preprocessing_token { preprocessing_token }
@@ -772,43 +830,171 @@ preprocessing_token = header_name
 void preprocessing_token(int skip)
 {
     if (skip) {
-        match(lookahead(1));
-    } else {
-        // /* añadir token a la cadena de tokens que se le pasara al compilador */
+        match2(lookahead(1));
+        return;
+    }
 
-        if (lookahead(1) == PRE_TOK_ID) {
-            Macro *m;
-            if ((m=lookup(get_lexeme(1))) != NULL) {
-                if (m->kind == SIMPLE) {
-                    PreTokenNode *r, *q, *next, *prev;
-                    r = m->rep;
-                    next = curr_tok->next;
-                    prev = curr_tok->prev;
-                    q = curr_tok->prev;
-                    while (r->token != PRE_TOK_NL) {
-                        q->next = new_node(r->token, r->lexeme);
-                        q->next->prev = q;
-                        q = q->next;
-                        r = r->next;
-                    }
-                    q->next = next;
-                    curr_tok = prev->next;
-                    // printf("curr_tok->token=%d, %d\n", curr_tok->token, PRE_TOK_NL);
-                } else {
-                    /*
-                     * The name of a function-like macro not followed by left parenthesis
-                     * is not an invocation to the macro.
-                     */
-                    if (strcmp(get_lexeme(2), "(") != 0)
-                        ; /* not a macro call */
-                }
-            }
+    // /* añadir token a la cadena de tokens que se le pasara al compilador */
+    Macro *m;
+    if (lookahead(1)==PRE_TOK_ID && (m=lookup(get_lexeme(1)))!=NULL) {
+        if (m->kind == SIMPLE) {
+            PreTokenNode *r, *old_next;
+
+            /*
+             * Test empty replacement list.
+             */
+            if ((r=dup_rep_list(m->rep)) == NULL)
+                goto empty_rep_list1;
+            /*
+             * Insert the replacement list between the
+             * identifier and the next token.
+             */
+            old_next = curr_tok->next;
+            curr_tok->next = r;
+            while (r->next != NULL)
+                r = r->next;
+            r->next = old_next;
+empty_rep_list1:
+            /*
+             * Mark the identifier as deleted and advance.
+             */
+            match2(lookahead(1));
         } else {
-            printf("%s\n", get_lexeme(1));
-            match(lookahead(1));
+            /*
+             * Parameterized macro.
+             * Do not perform error checking.
+             */
+            int pn; /* parenthesis nesting level counter */
+            PreTokenNode *r, *r_prev = NULL, *r_first, *param, *arg;
+
+            /*
+             * The name of a function-like macro not followed by left parenthesis,
+             * is not an invocation to the macro.
+             */
+            if (strcmp(get_lexeme(2), "(") != 0) {
+                match(lookahead(1));
+                return;
+            }
+
+            if ((r=r_first=dup_rep_list(m->rep)) == NULL)
+                goto empty_rep_list2;
+
+            /*
+             * Scan the replacement list and at each ocurrence
+             * of an identifier token, see if there is a matching
+             * parameter (if so, replace it for corresponding actual
+             * argument).
+             */
+            while (TRUE) {
+                if (r->token != PRE_TOK_ID)
+                    goto bottom;
+
+                /*
+                 * See if there is a matching parameter.
+                 */
+                param = m->params;
+                arg = curr_tok->next->next;
+                while (strcmp(param->lexeme, ")") != 0) {
+                    if (!strcmp(param->lexeme, ","))
+                        param = param->next;
+
+                    /* test for match */
+                    if (strcmp(param->lexeme, r->lexeme) == 0)
+                        break;
+
+                    /*
+                     * There was no match, advance the
+                     * argument and parameter pointer.
+                     */
+                    pn = 0;
+                    while (pn>0 || strcmp(arg->lexeme, ",")!=0 && strcmp(arg->lexeme, ")")!=0) {
+                        if (strcmp(arg->lexeme, "(") == 0) pn++;
+                        else if (strcmp(arg->lexeme, ")") == 0) pn--;
+                        arg = arg->next;
+                    }
+                    arg = arg->next;
+                    param = param->next;
+                }
+
+                /*
+                 * Replace if found match.
+                 */
+                if (strcmp(param->lexeme, ")") != 0) {
+                    PreTokenNode *arg_copy, *last;
+
+                    /*
+                     * Make a copy of the argument.
+                     */
+                    pn = 0;
+                    arg_copy = last = new_node(arg->token, arg->lexeme);
+                    if (strcmp(arg->lexeme, "(") == 0)
+                        pn++;
+                    arg = arg->next;
+                    while (pn>0 || strcmp(arg->lexeme, ",")!=0 && strcmp(arg->lexeme, ")")!=0) {
+                        if (strcmp(arg->lexeme, "(") == 0) pn++;
+                        else if (strcmp(arg->lexeme, ")") == 0) pn--;
+                        last->next = new_node(arg->token, arg->lexeme);
+                        last = last->next;
+                        arg = arg->next;
+                    }
+                    /*
+                     * Insert the replacement list
+                     * in place of the identifier.
+                     */
+                    if (r_prev == NULL) {
+                        last->next = r->next;
+                        r_first = arg_copy;
+                    } else {
+                        r_prev->next = arg_copy;
+                        last->next = r->next;
+                    }
+                    free(r->lexeme);
+                    free(r);
+                    r = last;
+                }
+bottom:
+                /*
+                 * Exit the loop if this was the last
+                 * token of the replacement list.
+                 */
+                if (r->next == NULL)
+                    break;
+
+                r_prev = r;
+                r = r->next;
+            }
+empty_rep_list2:
+            /*
+             * Mark the macro call as deleted.
+             */
+            pn = 0;
+            while (pn>1 || strcmp(curr_tok->lexeme, ")")!=0) {
+                if (strcmp(curr_tok->lexeme, "(") == 0) pn++;
+                else if (strcmp(curr_tok->lexeme, ")") == 0) pn--;
+                match2(lookahead(1));
+            }
+            /*
+             * Insert the replacement list next
+             * to the macro call.
+             */
+            if (r != NULL) {
+                r->next = curr_tok->next;
+                curr_tok->next = r_first;
+            }
+            match2(lookahead(1));
         }
+    } else {
+        // printf("%s\n", get_lexeme(1));
+        match(lookahead(1));
     }
 }
+
+// lparen:
+  // "the" "left-parenthesis" "character" "without" "preceding" "white" "space" ;
+
+// replacement_list = [ pp_tokens ]
+
+// identifier_list = identifier { "," identifier }
 
 // header_name = "<" h_char_sequence ">"
               // "\"" q_char_sequence "\""
