@@ -566,17 +566,21 @@ int if_group(int skip)
             cond_res = atoi(get_lexeme(1));
         }
         match2(lookahead(1)); /* id or number */
-        cond_res = !cond_res;
     } else if (!strcmp(get_lexeme(1), "ifdef")) {
         /* */
     } else { /* ifndef */
         match2(PRE_TOK_ID);
-        cond_res = (lookup(get_lexeme(1))==NULL)?0:1;
+        cond_res = (lookup(get_lexeme(1))==NULL)?1:0;
         match2(lookahead(1));
     }
     match2(PRE_TOK_NL);
+    /*
+     * Skip if the condition evaluated to false or if the
+     * if/ifdef/ifndef is inside a block being skipped.
+     */
+    skip = (cond_res==0)?1:skip;
     if (is_group_part())
-        group(skip || cond_res);
+        group(skip);
 
     return cond_res;
 }
@@ -902,6 +906,15 @@ empty_rep_list1:
              * Parameterized macro.
              * Do not perform error checking.
              */
+#define equal(s, t)     (strcmp(s->lexeme, t->lexeme) == 0)
+#define not_equal(s, t) (strcmp(s->lexeme, t->lexeme) != 0)
+// ()()
+// (a)(a)
+// (a,b)(a,b)
+// (a,...)(a)
+// (a,...)(a,b)
+// (...)()
+// (...)(a)
             int pn; /* parenthesis nesting level counter */
             PreTokenNode *r, *r_prev = NULL, *r_first, *param, *arg;
 
@@ -933,11 +946,13 @@ empty_rep_list1:
                 param = m->params;
                 arg = curr_tok->next->next;
                 while (strcmp(param->lexeme, ")") != 0) {
-                    if (!strcmp(param->lexeme, ","))
+                    if (strcmp(param->lexeme, ",") == 0)
                         param = param->next;
 
                     /* test for match */
-                    if (strcmp(param->lexeme, r->lexeme) == 0)
+                    if (strcmp(param->lexeme, "...") == 0) {
+                        break;
+                    } else if (strcmp(param->lexeme, r->lexeme) == 0)
                         break;
 
                     /*
@@ -950,14 +965,73 @@ empty_rep_list1:
                         else if (strcmp(arg->lexeme, ")") == 0) pn--;
                         arg = arg->next;
                     }
-                    arg = arg->next;
+                    if (strcmp(arg->lexeme, ",") == 0)
+                        arg = arg->next;
                     param = param->next;
                 }
+
+                if (strcmp(param->lexeme, "...") == 0) {
+                    if (strcmp(r->lexeme, "__VA_ARGS__") == 0) {
+                        if (strcmp(arg->lexeme, ")") != 0) {
+                            /*
+                             * The argument list corresponding
+                             * to ... isn't empty.
+                             */
+                            PreTokenNode *arg_copy, *last;
+
+                            /*
+                             * Make a copy of the argument.
+                             */
+                            pn = 0;
+                            arg_copy = last = new_node(arg->token, arg->lexeme);
+                            if (strcmp(arg->lexeme, "(") == 0)
+                                pn++;
+                            arg = arg->next;
+                            while (pn>0 || strcmp(arg->lexeme, ")")!=0) {
+                                if (strcmp(arg->lexeme, "(") == 0) pn++;
+                                else if (strcmp(arg->lexeme, ")") == 0) pn--;
+                                last->next = new_node(arg->token, arg->lexeme);
+                                last = last->next;
+                                arg = arg->next;
+                            }
+                            /*
+                             * Insert the replacement list
+                             * in place of the identifier.
+                             */
+                            if (r_prev == NULL) {
+                                last->next = r->next;
+                                r_first = arg_copy;
+                            } else {
+                                r_prev->next = arg_copy;
+                                last->next = r->next;
+                            }
+                            free(r->lexeme);
+                            free(r);
+                            r = last;
+                        } else {
+                            /*
+                             * Make disappear __VA_ARGS__ (there are
+                             * no arguments corresponding to ...).
+                             */
+                            PreTokenNode *r_next;
+
+                            r_next = r->next;
+                            if (r_prev == NULL)
+                                r_first = r_next;
+                            else
+                                r_prev->next = r_next;
+                            free(r->lexeme);
+                            free(r);
+                            r = r_next;
+                        }
+                    } else {
+                        goto bottom;
+                    }
 
                 /*
                  * Replace if found match.
                  */
-                if (strcmp(param->lexeme, ")") != 0) {
+                } else if (strcmp(param->lexeme, ")") != 0) {
                     PreTokenNode *arg_copy, *last;
 
                     /*
@@ -995,7 +1069,7 @@ bottom:
                  * Exit the loop if this was the last
                  * token of the replacement list.
                  */
-                if (r->next == NULL)
+                if (r==NULL || r->next==NULL)
                     break;
 
                 r_prev = r;
@@ -1019,7 +1093,7 @@ empty_rep_list2:
                 r->next = curr_tok->next;
                 curr_tok->next = r_first;
             }
-            match2(lookahead(1));
+            match2(lookahead(1)); /* ) */
         }
     } else {
         // printf("%s\n", get_lexeme(1));
