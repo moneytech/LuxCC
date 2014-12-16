@@ -124,6 +124,7 @@ void preprocessing_file(void);
  * perform end-of-line replacing (DOS's CRLF are replaced for a
  * single LF) and line splicing.
  */
+static
 void init(FILE *fp)
 {
     int buf_size;
@@ -565,15 +566,18 @@ int if_group(int skip)
             cond_res = atoi(get_lexeme(1));
         }
         match2(lookahead(1)); /* id or number */
-
-        match2(PRE_TOK_NL);
-        if (is_group_part())
-            group(skip || !cond_res);
+        cond_res = !cond_res;
     } else if (!strcmp(get_lexeme(1), "ifdef")) {
         /* */
     } else { /* ifndef */
-        /* */
+        match2(PRE_TOK_ID);
+        cond_res = (lookup(get_lexeme(1))==NULL)?0:1;
+        match2(lookahead(1));
     }
+    match2(PRE_TOK_NL);
+    if (is_group_part())
+        group(skip || cond_res);
+
     return cond_res;
 }
 
@@ -671,19 +675,53 @@ void control_line(int skip)
      */
     if (!strcmp(get_lexeme(1), "include")) {
         match2(PRE_TOK_ID);
-        if (!strcmp(get_lexeme(1), "\"") {
+        if (lookahead(1) == PRE_TOK_STRLIT) {
             /*
              * Search for the file in the same directory as
              * the file that contains the #include directive.
              */
             char *p;
-            match(lookahead(1));
+            FILE *fp;
+            PreTokenNode *tokenized_file, *last;
+
+            /*
+             * Open the file.
+             */
             p = curr_source_file+strlen(curr_source_file);
-    // fp = fopen(source_file, "rb");
-    // init(fp);
-    // fclose(fp);
-    // token_list = curr_tok = tokenize();
-    // preprocessing_file();
+            while (p!=curr_source_file && *p!='/')
+                p--;
+            if (p == curr_source_file) {
+                /* the file being processed is in the compiler's working directory */
+                fp = fopen(get_lexeme(1), "rb");
+            } else {
+                int n;
+                char *path;
+
+                n = p-curr_source_file+1;
+                path = malloc(n+strlen(get_lexeme(1))+1);
+                strncpy(path, curr_source_file, n);
+                path[n] = '\0';
+                strcat(path, get_lexeme(1));
+                fp = fopen(path, "rb");
+            }
+            init(fp);
+            fclose(fp);
+
+            /* match filename */
+            match2(lookahead(1));
+            /* now at new-line... */
+
+            /*
+             * Tokenize the file's content and insert
+             * the result right after the filename.
+             */
+            tokenized_file = last = tokenize();
+            while (last->next->token != PRE_TOK_EOF)
+                last = last->next;
+            free(last->next->lexeme);
+            free(last->next);
+            last->next = curr_tok->next;
+            curr_tok->next = tokenized_file;
         } else if (!strcmp(get_lexeme(1), "<")) {
             /* ... */
         } else {
