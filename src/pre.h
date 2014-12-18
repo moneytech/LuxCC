@@ -1,6 +1,27 @@
 #ifndef PRE_H_
 #define PRE_H_
 
-void preprocess(char *source_file);
+typedef enum {
+    PRE_TOK_EOF,
+    PRE_TOK_PUNCTUATOR,
+    PRE_TOK_NUM,
+    PRE_TOK_ID,
+    PRE_TOK_CHACON,
+    PRE_TOK_STRLIT,
+    PRE_TOK_NL,
+    PRE_TOK_OTHER
+} PreToken;
+
+typedef struct PreTokenNode PreTokenNode;
+struct PreTokenNode {
+    PreToken token;
+    char *lexeme;
+    PreTokenNode *next;
+    char next_char; /* needed to distinguish between
+                      "name(" and "name (" in #define */
+    char deleted; /* TRUE/FALSE */
+};
+
+PreTokenNode *preprocess(char *source_file);
 
 #endif

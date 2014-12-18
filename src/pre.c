@@ -12,33 +12,37 @@
     exit(EXIT_FAILURE)
 
 typedef enum {
-    PRE_TOK_EOF,
-    PRE_TOK_PUNCTUATOR,
-    PRE_TOK_NUM,
-    PRE_TOK_ID,
-    PRE_TOK_CHACON,
-    PRE_TOK_STRLIT,
-    PRE_TOK_NL,
-    PRE_TOK_OTHER
-} PreToken;
+    STATE_START,
+    STATE_DONE,
+    STATE_INID,
+    STATE_INNUM,
+    STATE_INCHAR,
+    STATE_INSTR,
+    STATE_INCOMMENT1,
+    STATE_INCOMMENT2,
+    STATE_INLINECOMMENT,
+    STATE_INCMD
+} State;
+
+static char *buf, *curr, *curr_source_file;
+static char token_string[128];
+static PreTokenNode *curr_tok, *token_list;
 
 
-PreToken get_token(void);
+typedef enum {
+    SIMPLE,
+    PARAMETERIZED
+} MacroKind;
 
-typedef struct PreTokenNode PreTokenNode;
-struct PreTokenNode {
-    PreToken token;
-    char *lexeme;
-    PreTokenNode *next;
-    char next_char; /* needed to distinguish between
-                      "name(" and "name (" in #define */
-    char deleted; /* TRUE/FALSE */
+typedef struct Macro Macro;
+struct Macro {
+    char *name;
+    MacroKind kind;
+    PreTokenNode *rep, *params;
+    Macro *next;
 };
 
-char *buf, *curr, *curr_source_file;
-char token_string[128];
-PreTokenNode *curr_tok, *token_list;
-
+static
 PreTokenNode *new_node(PreToken token, char *lexeme)
 {
     PreTokenNode *temp;
@@ -52,6 +56,7 @@ PreTokenNode *new_node(PreToken token, char *lexeme)
     return temp;
 }
 
+static
 PreToken lookahead(int i)
 {
     PreTokenNode *p;
@@ -71,6 +76,8 @@ char *get_lexeme(int i)
         p = p->next;
     return p->lexeme;
 }
+
+PreToken get_token(void);
 
 /*
  * Tokenize the buffer 'buf' and return
@@ -99,6 +106,7 @@ PreTokenNode *tokenize(void)
     return n;
 }
 
+static
 void match(PreToken x)
 {
     if (curr_tok->token == x)
@@ -116,8 +124,6 @@ void match2(PreToken x)
         ERROR("error at match2");
     }
 }
-
-void preprocessing_file(void);
 
 /*
  * Load the file pointed to by fp into the global buffer 'buf', and
@@ -164,8 +170,14 @@ void init(FILE *fp)
     curr = buf;
 }
 
+void preprocessing_file(void);
 
-void preprocess(char *source_file)
+/*
+ * Preprocess the source file and any file
+ * included through #include, and return a
+ * sequence of preprocessing tokens.
+ */
+PreTokenNode *preprocess(char *source_file)
 {
     FILE *fp;
 
@@ -175,26 +187,13 @@ void preprocess(char *source_file)
     fclose(fp);
     token_list = curr_tok = tokenize();
     preprocessing_file();
-    while (token_list != NULL) {
-        if (!token_list->deleted)
-            printf("%d, %s\n", token_list->token, token_list->lexeme);
-        token_list = token_list->next;
-    }
+    // while (token_list != NULL) {
+        // if (!token_list->deleted)
+            // printf("%d, %s\n", token_list->token, token_list->lexeme);
+        // token_list = token_list->next;
+    // }
+    return token_list;
 }
-
-
-typedef enum {
-    STATE_START,
-    STATE_DONE,
-    STATE_INID,
-    STATE_INNUM,
-    STATE_INCHAR,
-    STATE_INSTR,
-    STATE_INCOMMENT1,
-    STATE_INCOMMENT2,
-    STATE_INLINECOMMENT,
-    STATE_INCMD
-} State;
 
 
 PreToken get_token(void)
@@ -342,11 +341,11 @@ PreToken get_token(void)
                     }
                     curr_tok = PRE_TOK_PUNCTUATOR;
                     break;
-                /*
-                 * In ASCII, characters included in the 'other' group are @, $, `, and
-                 * any control characters other than NUL.
-                 */
                 default:
+                    /*
+                     * In ASCII, characters included in the 'other' group are @, $, `, and
+                     * any control characters other than NUL.
+                     */
                     curr_tok = PRE_TOK_OTHER;
                     break;
                 } /* switch (c) */
@@ -441,6 +440,7 @@ PreToken get_token(void)
     return curr_tok;
 }
 
+/* recursive parser functions */
 void group(int skip);
 void group_part(int skip);
 void if_section(int skip);
@@ -519,19 +519,6 @@ void if_section(int skip)
         else_group(skip || if_cond || elif_cond);
     endif_line();
 }
-
-typedef enum {
-    SIMPLE,
-    PARAMETERIZED
-} MacroKind;
-
-typedef struct Macro Macro;
-struct Macro {
-    char *name;
-    MacroKind kind;
-    PreTokenNode *rep, *params;
-    Macro *next;
-};
 
 Macro *lookup(char *s);
 
@@ -678,6 +665,11 @@ void control_line(int skip)
      * Identify and interpret directive.
      */
     if (!strcmp(get_lexeme(1), "include")) {
+        /*
+         * The only supported forms of the include directive are:
+         *      "file.h"
+         *      <file.h>
+         */
         match2(PRE_TOK_ID);
         if (lookahead(1) == PRE_TOK_STRLIT) {
             /*
@@ -722,8 +714,10 @@ void control_line(int skip)
             tokenized_file = last = tokenize();
             while (last->next->token != PRE_TOK_EOF)
                 last = last->next;
+            /* delete EOF token */
             free(last->next->lexeme);
             free(last->next);
+            /* insert */
             last->next = curr_tok->next;
             curr_tok->next = tokenized_file;
         } else if (!strcmp(get_lexeme(1), "<")) {
@@ -757,19 +751,6 @@ bottom:
         match2(lookahead(1));
     match2(PRE_TOK_NL);
 }
-
-// typedef enum {
-    // SIMPLE,
-    // PARAMETERIZED
-// } MacroKind;
-
-// typedef struct Macro Macro;
-// struct Macro {
-    // char *name;
-    // MacroKind kind;
-    // PreTokenNode *rep, *params;
-    // Macro *next;
-// };
 
 #define MACRO_TABLE_SIZE 31
 
@@ -876,10 +857,12 @@ void preprocessing_token(int skip)
         return;
     }
 
-    // /* añadir token a la cadena de tokens que se le pasara al compilador */
     Macro *m;
     if (lookahead(1)==PRE_TOK_ID && (m=lookup(get_lexeme(1)))!=NULL) {
         if (m->kind == SIMPLE) {
+            /*
+             * Object-like macro.
+             */
             PreTokenNode *r, *old_next;
 
             /*
@@ -902,19 +885,13 @@ empty_rep_list1:
              */
             match2(lookahead(1));
         } else {
+// #define equal(s, t)     (strcmp(s->lexeme, t->lexeme) == 0)
+// #define not_equal(s, t) (strcmp(s->lexeme, t->lexeme) != 0)
             /*
              * Parameterized macro.
-             * Do not perform error checking.
+             * Assume correct syntax and
+             * proper use of the macro.
              */
-#define equal(s, t)     (strcmp(s->lexeme, t->lexeme) == 0)
-#define not_equal(s, t) (strcmp(s->lexeme, t->lexeme) != 0)
-// ()()
-// (a)(a)
-// (a,b)(a,b)
-// (a,...)(a)
-// (a,...)(a,b)
-// (...)()
-// (...)(a)
             int pn; /* parenthesis nesting level counter */
             PreTokenNode *r, *r_prev = NULL, *r_first, *param, *arg;
 
@@ -950,9 +927,7 @@ empty_rep_list1:
                         param = param->next;
 
                     /* test for match */
-                    if (strcmp(param->lexeme, "...") == 0) {
-                        break;
-                    } else if (strcmp(param->lexeme, r->lexeme) == 0)
+                    if (strcmp(param->lexeme, "...")==0 || strcmp(param->lexeme, r->lexeme)==0)
                         break;
 
                     /*
@@ -970,8 +945,15 @@ empty_rep_list1:
                     param = param->next;
                 }
 
+                /*
+                 * Replace if there was a match.
+                 */
                 if (strcmp(param->lexeme, "...") == 0) {
                     if (strcmp(r->lexeme, "__VA_ARGS__") == 0) {
+                        /*
+                         * __VA_ARGS__ was found
+                         * in the replacement list.
+                         */
                         if (strcmp(arg->lexeme, ")") != 0) {
                             /*
                              * The argument list corresponding
@@ -979,9 +961,7 @@ empty_rep_list1:
                              */
                             PreTokenNode *arg_copy, *last;
 
-                            /*
-                             * Make a copy of the argument.
-                             */
+                            /* make a copy of the argument */
                             pn = 0;
                             arg_copy = last = new_node(arg->token, arg->lexeme);
                             if (strcmp(arg->lexeme, "(") == 0)
@@ -994,10 +974,7 @@ empty_rep_list1:
                                 last = last->next;
                                 arg = arg->next;
                             }
-                            /*
-                             * Insert the replacement list
-                             * in place of the identifier.
-                             */
+                            /* insert the argument list in place of __VA_ARGS__ */
                             if (r_prev == NULL) {
                                 last->next = r->next;
                                 r_first = arg_copy;
@@ -1024,19 +1001,15 @@ empty_rep_list1:
                             free(r);
                             r = r_next;
                         }
-                    } else {
-                        goto bottom;
                     }
-
-                /*
-                 * Replace if found match.
-                 */
                 } else if (strcmp(param->lexeme, ")") != 0) {
+                    /*
+                     * A formal parameter was found
+                     * in the replacement list.
+                     */
                     PreTokenNode *arg_copy, *last;
 
-                    /*
-                     * Make a copy of the argument.
-                     */
+                    /* make a copy of the argument */
                     pn = 0;
                     arg_copy = last = new_node(arg->token, arg->lexeme);
                     if (strcmp(arg->lexeme, "(") == 0)
@@ -1049,10 +1022,7 @@ empty_rep_list1:
                         last = last->next;
                         arg = arg->next;
                     }
-                    /*
-                     * Insert the replacement list
-                     * in place of the identifier.
-                     */
+                    /* insert the argument list in place of the identifier */
                     if (r_prev == NULL) {
                         last->next = r->next;
                         r_first = arg_copy;
@@ -1096,7 +1066,6 @@ empty_rep_list2:
             match2(lookahead(1)); /* ) */
         }
     } else {
-        // printf("%s\n", get_lexeme(1));
         match(lookahead(1));
     }
 }
