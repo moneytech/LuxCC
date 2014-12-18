@@ -15,8 +15,9 @@ typedef enum {
 typedef struct PreTokenNode PreTokenNode;
 struct PreTokenNode {
     PreToken token;
-    char *lexeme;
+    char *lexeme, *file;
     PreTokenNode *next;
+    int src_line;
     char next_char; /* needed to distinguish between
                       "name(" and "name (" in #define */
     char deleted; /* TRUE/FALSE */

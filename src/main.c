@@ -10,6 +10,7 @@ int main(void)
     pre = preprocess("src/test.c");
     tok = lexer(pre);
     while (tok != NULL)
-        printf("%d, %s\n", tok->token, tok->lexeme), tok = tok->next;
+        printf("file:%s, line:%d, %d, %s\n", tok->file, tok->src_line, tok->token, tok->lexeme),
+        tok = tok->next;
 	return 0;
 }

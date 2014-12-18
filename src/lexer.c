@@ -15,13 +15,15 @@ int get_esc_seq_val(char **c);
 void check_integer_constant(char *ic);
 
 
-TokenNode *new_token(Token token, char *lexeme)
+TokenNode *new_token(Token token, PreTokenNode *ptok)
 {
     TokenNode *temp;
 
     temp = malloc(sizeof(TokenNode));
     temp->token = token;
-    temp->lexeme = lexeme;
+    temp->lexeme = ptok->lexeme;
+    temp->src_line = ptok->src_line;
+    temp->file = ptok->file;
     temp->next = NULL;
 
     return temp;
@@ -38,7 +40,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
     TokenNode *first, *tok;
 
     pre_tok = pre_token_list;
-    first = tok = new_token(0, NULL);
+    first = tok = malloc(sizeof(TokenNode)); /* this node is deleted later */
     for (; pre_tok != NULL; pre_tok = pre_tok->next) {
         if (pre_tok->deleted)
             continue;
@@ -48,17 +50,17 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
             break;
         case PRE_TOK_PUNCTUATOR:
             if (equal(pre_tok->lexeme, "["))
-                tok->next = new_token(TOK_LBRACKET, pre_tok->lexeme);
+                tok->next = new_token(TOK_LBRACKET, pre_tok);
             else if (equal(pre_tok->lexeme, "]"))
-                tok->next = new_token(TOK_RBRACKET, pre_tok->lexeme);
+                tok->next = new_token(TOK_RBRACKET, pre_tok);
             /* ... */
             break;
         case PRE_TOK_NUM:
             check_integer_constant(pre_tok->lexeme);
-            tok->next = new_token(TOK_ICONST, pre_tok->lexeme);
+            tok->next = new_token(TOK_ICONST, pre_tok);
             break;
         case PRE_TOK_ID:
-            tok->next = new_token(TOK_ID, pre_tok->lexeme);
+            tok->next = new_token(TOK_ID, pre_tok);
             break;
         case PRE_TOK_CHACON: {
             char buf[16], *p;
@@ -78,8 +80,8 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
                     ++p;
                 }
             }
-            tok->next = new_token(TOK_ICONST, NULL);
-            tok->next->lexeme = malloc(strlen(buf)+1);
+            tok->next = new_token(TOK_ICONST, pre_tok);
+            tok->next->lexeme = malloc(strlen(buf)+1); /* replace prev lexeme */
             strcpy(tok->next->lexeme, buf);
         }
             break;
@@ -96,7 +98,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
                 }
             }
             *dest = *src; /* copy '\0' */
-            tok->next = new_token(TOK_STRLIT, pre_tok->lexeme);
+            tok->next = new_token(TOK_STRLIT, pre_tok);
         }
             break;
         case PRE_TOK_NL:

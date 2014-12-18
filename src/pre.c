@@ -27,6 +27,8 @@ typedef enum {
 static char *buf, *curr, *curr_source_file;
 static char token_string[128];
 static PreTokenNode *curr_tok, *token_list;
+static int curr_line;
+// static char
 
 
 typedef enum {
@@ -52,6 +54,8 @@ PreTokenNode *new_node(PreToken token, char *lexeme)
     temp->lexeme = strdup(lexeme);
     temp->next = NULL;
     temp->deleted = FALSE;
+    temp->src_line = curr_line;
+    temp->file = curr_source_file;
 
     return temp;
 }
@@ -88,6 +92,7 @@ PreTokenNode *tokenize(void)
     PreToken t;
     PreTokenNode *n, *p;
 
+    curr_line = 1; /* initialize line counter */
     t = get_token();
     n = p = new_node(t, token_string);
     p->next_char = *curr;
@@ -131,10 +136,17 @@ void match2(PreToken x)
  * single LF) and line splicing.
  */
 static
-void init(FILE *fp)
+// void init(FILE *fp)
+void init(char *file_path)
 {
+    FILE *fp;
     int buf_size;
-    // char *buf, *curr;
+
+    fp = fopen(file_path, "rb");
+    if (fp == NULL) {
+        fprintf(stderr, "Error reading file `%s'\n", file_path);
+        exit(1);
+    }
 
     fseek(fp, 0, SEEK_END);
     buf_size = ftell(fp); /* number of chars of the file */
@@ -144,30 +156,38 @@ void init(FILE *fp)
 
     while (fgets(curr, 0x7FFFFFFF, fp) != NULL) {
         int line_len = strlen(curr);
-
-        /* replaces CRLFs for LFs */
+#if WIN_LINE_ENDING
+        /* replace CRLFs for LFs */
         if (line_len>1 && curr[line_len-2]=='\r') {
             curr[line_len-2]='\n', curr[line_len-1]='\0';
             --line_len;
         }
-
-        /* joins lines ending in \ with the next line (the last line must not end in \) */
+#endif
+        /* join lines ending in \ with the next line (the last line must not end in \) */
         while (line_len>1 && curr[line_len-2]=='\\') {
             line_len -= 2; /* removes '\\' and '\n' */
             fgets(curr+line_len, 0x7FFFFFFF, fp);
             line_len += strlen(curr+line_len);
-
-            /* again, replaces CRLFs for LFs */
+#if WIN_LINE_ENDING
+            /* again, replace CRLFs for LFs */
             if (curr[line_len-2]=='\r') {
                 curr[line_len-2]='\n', curr[line_len-1]='\0';
                 --line_len;
             }
+#endif
         }
 
         curr += line_len;
     }
 
     curr = buf;
+    fclose(fp);
+    /*
+     * Set the current file global var. Each token has attached
+     * the name of the file from where it was obtained. This is
+     * used for diagnostic messages.
+     */
+    curr_source_file = strdup(file_path);
 }
 
 void preprocessing_file(void);
@@ -179,12 +199,13 @@ void preprocessing_file(void);
  */
 PreTokenNode *preprocess(char *source_file)
 {
-    FILE *fp;
+    // FILE *fp;
 
-    curr_source_file = source_file;
-    fp = fopen(source_file, "rb");
-    init(fp);
-    fclose(fp);
+    // curr_source_file = source_file;
+    // fp = fopen(source_file, "rb");
+    // init(fp);
+    init(source_file);
+    // fclose(fp);
     token_list = curr_tok = tokenize();
     preprocessing_file();
     // while (token_list != NULL) {
@@ -237,6 +258,7 @@ PreToken get_token(void)
                 case '\n':
                     save = FALSE; // ?
                     curr_tok = PRE_TOK_NL;
+                    ++curr_line;
                     break;
                 /*
                  * single-char punctuators
@@ -402,7 +424,7 @@ PreToken get_token(void)
             else if (c == '*')
                 state = STATE_INCOMMENT2;
             else if (c == '\n')
-                ;
+                ++curr_line;
             break;
         case STATE_INCOMMENT2:
             save = FALSE;
@@ -410,15 +432,15 @@ PreToken get_token(void)
                 ERROR("unterminated comment");
             else if (c == '/')
                 state = STATE_START;
-            else if (c == '\n')
-                ;
-            else if (c != '*')
+            else if (c != '*') {
                 state = STATE_INCOMMENT1;
+                if (c == '\n')
+                    ++curr_line;
+            }
             break;
         case STATE_INLINECOMMENT:
             save = FALSE;
             if (c == '\n') {
-                // INC_LINE_NUM();
                 --curr;
                 state = STATE_START;
             } else if (c == '\0') {
@@ -688,7 +710,8 @@ void control_line(int skip)
                 p--;
             if (p == curr_source_file) {
                 /* the file being processed is in the compiler's working directory */
-                fp = fopen(get_lexeme(1), "rb");
+                // fp = fopen(get_lexeme(1), "rb");
+                init(get_lexeme(1));
             } else {
                 int n;
                 char *path;
@@ -698,10 +721,12 @@ void control_line(int skip)
                 strncpy(path, curr_source_file, n);
                 path[n] = '\0';
                 strcat(path, get_lexeme(1));
-                fp = fopen(path, "rb");
+                // fp = fopen(path, "rb");
+                init(path);
+                free(path);
             }
-            init(fp);
-            fclose(fp);
+            // init(fp);
+            // fclose(fp);
 
             /* match filename */
             match2(lookahead(1));

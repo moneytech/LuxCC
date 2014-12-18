@@ -108,8 +108,9 @@ typedef enum {
 typedef struct TokenNode TokenNode;
 struct TokenNode {
     Token token;
-    char *lexeme;
+    char *lexeme, *file;
     TokenNode *next;
+    int src_line;
 };
 
 TokenNode *lexer(PreTokenNode *pre_token_list);
