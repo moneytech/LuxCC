@@ -28,7 +28,6 @@ static char *buf, *curr, *curr_source_file;
 static char token_string[128];
 static PreTokenNode *curr_tok, *token_list;
 static int curr_line;
-// static char
 
 
 typedef enum {
@@ -131,8 +130,8 @@ void match2(PreToken x)
 }
 
 /*
- * Load the file pointed to by fp into the global buffer 'buf', and
- * perform end-of-line replacing (DOS's CRLF are replaced for a
+ * Load the file located at `file_path' into the global buffer `buf',
+ * and perform end-of-line replacing (DOS's CRLF are replaced for a
  * single LF) and line splicing.
  */
 static
@@ -478,11 +477,15 @@ void preprocessing_token(int skip);
 
 int is_group_part(void)
 {
+    if (lookahead(1) == PRE_TOK_EOF)
+        return FALSE;
+
     if (!strcmp(get_lexeme(1), "#")
     && (!strcmp(get_lexeme(2), "elif")
     ||  !strcmp(get_lexeme(2), "else")
     ||  !strcmp(get_lexeme(2), "endif")))
         return FALSE;
+
     return TRUE;
 }
 
@@ -502,7 +505,7 @@ void preprocessing_file(void)
 void group(int skip)
 {
     group_part(skip);
-    while (lookahead(1)!=PRE_TOK_EOF && is_group_part())
+    while (/*lookahead(1)!=PRE_TOK_EOF && */is_group_part())
         group_part(skip);
 }
 
@@ -565,7 +568,7 @@ int if_group(int skip)
          * are decimal numbers or macro names that
          * expand directly into decimal numbers.
          */
-        if (lookahead(PRE_TOK_ID)) {
+        if (lookahead(1) == PRE_TOK_ID) {
             Macro *m;
             if ((m=lookup(get_lexeme(1))) != NULL)
                 cond_res = atoi(m->rep->lexeme);
@@ -1113,6 +1116,6 @@ empty_rep_list2:
 //
 // q_char = any member of the source character set except the new_line character and "\""
 //
-// pp_number = digit { ( digit | nondigit ) }
+// pp_number = digit { digit | nondigit }
 //
 // new_line = "the" new_line "character"
