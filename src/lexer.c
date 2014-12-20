@@ -47,6 +47,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
 
         switch (pre_tok->token) {
         case PRE_TOK_EOF:
+            tok->next = new_token(TOK_EOF, pre_tok);
             break;
         case PRE_TOK_PUNCTUATOR:
             if (equal(pre_tok->lexeme, "["))

@@ -80,7 +80,7 @@ typedef enum {
     // TOK_INLINE,
     TOK_INT,
     TOK_LONG,
-    // TOK_REGISTER,
+    TOK_REGISTER,
     // TOK_RESTRICT,
     TOK_RETURN,
     TOK_SHORT,
@@ -102,7 +102,7 @@ typedef enum {
     TOK_STRLIT,
     TOK_ICONST,
     // TOK_ERROR,
-    // TOK_EOF
+    TOK_EOF
 } Token;
 
 typedef struct TokenNode TokenNode;
