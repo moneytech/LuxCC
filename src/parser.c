@@ -9,7 +9,8 @@
 #define TRUE  1
 #define FALSE 0
 #define ERROR(...) \
-    fprintf(stderr, "error: %s\n", __VA_ARGS__), \
+    fprintf(stderr, "error: %s, ", __VA_ARGS__), \
+    fprintf(stderr, "curr_tok->lexeme: %s\n", curr_tok->lexeme), \
     exit(1)
 
 
@@ -40,6 +41,7 @@ void struct_declarator(void);
 void enum_specifier(void);
 void enumerator_list(void);
 void enumerator(void);
+void enumeration_constant(void);
 void type_qualifier(void);
 void declarator(void);
 void direct_declarator(void);
@@ -59,6 +61,9 @@ void initializer(void);
 void initializer_list(void);
 
 void declaration_list(void);
+void assignment_expression(void);
+void constant_expression(void);
+
 /*
  * Other functions.
  */
@@ -72,6 +77,12 @@ int in_first_type_qualifier(Token t);
 
 Token lookahead(int i)
 {
+    TokenNode *p;
+
+    p = curr_tok;
+    while (--i /*&& p->token!=TOK_EOF*/)
+        p = p->next;
+    return p->token;
 }
 
 void match(Token token)
@@ -369,7 +380,7 @@ void struct_or_union_specifier(void)
     struct_or_union();
     if (lookahead(1) == TOK_ID) {
         match(TOK_ID);
-        if (lookahead(1) == TOK_LBRACE) { // (?)
+        if (lookahead(1) == TOK_LBRACE) {
             match(TOK_LBRACE);
             struct_declaration_list();
             match(TOK_RBRACE);
@@ -452,12 +463,12 @@ void struct_declarator(void)
 {
     if (lookahead(1) == TOK_COLON) {
         match(TOK_COLON);
-        // constant_expression();
+        constant_expression();
     } else {
         declarator();
         if (lookahead(1) == TOK_COLON) {
             match(TOK_COLON);
-            // constant_expression();
+            constant_expression();
         }
     }
 }
@@ -502,11 +513,19 @@ void enumerator_list(void)
  */
 void enumerator(void)
 {
-    // enumeration_constant();
+    enumeration_constant();
     if (lookahead(1) == TOK_ASSIGN) {
         match(TOK_ASSIGN);
-        // constant_expression();
+        constant_expression();
     }
+}
+
+/*
+ * enumeration_constant = identifier
+ */
+void enumeration_constant(void)
+{
+    match(TOK_ID);
 }
 
 /*
@@ -561,11 +580,16 @@ void direct_declarator_postfix(void)
     if (lookahead(1) == TOK_LBRACKET) {
         match(TOK_LBRACKET);
         if (lookahead(1) != TOK_RBRACKET)
-            // constant_expression();
+            constant_expression();
         match(TOK_RBRACKET);
     } else if (lookahead(1) == TOK_LPAREN) {
         match(TOK_LPAREN);
-        // ???
+        if (lookahead(1) != TOK_RPAREN) {
+            if (lookahead(1) == TOK_ID)
+                identifier_list();
+            else /* parameter_type_list or error */
+                parameter_type_list();
+        }
         match(TOK_RPAREN);
     } else {
         ERROR("direct_declarator_postfix");
@@ -625,7 +649,9 @@ void parameter_list(void)
 void parameter_declaration(void)
 {
     declaration_specifiers();
-    // ???
+    if (lookahead(1)!=TOK_COMMA && lookahead(1)!=TOK_RPAREN) { /* FOLLOW(parameter_declaration) */
+        // ???
+    }
 }
 
 /*
@@ -700,8 +726,7 @@ void direct_abstract_declarator_postfix(void)
     if (lookahead(1) == TOK_LBRACKET) {
         match(TOK_LBRACKET);
         if (lookahead(1) != TOK_RBRACKET)
-            // constant_expression();
-            ;
+            constant_expression();
         match(TOK_RBRACKET);
     } else if (lookahead(1) == TOK_LPAREN) {
         match(TOK_LPAREN);
@@ -730,11 +755,11 @@ void initializer(void)
     if (lookahead(1) == TOK_LBRACE) {
         match(TOK_LBRACE);
         initializer_list();
-        if (lookahead(TOK_COMMA))
+        if (lookahead(1) == TOK_COMMA)
             match(TOK_COMMA);
         match(TOK_RBRACE);
     } else {
-        // assignment_expression();
+        assignment_expression();
     }
 }
 
@@ -744,7 +769,7 @@ void initializer(void)
 void initializer_list(void)
 {
     initializer();
-    while (lookahead(1) == TOK_COMMA) {
+    while (lookahead(1)==TOK_COMMA && lookahead(2)!=TOK_RBRACE) {
         match(TOK_COMMA);
         initializer();
     }
@@ -830,16 +855,32 @@ cast_expression = unary_expression |
                   "(" type_name ")" cast_expression ;
 
 expression = assignment_expression { "," assignment_expression } ;
+#endif
 
-assignment_expression = conditional_expression |
-                        unary_expression assignment_operator assignment_expression ;
+/*
+ * assignment_expression = conditional_expression |
+ *                         unary_expression assignment_operator assignment_expression
+ */
+void assignment_expression(void)
+{
+    match(TOK_ICONST);
+}
 
+#if 0
 assignment_operator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" ;
 
 conditional_expression = logical_OR_expression [ "?" expression ":" conditional_expression ] ;
+#endif
 
-constant_expression = conditional_expression ;
+/*
+ * constant_expression = conditional_expression
+ */
+void constant_expression(void)
+{
+    match(TOK_ICONST);
+}
 
+#if 0
 logical_OR_expression = logical_AND_expression { "||" logical_AND_expression } ;
 
 logical_AND_expression = inclusive_OR_expression { "&&" inclusive_OR_expression } ;

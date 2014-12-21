@@ -14,6 +14,56 @@
 int get_esc_seq_val(char **c);
 void check_integer_constant(char *ic);
 
+struct {
+    char *str;
+    Token tok;
+} keywords_table[] = {
+    {"auto", TOK_AUTO},
+    {"break", TOK_BREAK},
+    {"case", TOK_CASE},
+    {"char", TOK_CHAR},
+    {"const", TOK_CONST},
+    {"continue", TOK_CONTINUE},
+    {"default", TOK_DEFAULT},
+    {"do", TOK_DO},
+    {"double", TOK_DOUBLE},
+    {"else", TOK_ELSE},
+    {"enum", TOK_ENUM},
+    {"extern", TOK_EXTERN},
+    {"float", TOK_FLOAT},
+    {"for", TOK_FOR},
+    {"goto", TOK_GOTO},
+    {"if", TOK_IF},
+    {"inline", TOK_INLINE},
+    {"int", TOK_INT},
+    {"long", TOK_LONG},
+    {"register", TOK_REGISTER},
+    {"restrict", TOK_RESTRICT},
+    {"return", TOK_RETURN},
+    {"short", TOK_SHORT},
+    {"signed", TOK_SIGNED},
+    {"sizeof", TOK_SIZEOF},
+    {"static", TOK_STATIC},
+    {"struct", TOK_STRUCT},
+    {"switch", TOK_SWITCH},
+    {"typedef", TOK_TYPEDEF},
+    {"union", TOK_UNION},
+    {"unsigned", TOK_UNSIGNED},
+    {"void", TOK_VOID},
+    {"volatile", TOK_VOLATILE},
+    {"while", TOK_WHILE}
+};
+
+Token lookup_id(char *s)
+{
+    static int kt_size = sizeof(keywords_table)/sizeof(keywords_table[0]);
+
+    int i;
+    for (i = 0; i < kt_size; i++)
+        if (strcmp(s, keywords_table[i].str) == 0)
+            return keywords_table[i].tok;
+    return TOK_ID;
+}
 
 TokenNode *new_token(Token token, PreTokenNode *ptok)
 {
@@ -54,7 +104,24 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
                 tok->next = new_token(TOK_LBRACKET, pre_tok);
             else if (equal(pre_tok->lexeme, "]"))
                 tok->next = new_token(TOK_RBRACKET, pre_tok);
-            /* ... */
+            else if (equal(pre_tok->lexeme, "("))
+                tok->next = new_token(TOK_LPAREN, pre_tok);
+            else if (equal(pre_tok->lexeme, ")"))
+                tok->next = new_token(TOK_RPAREN, pre_tok);
+            else if (equal(pre_tok->lexeme, "{"))
+                tok->next = new_token(TOK_LBRACE, pre_tok);
+            else if (equal(pre_tok->lexeme, "}"))
+                tok->next = new_token(TOK_RBRACE, pre_tok);
+            // else if (equal(pre_tok->lexeme, "."))
+            // else if (equal(pre_tok->lexeme, "->"))
+            else if (equal(pre_tok->lexeme, ";"))
+                tok->next = new_token(TOK_SEMICOLON, pre_tok);
+            else if (equal(pre_tok->lexeme, ","))
+                tok->next = new_token(TOK_COMMA, pre_tok);
+            else if (equal(pre_tok->lexeme, "*"))
+                tok->next = new_token(TOK_ASTERISK, pre_tok);
+            else if (equal(pre_tok->lexeme, "="))
+                tok->next = new_token(TOK_ASSIGN, pre_tok);
             break;
         case PRE_TOK_NUM:
             check_integer_constant(pre_tok->lexeme);
@@ -62,6 +129,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
             break;
         case PRE_TOK_ID:
             tok->next = new_token(TOK_ID, pre_tok);
+            tok->next->token = lookup_id(pre_tok->lexeme);
             break;
         case PRE_TOK_CHACON: {
             char buf[16], *p;
