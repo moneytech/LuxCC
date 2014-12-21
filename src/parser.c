@@ -9,9 +9,15 @@
 #define TRUE  1
 #define FALSE 0
 #define ERROR(...) \
-    fprintf(stderr, "error: %s, ", __VA_ARGS__), \
-    fprintf(stderr, "curr_tok->lexeme: %s\n", curr_tok->lexeme), \
-    exit(1)
+    do {\
+    if (!speculating) {\
+        fprintf(stderr, "error: %s, ", __VA_ARGS__),\
+        fprintf(stderr, "curr_tok->lexeme: %s\n", curr_tok->lexeme),\
+        exit(1);\
+    } else {\
+        longjmp(env, 1);\
+    }\
+    } while (0)
 
 
 static jmp_buf env;
@@ -63,6 +69,7 @@ void initializer_list(void);
 void declaration_list(void);
 void assignment_expression(void);
 void constant_expression(void);
+void compound_statement(void);
 
 /*
  * Other functions.
@@ -190,6 +197,7 @@ void translation_unit(void)
     external_declaration();
     while (lookahead(1) != TOK_EOF)
         external_declaration();
+    match(TOK_EOF);
 }
 
 /*
@@ -208,16 +216,17 @@ void external_declaration(void)
     */
     TokenNode *temp;
 
-    temp = curr_tok; /* save */
-    declaration_specifiers();
-    declarator();
-    if (lookahead(1) == TOK_LBRACE) {
-        curr_tok = temp; /* restore */
-        function_definition();
-    } else {
-        curr_tok = temp; /* restore */
+    // temp = curr_tok; /* save */
+    // declaration_specifiers();
+    // if (lookahead(1) != TOK_SEMICOLON)
+        // declarator();
+    // if (lookahead(1) == TOK_LBRACE) {
+        // curr_tok = temp; /* restore */
+        // function_definition();
+    // } else {
+        // curr_tok = temp; /* restore */
         declaration();
-    }
+    // }
 }
 
 /*
@@ -227,7 +236,7 @@ void function_definition(void)
 {
     declaration_specifiers();
     declarator();
-    // compound_statement();
+    compound_statement();
 }
 
 // =============================================================================
@@ -235,12 +244,13 @@ void function_definition(void)
 // =============================================================================
 
 /*
- * declaration = declaration_specifiers init_declarator_list ";"
+ * declaration = declaration_specifiers [ init_declarator_list ] ";"
  */
 void declaration(void)
 {
     declaration_specifiers();
-    init_declarator_list();
+    if (lookahead(1) != TOK_SEMICOLON)
+        init_declarator_list();
     match(TOK_SEMICOLON);
 }
 
@@ -424,7 +434,7 @@ void struct_declaration(void)
 {
     specifier_qualifier_list();
     struct_declarator_list();
-    match(TOK_COMMA);
+    match(TOK_SEMICOLON);
 }
 
 /*
@@ -586,7 +596,7 @@ void direct_declarator_postfix(void)
         match(TOK_LPAREN);
         if (lookahead(1) != TOK_RPAREN) {
             if (lookahead(1) == TOK_ID)
-                identifier_list();
+                identifier_list(); /* old-style declarator */
             else /* parameter_type_list or error */
                 parameter_type_list();
         }
@@ -636,10 +646,29 @@ void parameter_type_list(void)
 void parameter_list(void)
 {
     parameter_declaration();
-    while (lookahead(1) == TOK_COMMA) {
+    while (lookahead(1)==TOK_COMMA && lookahead(2)!=TOK_ELLIPSIS) {
         match(TOK_COMMA);
         parameter_declaration();
     }
+}
+
+int speculate_declarator(void)
+{
+    int success;
+    TokenNode *temp;
+
+    temp = curr_tok;
+    speculating = TRUE;
+    if (!setjmp(env)) {
+        declarator();
+        success = TRUE;
+    } else {
+        success = FALSE;
+    }
+    speculating = FALSE;
+    curr_tok = temp;
+
+    return success;
 }
 
 /*
@@ -650,7 +679,37 @@ void parameter_declaration(void)
 {
     declaration_specifiers();
     if (lookahead(1)!=TOK_COMMA && lookahead(1)!=TOK_RPAREN) { /* FOLLOW(parameter_declaration) */
-        // ???
+        /*if (speculate_declarator())
+            declarator();
+        else
+            abstract_declarator();*/
+        /*
+         * Try to distinguish between a declarator and an abstract_declarator. Search for
+         * an identifier `([here],', `,[here],', or `,[here])', depending on where the
+         * the parameter is.
+         * Note: there are some constructs that will be reported as declarator, although
+         * they are not. For example: `int (*)(int x)'.
+         */
+        int i, pn, id_found;
+
+        i = 1;
+        pn = 0;
+        id_found = FALSE;
+        while (pn>0 || (lookahead(i)!=TOK_COMMA && lookahead(i)!=TOK_RPAREN)) {
+            if (lookahead(i) == TOK_LPAREN) {
+                ++pn;
+            } else if (lookahead(i) == TOK_RPAREN) {
+                --pn;
+            } else if (lookahead(i) == TOK_ID) {
+                id_found = TRUE;
+                break;
+            }
+            ++i;
+        }
+        if (id_found)
+            printf("decl\n"), declarator();
+        else
+            printf("abs_decl\n"), abstract_declarator();
     }
 }
 
@@ -790,9 +849,16 @@ statement = labeled_statement |
 labeled_statement = identifier ":" statement |
                     "case" constant_expression ":" statement |
                     "default" ":" statement ;
-
-compound_statement = "{" [ declaration_list ] [ statement_list ] "}" ;
 #endif
+/*
+ * compound_statement = "{" [ declaration_list ] [ statement_list ] "}"
+ */
+void compound_statement(void)
+{
+    match(TOK_LBRACE);
+    match(TOK_RBRACE);
+}
+
 
 /*
  * declaration_list = declaration { declaration }

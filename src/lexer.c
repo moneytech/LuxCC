@@ -122,6 +122,10 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
                 tok->next = new_token(TOK_ASTERISK, pre_tok);
             else if (equal(pre_tok->lexeme, "="))
                 tok->next = new_token(TOK_ASSIGN, pre_tok);
+            else if (equal(pre_tok->lexeme, ":"))
+                tok->next = new_token(TOK_COLON, pre_tok);
+            else if (equal(pre_tok->lexeme, "..."))
+                tok->next = new_token(TOK_ELLIPSIS, pre_tok);
             break;
         case PRE_TOK_NUM:
             check_integer_constant(pre_tok->lexeme);
