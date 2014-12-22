@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include "util.h"
 
 
 #define TRUE  1
@@ -784,14 +785,6 @@ bottom:
 
 Macro *macro_table[MACRO_TABLE_SIZE];
 
-unsigned hash(char *s)
-{
-    unsigned hash_val;
-    for (hash_val = 0; *s != '\0'; s++)
-        hash_val = (unsigned)*s + 31*hash_val;
-    return hash_val%MACRO_TABLE_SIZE;
-}
-
 Macro *lookup(char *s)
 {
 	Macro *np;
@@ -812,7 +805,7 @@ void install(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params
         np->name = name;
         np->rep = rep;
         np->params = params;
-        hashval = hash(name);
+        hashval = hash(name)%MACRO_TABLE_SIZE;
         np->next = macro_table[hashval];
         macro_table[hashval] = np;
     } else {

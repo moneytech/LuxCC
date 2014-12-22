@@ -687,7 +687,7 @@ void parameter_declaration(void)
          * Try to distinguish between a declarator and an abstract_declarator. Search for
          * an identifier `([here],', `,[here],', or `,[here])', depending on where the
          * the parameter is.
-         * Note: there are some constructs that will be reported as declarator, although
+         * Note: there are some constructs that will be reported as a declarator, although
          * they are not. For example: `int (*)(int x)'.
          */
         int i, pn, id_found;
@@ -707,9 +707,9 @@ void parameter_declaration(void)
             ++i;
         }
         if (id_found)
-            printf("decl\n"), declarator();
+            declarator();
         else
-            printf("abs_decl\n"), abstract_declarator();
+            abstract_declarator();
     }
 }
 
@@ -750,10 +750,6 @@ void abstract_declarator(void)
     }
 }
 
-// direct_abstract_declarator:
-  // "(" abstract_declarator ")" |
-  // direct_abstract_declarator? "[" constant_expression? "]" |
-  // direct_abstract_declarator? "(" parameter_type_list? ")" ;
 /*
  * direct_abstract_declarator = "(" abstract_declarator ")" { direct_abstract_declarator_postfix } |
  *                              direct_abstract_declarator_postfix { direct_abstract_declarator_postfix }
