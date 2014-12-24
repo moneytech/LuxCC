@@ -19,6 +19,9 @@ depend:
 	makedepend -- $(CFLAGS) -- $(SRCS) -Y
 # DO NOT DELETE
 
-main.o: lexer.h pre.h
-pre.o: pre.h
+main.o: parser.h lexer.h pre.h
+pre.o: pre.h util.h
 lexer.o: lexer.h pre.h
+parser.o: parser.h lexer.h pre.h
+util.o: util.h
+sema.o: sema.h
