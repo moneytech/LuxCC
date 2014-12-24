@@ -216,17 +216,17 @@ void external_declaration(void)
     */
     TokenNode *temp;
 
-    // temp = curr_tok; /* save */
-    // declaration_specifiers();
-    // if (lookahead(1) != TOK_SEMICOLON)
-        // declarator();
-    // if (lookahead(1) == TOK_LBRACE) {
-        // curr_tok = temp; /* restore */
-        // function_definition();
-    // } else {
-        // curr_tok = temp; /* restore */
+    temp = curr_tok; /* save */
+    declaration_specifiers();
+    if (lookahead(1) != TOK_SEMICOLON)
+        declarator();
+    if (lookahead(1) == TOK_LBRACE) {
+        curr_tok = temp; /* restore */
+        function_definition();
+    } else {
+        curr_tok = temp; /* restore */
         declaration();
-    // }
+    }
 }
 
 /*
