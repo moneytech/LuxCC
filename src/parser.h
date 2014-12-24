@@ -3,27 +3,6 @@
 
 #include "lexer.h"
 
-#if 0
-typedef struct TypeConstructor TypeConstructor;
-typedef struct Declaration Declaration;
-
-struct TypeConstructor {
-    Token constructor;
-    char *str; /* struct/union/enum tag or id */
-    union {
-        Declaration *d; /* struct declaration list or function parameters */
-        ExecNode *exp; /* array size exp or initializer */
-    } xyz;
-    TypeConstructor *child, *sibling;
-};
-
-struct Declaration {
-    TypeConstructor *decl_specs;
-    TypeConstructor *idl; /* init declarator list */
-    Declaration *sibling;
-};
-#endif
-
 typedef struct TypeExp TypeExp;
 typedef struct Declaration Declaration;
 typedef struct DeclList DeclList;
@@ -37,17 +16,17 @@ struct ExecNode {
 
 struct TypeExp {
     Token op;
-    char *str;
+    char *str;        /* struct/union/enum tag or id */
     union {
-        DeclList *dl;
-        ExecNode *e;
+        DeclList *dl; /* struct declaration list or function parameters */
+        ExecNode *e;  /* array size exp or initializer */
     } attr;
     TypeExp *child, *sibling;
 };
 
 struct Declaration {
     TypeExp *decl_specs;
-    TypeExp *idl;
+    TypeExp *idl; /* init declarator list */
 };
 
 struct DeclList {
