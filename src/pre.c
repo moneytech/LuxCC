@@ -71,6 +71,7 @@ PreToken lookahead(int i)
     return p->token;
 }
 
+static
 char *get_lexeme(int i)
 {
     PreTokenNode *p;

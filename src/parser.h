@@ -20,13 +20,14 @@ struct TypeExp {
     union {
         DeclList *dl; /* struct declaration list or function parameters */
         ExecNode *e;  /* array size exp or initializer */
+        TypeExp *el;
     } attr;
     TypeExp *child, *sibling;
 };
 
 struct Declaration {
     TypeExp *decl_specs;
-    TypeExp *idl; /* init declarator list */
+    TypeExp *idl;     /* init declarator list */
 };
 
 struct DeclList {
@@ -36,7 +37,7 @@ struct DeclList {
 
 struct FuncDef {
     TypeExp *decl_specs;
-    TypeExp *header; /* declarator */
+    TypeExp *header;  /* declarator */
     ExecNode *body;
 };
 
@@ -48,9 +49,10 @@ typedef enum {
 struct ExternDecl {
     EDKind kind;
     union {
-        Declaration d;
-        FuncDef f;
+        Declaration *d;
+        FuncDef *f;
     } ed;
+    ExternDecl *sibling;
 };
 
 void parser(TokenNode *);

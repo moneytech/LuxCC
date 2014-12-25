@@ -28,48 +28,48 @@ static int speculating = FALSE;
 /*
  * Recursive parser functions.
  */
-void translation_unit(void);
-void external_declaration(void);
-void function_definition(void);
-void declaration(void);
-void declaration_specifiers(void);
-void init_declarator_list(void);
-void init_declarator(void);
-void storage_class_specifier(void);
-void type_specifier(void);
-void struct_or_union_specifier(void);
-void struct_or_union(void);
-void struct_declaration_list(void);
-void struct_declaration(void);
-void specifier_qualifier_list(void);
-void struct_declarator_list(void);
-void struct_declarator(void);
-void enum_specifier(void);
-void enumerator_list(void);
-void enumerator(void);
-void enumeration_constant(void);
-void type_qualifier(void);
-void declarator(void);
-void direct_declarator(void);
-void direct_declarator_postfix(void);
-void pointer(void);
-void type_qualifier_list(void);
-void parameter_type_list(void);
-void parameter_list(void);
-void parameter_declaration(void);
+ExternDecl *translation_unit(void);
+ExternDecl *external_declaration(void);
+FuncDef *function_definition(void);
+Declaration *declaration(void);
+TypeExp *declaration_specifiers(void);
+TypeExp *init_declarator_list(void);
+TypeExp *init_declarator(void);
+TypeExp *storage_class_specifier(void);
+TypeExp *type_specifier(void);
+TypeExp *struct_or_union_specifier(void);
+TypeExp *struct_or_union(void);
+DeclList *struct_declaration_list(void);
+Declaration *struct_declaration(void);
+TypeExp *specifier_qualifier_list(void);
+TypeExp *struct_declarator_list(void);
+TypeExp *struct_declarator(void);
+TypeExp *enum_specifier(void);
+TypeExp *enumerator_list(void);
+TypeExp *enumerator(void);
+TypeExp *enumeration_constant(void);
+TypeExp *type_qualifier(void);
+TypeExp *declarator(void);
+TypeExp *direct_declarator(void);
+TypeExp *direct_declarator_postfix(void);
+TypeExp *pointer(void);
+TypeExp *type_qualifier_list(void);
+DeclList *parameter_type_list(void);
+DeclList *parameter_list(void);
+Declaration *parameter_declaration(void);
 void identifier_list(void);
 void type_name(void);
-void abstract_declarator(void);
-void direct_abstract_declarator(void);
-void direct_abstract_declarator_postfix(void);
+TypeExp *abstract_declarator(void);
+TypeExp *direct_abstract_declarator(void);
+TypeExp *direct_abstract_declarator_postfix(void);
 void typedef_name(void);
-void initializer(void);
-void initializer_list(void);
+ExecNode *initializer(void);
+ExecNode *initializer_list(void);
 
 void declaration_list(void);
-void assignment_expression(void);
-void constant_expression(void);
-void compound_statement(void);
+ExecNode *assignment_expression(void);
+ExecNode *constant_expression(void);
+ExecNode *compound_statement(void);
 
 /*
  * Other functions.
@@ -90,6 +90,16 @@ Token lookahead(int i)
     while (--i /*&& p->token!=TOK_EOF*/)
         p = p->next;
     return p->token;
+}
+
+char *get_lexeme(int i)
+{
+    TokenNode *p;
+
+    p = curr_tok;
+    while (--i /*&& p->token!=TOK_EOF*/)
+        p = p->next;
+    return p->lexeme;
 }
 
 void match(Token token)
@@ -192,19 +202,25 @@ int in_first_type_qualifier(Token t)
 /*
  * translation_unit = external_declaration { external_declaration } EOF
  */
-void translation_unit(void)
+ExternDecl *translation_unit(void)
 {
-    external_declaration();
-    while (lookahead(1) != TOK_EOF)
-        external_declaration();
+    ExternDecl *n, *temp;
+
+    n = temp = external_declaration();
+    while (lookahead(1) != TOK_EOF) {
+        temp->sibling = external_declaration();
+        temp = temp->sibling;
+    }
     match(TOK_EOF);
+
+    return n;
 }
 
 /*
  * external_declaration = function_definition |
  *                        declaration
  */
-void external_declaration(void)
+ExternDecl *external_declaration(void)
 {
     /*
     if (?)
@@ -214,29 +230,58 @@ void external_declaration(void)
     else
         // error
     */
+    // TokenNode *temp;
+
+    // temp = curr_tok; /* save */
+    // declaration_specifiers();
+    // if (lookahead(1) != TOK_SEMICOLON)
+        // declarator();
+    // if (lookahead(1) == TOK_LBRACE) {
+        // curr_tok = temp; /* restore */
+        // function_definition();
+    // } else {
+        // curr_tok = temp; /* restore */
+        // declaration();
+    // }
+    ExternDecl *e;
+    TypeExp *p, *q;
     TokenNode *temp;
 
+    q = NULL;
+    e = malloc(sizeof(ExternDecl));
+    e->sibling = NULL;
+
     temp = curr_tok; /* save */
-    declaration_specifiers();
+    p = declaration_specifiers();
     if (lookahead(1) != TOK_SEMICOLON)
-        declarator();
+        q = declarator();
+    /* --- delete p and q --- */
     if (lookahead(1) == TOK_LBRACE) {
         curr_tok = temp; /* restore */
-        function_definition();
+        e->kind = FUNCTION_DEFINITION;
+        e->ed.f = function_definition();
     } else {
         curr_tok = temp; /* restore */
-        declaration();
+        e->kind = DECLARATION;
+        e->ed.d = declaration();
     }
+
+    return e;
 }
 
 /*
  * function_definition = declaration_specifiers declarator compound_statement
  */
-void function_definition(void)
+FuncDef *function_definition(void)
 {
-    declaration_specifiers();
-    declarator();
-    compound_statement();
+    FuncDef *f;
+
+    f = malloc(sizeof(FuncDef));
+    f->decl_specs = declaration_specifiers();
+    f->header = declarator();
+    f->body = compound_statement();
+
+    return f;
 }
 
 // =============================================================================
@@ -246,12 +291,17 @@ void function_definition(void)
 /*
  * declaration = declaration_specifiers [ init_declarator_list ] ";"
  */
-void declaration(void)
+Declaration *declaration(void)
 {
-    declaration_specifiers();
+    Declaration *d;
+
+    d = malloc(sizeof(Declaration));
+    d->decl_specs = declaration_specifiers();
     if (lookahead(1) != TOK_SEMICOLON)
-        init_declarator_list();
+        d->idl = init_declarator_list();
     match(TOK_SEMICOLON);
+
+    return d;
 }
 
 /*
@@ -259,43 +309,57 @@ void declaration(void)
  *                          type_specifier [ declaration_specifiers ] |
  *                          type_qualifier [ declaration_specifiers ]
  */
-void declaration_specifiers(void)
+TypeExp *declaration_specifiers(void)
 {
+    TypeExp *n;
+
     if (in_first_storage_class_specifier(lookahead(1)))
-        storage_class_specifier();
+        n = storage_class_specifier();
     else if (in_first_type_specifier(lookahead(1)))
-        type_specifier();
+        n = type_specifier();
     else if (in_first_type_qualifier(lookahead(1)))
-        type_qualifier();
+        n = type_qualifier();
     else
         ERROR("declaration_specifiers");
 
     if (in_first_declaration_specifiers(lookahead(1)))
-        declaration_specifiers();
+        n->child = declaration_specifiers();
+
+    return n;
 }
 
 /*
  * init_declarator_list =  init_declarator { "," init_declarator }
  */
-void init_declarator_list(void)
+TypeExp *init_declarator_list(void)
 {
-    init_declarator();
+    TypeExp *n, *temp;
+
+    n = temp = init_declarator();
+    n->sibling = NULL;
     while (lookahead(1) == TOK_COMMA) {
         match(TOK_COMMA);
-        init_declarator();
+        temp->sibling = init_declarator();
+        temp = temp->sibling;
     }
+
+    return n;
 }
 
 /*
  * init_declarator = declarator [ "=" initializer ]
  */
-void init_declarator(void)
+TypeExp *init_declarator(void)
 {
-    declarator();
-    if (lookahead(1) == TOK_ASSIGN) {
-        match(TOK_ASSIGN);
-        initializer();
-    }
+    TypeExp *n;
+
+    n = declarator();
+    // if (lookahead(1) == TOK_ASSIGN) {
+        // match(TOK_ASSIGN);
+        // initializer();
+    // }
+
+    return n;
 }
 
 /*
@@ -305,8 +369,14 @@ storage_class_specifier = "typedef" |
                           "auto" |
                           "register"
 */
-void storage_class_specifier(void)
+TypeExp *storage_class_specifier(void)
 {
+    TypeExp *s;
+
+    s = malloc(sizeof(TypeExp));
+    s->child = NULL;
+    s->op = lookahead(1);
+
     switch (lookahead(1)) {
     case TOK_TYPEDEF:
         match(TOK_TYPEDEF);
@@ -327,6 +397,8 @@ void storage_class_specifier(void)
         ERROR("storage_class_specifier");
         break;
     }
+
+    return s;
 }
 
 /*
@@ -343,8 +415,14 @@ type_specifier = "void" |
                  enum_specifier |
                  typedef_name
 */
-void type_specifier(void)
+TypeExp *type_specifier(void)
 {
+    TypeExp *n;
+
+    n = malloc(sizeof(TypeExp));
+    n->child = NULL;
+    n->op = lookahead(1);
+
     switch (lookahead(1)) {
     case TOK_VOID:
         match(TOK_VOID);
@@ -369,215 +447,314 @@ void type_specifier(void)
         break;
     case TOK_STRUCT:
     case TOK_UNION:
-        struct_or_union_specifier();
+        free(n);
+        n = struct_or_union_specifier();
         break;
     case TOK_ENUM:
-        enum_specifier();
+        free(n);
+        n = enum_specifier();
         break;
     // case TOK_ID:
     default:
         ERROR("type_specifier");
         break;
     }
+
+    return n;
 }
 
 /*
  * struct_or_union_specifier = struct_or_union [ identifier ] "{" struct_declaration_list "}" |
  *                             struct_or_union identifier
  */
-void struct_or_union_specifier(void)
+TypeExp *struct_or_union_specifier(void)
 {
-    struct_or_union();
+    TypeExp *n;
+
+    n = struct_or_union();
     if (lookahead(1) == TOK_ID) {
+        n->str = get_lexeme(1);
         match(TOK_ID);
         if (lookahead(1) == TOK_LBRACE) {
             match(TOK_LBRACE);
-            struct_declaration_list();
+            n->attr.dl = struct_declaration_list();
             match(TOK_RBRACE);
         }
     } else if (lookahead(1) == TOK_LBRACE) {
         match(TOK_LBRACE);
-        struct_declaration_list();
+        n->attr.dl = struct_declaration_list();
         match(TOK_RBRACE);
     } else {
         ERROR("struct_or_union_specifier");
     }
+
+    return n;
 }
 
 /*
  * struct_or_union = "struct" | "union"
  */
-void struct_or_union(void)
+TypeExp *struct_or_union(void)
 {
+    TypeExp *n;
+
+    n = malloc(sizeof(TypeExp));
+    n->child = NULL;
+    n->op = lookahead(1);
+
     if (lookahead(1) == TOK_STRUCT)
         match(TOK_STRUCT);
     else if (lookahead(1) == TOK_UNION)
         match(TOK_UNION);
     else
         ERROR("struct_or_union");
+
+    return n;
 }
 
 /*
  * struct_declaration_list = struct_declaration { struct_declaration }
  */
-void struct_declaration_list(void)
+DeclList *struct_declaration_list(void)
 {
-    struct_declaration();
-    while (in_first_specifier_qualifier_list(lookahead(1)))
-        struct_declaration();
+    DeclList *n, *temp;
+
+    n = temp = malloc(sizeof(DeclList));
+    n->decl = struct_declaration();
+    n->next = NULL;
+    while (in_first_specifier_qualifier_list(lookahead(1))) {
+        temp->next = malloc(sizeof(DeclList));
+        temp->next->decl = struct_declaration();
+        temp->next->next = NULL;
+        temp = temp->next;
+    }
+
+    return n;
 }
 
 /*
  * struct_declaration = specifier_qualifier_list struct_declarator_list ";"
  */
-void struct_declaration(void)
+Declaration *struct_declaration(void)
 {
-    specifier_qualifier_list();
-    struct_declarator_list();
+    Declaration *n;
+
+    n = malloc(sizeof(Declaration));
+
+    n->decl_specs = specifier_qualifier_list();
+    n->idl = struct_declarator_list();
     match(TOK_SEMICOLON);
+
+    return n;
 }
 
 /*
  * specifier_qualifier_list = ( type_specifier | type_qualifier ) [ specifier_qualifier_list ]
  */
-void specifier_qualifier_list(void)
+TypeExp *specifier_qualifier_list(void)
 {
+    TypeExp *n;
+
     if (in_first_type_specifier(lookahead(1)))
-        type_specifier();
+        n = type_specifier();
     else if (in_first_type_qualifier(lookahead(1)))
-        type_qualifier();
+        n = type_qualifier();
     else
         ERROR("specifier_qualifier_list");
 
     if (in_first_specifier_qualifier_list(lookahead(1)))
-        specifier_qualifier_list();
+        n->child = specifier_qualifier_list();
+
+    return n;
 }
 
 /*
  * struct_declarator_list = struct_declarator { "," struct_declarator }
  */
-void struct_declarator_list(void)
+TypeExp *struct_declarator_list(void)
 {
-    struct_declarator();
+    TypeExp *n, *temp;
+
+    n = temp = struct_declarator();
+    n->sibling = NULL;
     while (lookahead(1) == TOK_COMMA) {
         match(TOK_COMMA);
-        struct_declarator();
+        temp->sibling = struct_declarator();
+        temp = temp->sibling;
     }
+
+    return n;
 }
 
 /*
  * struct_declarator = declarator |
  *                     [ declarator ] ":" constant_expression
  */
-void struct_declarator(void)
+TypeExp *struct_declarator(void)
 {
+    TypeExp *n;
+
     if (lookahead(1) == TOK_COLON) {
         match(TOK_COLON);
         constant_expression();
     } else {
-        declarator();
+        n = declarator();
         if (lookahead(1) == TOK_COLON) {
             match(TOK_COLON);
             constant_expression();
         }
     }
+
+    return n;
 }
 
 /*
  * enum_specifier = "enum" [ identifier ] "{" enumerator_list "}" |
  *                  "enum" identifier
  */
-void enum_specifier(void)
+TypeExp *enum_specifier(void)
 {
+    TypeExp *n;
+
+    n = malloc(sizeof(TypeExp));
+    n->op = lookahead(1);
+    n->child = NULL;
+
     match(TOK_ENUM);
     if (lookahead(1) == TOK_ID) {
+        n->str = get_lexeme(1);
         match(TOK_ID);
         if (lookahead(1) == TOK_LBRACE) {
             match(TOK_LBRACE);
-            enumerator_list();
+            n->attr.el = enumerator_list();
             match(TOK_RBRACE);
         }
     } else if (lookahead(1) == TOK_LBRACE) {
         match(TOK_LBRACE);
-        enumerator_list();
+        n->attr.el = enumerator_list();
         match(TOK_RBRACE);
     } else {
         ERROR("enum_specifier");
     }
+
+    return n;
 }
 
 /*
  * enumerator_list = enumerator { "," enumerator }
  */
-void enumerator_list(void)
+TypeExp *enumerator_list(void)
 {
-    enumerator();
+    TypeExp *n, *temp;
+
+    n = temp = enumerator();
     while (lookahead(1) == TOK_COMMA) {
         match(TOK_COMMA);
-        enumerator();
+        temp->sibling = enumerator();
+        temp = temp->sibling;
     }
+
+    return n;
 }
 
 /*
  * enumerator = enumeration_constant [ "=" constant_expression ]
  */
-void enumerator(void)
+TypeExp *enumerator(void)
 {
-    enumeration_constant();
+    TypeExp *n;
+
+    n = enumeration_constant();
     if (lookahead(1) == TOK_ASSIGN) {
         match(TOK_ASSIGN);
-        constant_expression();
+        n->attr.e = constant_expression();
     }
+
+    return n;
 }
 
 /*
  * enumeration_constant = identifier
  */
-void enumeration_constant(void)
+TypeExp *enumeration_constant(void)
 {
+    TypeExp *n;
+
+    n = malloc(sizeof(TypeExp));
+    n->sibling = NULL;
+    n->str = get_lexeme(1);
+
     match(TOK_ID);
 }
 
 /*
  * type_qualifier = "const" | "volatile"
  */
-void type_qualifier(void)
+TypeExp *type_qualifier(void)
 {
+    TypeExp *n;
+
+    n = malloc(sizeof(TypeExp));
+    n->op = lookahead(1);
+    n->child = NULL;
+
     if (lookahead(1) == TOK_CONST)
         match(TOK_CONST);
     else if (lookahead(1) == TOK_VOLATILE)
         match(TOK_VOLATILE);
     else
         ERROR("type_qualifier");
+
+    return n;
 }
 
 /*
  * declarator = [ pointer ] direct_declarator
  */
-void declarator(void)
+TypeExp *declarator(void)
 {
-    if (lookahead(1) == TOK_ASTERISK)
-        pointer();
-    direct_declarator();
+    TypeExp *n, *temp;
+
+    if (lookahead(1) == TOK_ASTERISK) {
+        n = temp = pointer();
+        while (temp->child != NULL)
+            temp = temp->child;
+        temp->child = direct_declarator();
+    } else {
+        n = direct_declarator();
+    }
+
+    return n;
 }
 
 /*
  * direct_declarator = ( identifier | "(" declarator ")" ) { direct_declarator_postfix }
  */
-void direct_declarator(void)
+TypeExp *direct_declarator(void)
 {
+    TypeExp *n, *temp;
+
     if (lookahead(1) == TOK_ID) {
+        n = temp = malloc(sizeof(TypeExp));
+        n->child = NULL;
+        n->op = lookahead(1);
+        n->str = get_lexeme(1);
         match(TOK_ID);
     } else if (lookahead(1) == TOK_LPAREN) {
         match(TOK_LPAREN);
-        declarator();
+        n = temp = declarator();
         match(TOK_RPAREN);
     } else {
         ERROR("direct_declarator");
     }
 
-    while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN)
-        direct_declarator_postfix();
+    while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN) {
+        n = direct_declarator_postfix();
+        n->child = temp;
+        temp = n;
+    }
+
+    return n;
 }
 
 /*
@@ -585,12 +762,18 @@ void direct_declarator(void)
  *                             "(" parameter_type_list ")" |
  *                             "(" [ identifier_list ] ")"
  */
-void direct_declarator_postfix(void)
+TypeExp *direct_declarator_postfix(void)
 {
+    TypeExp *n;
+
+    n = malloc(sizeof(TypeExp));
+    n->child = NULL;
+    n->op = lookahead(1);
+
     if (lookahead(1) == TOK_LBRACKET) {
         match(TOK_LBRACKET);
         if (lookahead(1) != TOK_RBRACKET)
-            constant_expression();
+            n->attr.e = constant_expression();
         match(TOK_RBRACKET);
     } else if (lookahead(1) == TOK_LPAREN) {
         match(TOK_LPAREN);
@@ -598,58 +781,98 @@ void direct_declarator_postfix(void)
             if (lookahead(1) == TOK_ID)
                 identifier_list(); /* old-style declarator */
             else /* parameter_type_list or error */
-                parameter_type_list();
+                n->attr.dl = parameter_type_list();
         }
         match(TOK_RPAREN);
     } else {
         ERROR("direct_declarator_postfix");
     }
+
+    return n;
 }
 
 /*
  * pointer = "*" [ type_qualifier_list ] [ pointer ]
  */
-void pointer(void)
+TypeExp *pointer(void)
 {
+    TypeExp *n, *temp;
+
+    n = temp = malloc(sizeof(TypeExp));
+    n->op = lookahead(1);
+    n->child = NULL;
+
     match(TOK_ASTERISK);
     if (in_first_type_qualifier(lookahead(1)))
-        type_qualifier_list();
-    if (lookahead(1) == TOK_ASTERISK)
-        pointer();
+        n->child = type_qualifier_list();
+
+    if (lookahead(1) == TOK_ASTERISK) {
+        while (temp->child != NULL)
+            temp = temp->child;
+        temp->child = pointer();
+    }
+
+    return n;
 }
 
 /*
  * type_qualifier_list = type_qualifier { type_qualifier }
  */
-void type_qualifier_list(void)
+TypeExp *type_qualifier_list(void)
 {
-    type_qualifier();
-    while (in_first_type_qualifier(lookahead(1)))
-        type_qualifier();
+    TypeExp *n, *temp;
+
+    n = temp = type_qualifier();
+    while (in_first_type_qualifier(lookahead(1))) {
+        temp->child = type_qualifier();
+        temp = temp->child;
+    }
+
+    return n;
 }
 
 /*
  * parameter_type_list = parameter_list [ "," "..." ]
  */
-void parameter_type_list(void)
+DeclList *parameter_type_list(void)
 {
-    parameter_list();
+    DeclList *n, *temp;
+
+    n = temp = parameter_list();
     if (lookahead(1) == TOK_COMMA) {
         match(TOK_COMMA);
         match(TOK_ELLIPSIS);
+        while (temp->next != NULL)
+            temp = temp->next;
+        temp->next = malloc(sizeof(DeclList));
+        temp->next->decl = malloc(sizeof(Declaration));
+        temp->next->decl->decl_specs = malloc(sizeof(TypeExp));
+        temp->next->decl->decl_specs->op = TOK_ELLIPSIS;
     }
+
+    return n;
 }
 
 /*
  * parameter_list = parameter_declaration { "," parameter_declaration }
  */
-void parameter_list(void)
+DeclList *parameter_list(void)
 {
-    parameter_declaration();
+    DeclList *n, *temp;
+
+    n = temp = malloc(sizeof(DeclList));
+    n->next = NULL;
+
+    n->decl = parameter_declaration();
     while (lookahead(1)==TOK_COMMA && lookahead(2)!=TOK_ELLIPSIS) {
         match(TOK_COMMA);
-        parameter_declaration();
+        temp->next = malloc(sizeof(DeclList));
+        temp->next->next = NULL;
+        temp->next->decl = parameter_declaration();
+        temp = temp->next;
     }
+
+    return n;
 }
 
 int speculate_declarator(void)
@@ -675,9 +898,13 @@ int speculate_declarator(void)
  * parameter_declaration = declaration_specifiers declarator |
  *                         declaration_specifiers [ abstract_declarator ]
  */
-void parameter_declaration(void)
+Declaration *parameter_declaration(void)
 {
-    declaration_specifiers();
+    Declaration *n;
+
+    n = malloc(sizeof(Declaration));
+
+    n->decl_specs = declaration_specifiers();
     if (lookahead(1)!=TOK_COMMA && lookahead(1)!=TOK_RPAREN) { /* FOLLOW(parameter_declaration) */
         /*if (speculate_declarator())
             declarator();
@@ -707,10 +934,12 @@ void parameter_declaration(void)
             ++i;
         }
         if (id_found)
-            declarator();
+            n->idl = declarator();
         else
-            abstract_declarator();
+            n->idl = abstract_declarator();
     }
+
+    return n;
 }
 
 /*
@@ -739,7 +968,7 @@ void type_name(void)
  * abstract_declarator = pointer |
  *                       [ pointer ] direct_abstract_declarator
  */
-void abstract_declarator(void)
+TypeExp *abstract_declarator(void)
 {
     if (lookahead(1) == TOK_ASTERISK) {
         match(TOK_ASTERISK);
@@ -754,7 +983,7 @@ void abstract_declarator(void)
  * direct_abstract_declarator = "(" abstract_declarator ")" { direct_abstract_declarator_postfix } |
  *                              direct_abstract_declarator_postfix { direct_abstract_declarator_postfix }
  */
-void direct_abstract_declarator(void)
+TypeExp *direct_abstract_declarator(void)
 {
     if (lookahead(1) == TOK_LPAREN) {
         if (lookahead(2)==TOK_ASTERISK || lookahead(2)==TOK_LPAREN || lookahead(2)==TOK_LBRACKET) { /* FIRST(abstract_declarator) */
@@ -776,7 +1005,7 @@ void direct_abstract_declarator(void)
  * direct_abstract_declarator_postfix = "[" [ constant_expression ] "]" |
  *                                      "(" [ parameter_type_list ] ")"
  */
-void direct_abstract_declarator_postfix(void)
+TypeExp *direct_abstract_declarator_postfix(void)
 {
     if (lookahead(1) == TOK_LBRACKET) {
         match(TOK_LBRACKET);
@@ -805,7 +1034,7 @@ void typedef_name(void)
  * initializer = assignment_expression |
  *               "{" initializer_list [ "," ] "}"
  */
-void initializer(void)
+ExecNode *initializer(void)
 {
     if (lookahead(1) == TOK_LBRACE) {
         match(TOK_LBRACE);
@@ -821,7 +1050,7 @@ void initializer(void)
 /*
  * initializer_list = initializer { "," initializer }
  */
-void initializer_list(void)
+ExecNode *initializer_list(void)
 {
     initializer();
     while (lookahead(1)==TOK_COMMA && lookahead(2)!=TOK_RBRACE) {
@@ -849,7 +1078,7 @@ labeled_statement = identifier ":" statement |
 /*
  * compound_statement = "{" [ declaration_list ] [ statement_list ] "}"
  */
-void compound_statement(void)
+ExecNode *compound_statement(void)
 {
     match(TOK_LBRACE);
     match(TOK_RBRACE);
@@ -923,7 +1152,7 @@ expression = assignment_expression { "," assignment_expression } ;
  * assignment_expression = conditional_expression |
  *                         unary_expression assignment_operator assignment_expression
  */
-void assignment_expression(void)
+ExecNode *assignment_expression(void)
 {
     match(TOK_ICONST);
 }
@@ -937,7 +1166,7 @@ conditional_expression = logical_OR_expression [ "?" expression ":" conditional_
 /*
  * constant_expression = conditional_expression
  */
-void constant_expression(void)
+ExecNode *constant_expression(void)
 {
     match(TOK_ICONST);
 }
