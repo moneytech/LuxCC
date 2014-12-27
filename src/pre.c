@@ -547,7 +547,7 @@ void if_section(int skip)
     endif_line();
 }
 
-Macro *lookup(char *s);
+static Macro *lookup(char *s);
 
 /*
  * if_group = "#" "if" constant_expression new_line [ group ] |
@@ -784,17 +784,19 @@ bottom:
 
 #define MACRO_TABLE_SIZE 31
 
-Macro *macro_table[MACRO_TABLE_SIZE];
+static Macro *macro_table[MACRO_TABLE_SIZE];
 
+static
 Macro *lookup(char *s)
 {
 	Macro *np;
-	for(np = macro_table[hash(s)]; np != NULL; np = np->next)
+	for(np = macro_table[hash(s)%MACRO_TABLE_SIZE]; np != NULL; np = np->next)
 		if(strcmp(s, np->name) == 0)
 			return np;
 	return NULL;
 }
 
+static
 void install(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params)
 {
     Macro *np;

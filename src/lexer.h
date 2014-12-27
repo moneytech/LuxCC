@@ -102,7 +102,8 @@ typedef enum {
     TOK_STRLIT,
     TOK_ICONST,
     // TOK_ERROR,
-    TOK_EOF
+    TOK_EOF,
+    TOK_TYPEDEFNAME
 } Token;
 
 typedef struct TokenNode TokenNode;

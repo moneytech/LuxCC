@@ -12,6 +12,7 @@ typedef struct ExecNode ExecNode;
 
 struct ExecNode {
     int xyz;
+    DeclList *locals;
 };
 
 struct TypeExp {
@@ -20,7 +21,7 @@ struct TypeExp {
     union {
         DeclList *dl; /* struct declaration list or function parameters */
         ExecNode *e;  /* array size exp or initializer */
-        TypeExp *el;
+        TypeExp *el;  /* enumerator list */
     } attr;
     TypeExp *child, *sibling;
 };
