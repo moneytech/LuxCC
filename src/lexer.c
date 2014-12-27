@@ -4,15 +4,21 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define ERROR() ;
 #define TRUE  1
 #define FALSE 0
+
+#define ERROR(...)\
+    fprintf(stderr, "%s:%d: error: ", pre_tok->file, pre_tok->src_line),\
+    fprintf(stderr, __VA_ARGS__),\
+    fprintf(stderr, "\n"),\
+    exit(EXIT_FAILURE)
 
 
 #define equal(s, t)     (strcmp(s, t) == 0)
 #define not_equal(s, t) (strcmp(s, t) != 0)
 int get_esc_seq_val(char **c);
 void check_integer_constant(char *ic);
+static PreTokenNode *pre_tok; /* declared global so ERROR can access its content */
 
 struct {
     char *str;
@@ -86,8 +92,8 @@ TokenNode *new_token(Token token, PreTokenNode *ptok)
  */
 TokenNode *lexer(PreTokenNode *pre_token_list)
 {
-    PreTokenNode *pre_tok;
     TokenNode *first, *tok;
+    // PreTokenNode *pre_tok;
 
     pre_tok = pre_token_list;
     first = tok = malloc(sizeof(TokenNode)); /* this node is deleted later */
@@ -228,8 +234,7 @@ int get_esc_seq_val(char **c)
             sscanf(buf, "%x", &val);
             return (char)val;
         } else {
-            // error: expecting hexadecimal digits after \\x
-            exit(1);
+            ERROR("expecting hexadecimal digits after \\x");
         }
     }
     default:
@@ -357,8 +362,7 @@ void check_integer_constant(char *ic)
                 return;
             break;
         case INERROR:
-            fprintf(stderr, "invalid integer constant: '%s'\n", ic);
-            exit(1);
+            ERROR("invalid integer constant `%s'", ic);
             break;
         } /* switch (state) */
         c++;
