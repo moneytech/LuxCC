@@ -43,7 +43,7 @@ int nesting_level = 0;
  */
 ExternDecl *translation_unit(void);
 ExternDecl *external_declaration(void);
-FuncDef *function_definition(void);
+FuncDef *function_definition(TypeExp *h, TypeExp *d);
 Declaration *declaration(void);
 TypeExp *declaration_specifiers(int type_spec_seen);
 TypeExp *init_declarator_list(Token tok);
@@ -284,12 +284,12 @@ ExternDecl *external_declaration(void)
     temp = curr_tok; /* save */
     p = declaration_specifiers(FALSE);
     if (lookahead(1) != TOK_SEMICOLON)
-        q = declarator(TRUE);
+        q = declarator(FALSE);
     /* --- delete p and q --- */
     if (lookahead(1) == TOK_LBRACE) {
         curr_tok = temp; /* restore */
         e->kind = FUNCTION_DEFINITION;
-        e->ed.f = function_definition();
+        e->ed.f = function_definition(NULL, NULL);
     } else {
         curr_tok = temp; /* restore */
         e->kind = DECLARATION;
@@ -302,7 +302,7 @@ ExternDecl *external_declaration(void)
 /*
  * function_definition = declaration_specifiers declarator compound_statement
  */
-FuncDef *function_definition(void)
+FuncDef *function_definition(TypeExp *h, TypeExp *d)
 {
     FuncDef *f;
 
@@ -850,6 +850,7 @@ TypeExp *enumeration_constant(void)
     n = malloc(sizeof(TypeExp));
     n->sibling = NULL;
     n->str = get_lexeme(1);
+    install(get_lexeme(1), TOK_ID);
 
     match(TOK_ID);
 }
@@ -897,7 +898,7 @@ TypeExp *declarator(int install_id)
 /*
  * direct_declarator = ( identifier | "(" declarator ")" ) { direct_declarator_postfix }
  */
-TypeExp *direct_declarator(int install_id)
+TypeExp *direct_declarator(int install_id/* , Token tok */)
 {
     TypeExp *n, *temp;
 
@@ -1014,8 +1015,8 @@ DeclList *parameter_type_list(void)
         match(TOK_COMMA);
         match(TOK_ELLIPSIS);
         /*
-         * Add a node at the end of the parameter
-         * list with TOK_ELLIPSIS as operator.
+         * Add a node at the end of the parameter list
+         * that has TOK_ELLIPSIS as its operator.
          */
         while (temp->next != NULL)
             temp = temp->next;
