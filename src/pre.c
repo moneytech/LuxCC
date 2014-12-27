@@ -8,8 +8,17 @@
 
 #define TRUE  1
 #define FALSE 0
-#define ERROR(...) \
-    fprintf(stderr, "Error: %s\n", __VA_ARGS__), \
+
+#define ERROR(...)\
+    fprintf(stderr, "%s:%d: error: ", curr_tok->file, curr_tok->src_line),\
+    fprintf(stderr, __VA_ARGS__),\
+    fprintf(stderr, "\n"),\
+    exit(EXIT_FAILURE)
+
+#define ERROR2(...)\
+    fprintf(stderr, "%s:%d: error: ", curr_source_file, curr_line),\
+    fprintf(stderr, __VA_ARGS__),\
+    fprintf(stderr, "\n"),\
     exit(EXIT_FAILURE)
 
 typedef enum {
@@ -28,7 +37,7 @@ typedef enum {
 static char *buf, *curr, *curr_source_file;
 static char token_string[128];
 static PreTokenNode *curr_tok, *token_list;
-static int curr_line;
+static int curr_line/*, curr_column*/;
 
 
 typedef enum {
@@ -112,13 +121,24 @@ PreTokenNode *tokenize(void)
     return n;
 }
 
+static char *str_tok[] = {
+    "EOF",
+    "punctuator"
+    "preprocessor number"
+    "identifier",
+    "character constant",
+    "string literal",
+    "new line",
+    "other"
+};
+
 static
 void match(PreToken x)
 {
     if (curr_tok->token == x)
         curr_tok = curr_tok->next;
     else
-        ERROR("error at match");
+        ERROR("expecting: `%s'; found: `%s'", str_tok[x], str_tok[curr_tok->token]);
 }
 
 void match2(PreToken x)
@@ -127,7 +147,7 @@ void match2(PreToken x)
         curr_tok->deleted = TRUE;
         curr_tok = curr_tok->next;
     } else {
-        ERROR("error at match2");
+        ERROR("expecting: `%s'; found: `%s'", str_tok[x], str_tok[curr_tok->token]);
     }
 }
 
@@ -221,7 +241,7 @@ PreTokenNode *preprocess(char *source_file)
 PreToken get_token(void)
 {
     int tok_str_ind = 0;
-    PreToken curr_tok;
+    PreToken token;
     State state = STATE_START;
     int save;
 
@@ -254,11 +274,11 @@ PreToken get_token(void)
                 switch (c) {
                 case '\0':
                     save = FALSE;
-                    curr_tok = PRE_TOK_EOF;
+                    token = PRE_TOK_EOF;
                     break;
                 case '\n':
                     save = FALSE; // ?
-                    curr_tok = PRE_TOK_NL;
+                    token = PRE_TOK_NL;
                     ++curr_line;
                     break;
                 /*
@@ -274,7 +294,7 @@ PreToken get_token(void)
                 case ',':
                 case '\?':
                 case ':':
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 /*
                  * multi-char punctuators
@@ -285,57 +305,57 @@ PreToken get_token(void)
                 case '+': /* +, ++ or += */
                     if (*curr=='+' || *curr=='=')
                         SAVE_AND_ADVANCE();
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '-': /* -, --, -> or -= */
                     if (*curr=='-' || *curr=='>' || *curr=='=')
                         SAVE_AND_ADVANCE();
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '*': /* * or *= */
                     if (*curr == '=')
                         SAVE_AND_ADVANCE();
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '/': /* / or /= */
                     if (*curr == '=')
                         SAVE_AND_ADVANCE();
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '%': /* % or %= */
                     if (*curr == '=')
                         SAVE_AND_ADVANCE();
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '^': /* ^ or ^= */
                     if (*curr == '=')
                         SAVE_AND_ADVANCE();
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '=': /* = or == */
                     if (*curr == '=')
                         SAVE_AND_ADVANCE();
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '|': /* |, || or |= */
                     if (*curr=='|' || *curr=='=')
                         SAVE_AND_ADVANCE();
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '&': /* &, && or &= */
                     if (*curr=='&' || *curr=='=')
                         SAVE_AND_ADVANCE();
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '!': /* ! or != */
                     if (*curr == '=')
                         SAVE_AND_ADVANCE();
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '#':
                     if (*curr == '#')
                         SAVE_AND_ADVANCE();
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '<': /* <, <=, << or <<= */
                     if (*curr == '=')
@@ -345,7 +365,7 @@ PreToken get_token(void)
                         if (*curr == '=')
                             SAVE_AND_ADVANCE();
                     }
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '>': /* >, >=, >> or >>= */
                     if (*curr == '=')
@@ -355,21 +375,21 @@ PreToken get_token(void)
                         if (*curr == '=')
                             SAVE_AND_ADVANCE();
                     }
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '.': /* . or ... */
                     if (*curr=='.' && *(curr+1)=='.') {
                         SAVE_AND_ADVANCE();
                         SAVE_AND_ADVANCE();
                     }
-                    curr_tok = PRE_TOK_PUNCTUATOR;
+                    token = PRE_TOK_PUNCTUATOR;
                     break;
                 default:
                     /*
                      * In ASCII, characters included in the 'other' group are @, $, `, and
                      * any control characters other than NUL.
                      */
-                    curr_tok = PRE_TOK_OTHER;
+                    token = PRE_TOK_OTHER;
                     break;
                 } /* switch (c) */
             }
@@ -379,49 +399,49 @@ PreToken get_token(void)
             if (!isalpha(c) && !isdigit(c) && (c!='_')) {
                 save = FALSE;
                 --curr;
-                curr_tok = (state==STATE_INNUM)?PRE_TOK_NUM:PRE_TOK_ID;
+                token = (state==STATE_INNUM)?PRE_TOK_NUM:PRE_TOK_ID;
                 state = STATE_DONE;
             }
             break;
         case STATE_INCHAR:
             --curr;
             if (*curr=='\0' || *curr=='\n') {
-                ERROR("missing terminating ' character");
+                ERROR2("missing terminating \"'\" character");
             } else if (*curr == '\'') {
-                ERROR("empty character constant");
+                ERROR2("empty character constant");
             } else {
                 token_string[tok_str_ind++] = *curr++;
                 while (*curr!='\'' || *(curr-1)=='\\') {
                     if (*curr=='\0' || *curr=='\n')
-                        ERROR("missing terminating ' character");
+                        ERROR2("missing terminating \"'\" character");
                     token_string[tok_str_ind++] = *curr++;
                 }
                 ++curr; /* skip ' */
                 save = FALSE;
                 state = STATE_DONE;
-                curr_tok = PRE_TOK_CHACON;
+                token = PRE_TOK_CHACON;
             }
             break;
         case STATE_INSTR:
             --curr;
             if (*curr=='\0' || *curr=='\n') {
-                ERROR("missing terminating \" character");
+                ERROR2("missing terminating '\"' character");
             } else {
                 while (*curr!='"' || *(curr-1)=='\\') {
                     if (*curr=='\0' || *curr=='\n')
-                        ERROR("missing terminating \" character");
+                        ERROR2("missing terminating '\"' character");
                     token_string[tok_str_ind++] = *curr++;
                 }
                 ++curr; /* skip " */
                 save = FALSE;
                 state = STATE_DONE;
-                curr_tok = PRE_TOK_STRLIT;
+                token = PRE_TOK_STRLIT;
             }
             break;
         case STATE_INCOMMENT1:
             save = FALSE;
             if (c == '\0')
-                ERROR("unterminated comment");
+                ERROR2("unterminated comment");
             else if (c == '*')
                 state = STATE_INCOMMENT2;
             else if (c == '\n')
@@ -430,7 +450,7 @@ PreToken get_token(void)
         case STATE_INCOMMENT2:
             save = FALSE;
             if (c == '\0')
-                ERROR("unterminated comment");
+                ERROR2("unterminated comment");
             else if (c == '/')
                 state = STATE_START;
             else if (c != '*') {
@@ -460,7 +480,7 @@ PreToken get_token(void)
         if (state == STATE_DONE)
             token_string[tok_str_ind] = '\0';
     } /* while (state != STATE_DONE) */
-    return curr_tok;
+    return token;
 }
 
 /* recursive parser functions */
@@ -659,11 +679,11 @@ void endif_line(void)
     if (!strcmp(get_lexeme(1), "#"))
         match2(PRE_TOK_PUNCTUATOR);
     else
-        ERROR("error at endif_line()");
+        ERROR("`#endif' expected");
     if (!strcmp(get_lexeme(1), "endif"))
         match2(PRE_TOK_ID);
     else
-        ERROR("error at endif_line()");
+        ERROR("`#endif' expected");
     match2(PRE_TOK_NL);
 }
 
@@ -704,7 +724,7 @@ void control_line(int skip)
              * the file that contains the #include directive.
              */
             char *p;
-            FILE *fp;
+            // FILE *fp;
             PreTokenNode *tokenized_file, *last;
 
             /*
@@ -770,7 +790,7 @@ void control_line(int skip)
     } else if (!strcmp(get_lexeme(1), "\n")) {
         ;
     } else {
-        ERROR("unknow directive");
+        ERROR("unknown directive `%s'", get_lexeme(1));
     }
 
 bottom:
@@ -813,7 +833,7 @@ void install(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params
         macro_table[hashval] = np;
     } else {
         // free(np->rep);
-        ERROR("macro redefinition");
+        ERROR("macro `%s' redefined", name);
     }
     // np->rep = copy_string(rep);
 }

@@ -43,11 +43,11 @@ int nesting_level = 0;
  */
 ExternDecl *translation_unit(void);
 ExternDecl *external_declaration(void);
-FuncDef *function_definition(TypeExp *h, TypeExp *d);
-Declaration *declaration(void);
+FuncDef *function_definition(TypeExp *decl_specs, TypeExp *header);
+Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator);
 TypeExp *declaration_specifiers(int type_spec_seen);
-TypeExp *init_declarator_list(Token tok);
-TypeExp *init_declarator(Token tok);
+TypeExp *init_declarator_list(Token tok, TypeExp *first_declarator);
+TypeExp *init_declarator(Token tok, TypeExp *first_declarator);
 TypeExp *storage_class_specifier(void);
 TypeExp *type_specifier(void);
 TypeExp *struct_or_union_specifier(void);
@@ -62,8 +62,8 @@ TypeExp *enumerator_list(void);
 TypeExp *enumerator(void);
 TypeExp *enumeration_constant(void);
 TypeExp *type_qualifier(void);
-TypeExp *declarator(int install_id);
-TypeExp *direct_declarator(int install_id);
+TypeExp *declarator(int install_id, Token tok);
+TypeExp *direct_declarator(int install_id, Token tok);
 TypeExp *direct_declarator_postfix(void);
 TypeExp *pointer(void);
 TypeExp *type_qualifier_list(void);
@@ -144,7 +144,7 @@ int speculate_declaration(void)
     temp = curr_tok;
     speculating = TRUE;
     if (!setjmp(env)) {
-        declaration();
+        // declaration();
         success = TRUE;
     } else {
         success = FALSE;
@@ -247,6 +247,18 @@ ExternDecl *translation_unit(void)
 }
 
 /*
+ * See if `typedef' is between
+ * the declaration specifiers.
+ */
+int search_typedef(TypeExp *t)
+{
+    for (; t != NULL; t = t->child)
+        if (t->op == TOK_TYPEDEF)
+            return TRUE;
+    return FALSE;
+}
+
+/*
  * external_declaration = function_definition |
  *                        declaration
  */
@@ -275,25 +287,21 @@ ExternDecl *external_declaration(void)
     // }
     ExternDecl *e;
     TypeExp *p, *q;
-    TokenNode *temp;
 
     q = NULL;
     e = malloc(sizeof(ExternDecl));
     e->sibling = NULL;
 
-    temp = curr_tok; /* save */
     p = declaration_specifiers(FALSE);
     if (lookahead(1) != TOK_SEMICOLON)
-        q = declarator(FALSE);
-    /* --- delete p and q --- */
+        q = declarator(TRUE, (search_typedef(p))?TOK_TYPEDEFNAME:TOK_ID);
+
     if (lookahead(1) == TOK_LBRACE) {
-        curr_tok = temp; /* restore */
         e->kind = FUNCTION_DEFINITION;
-        e->ed.f = function_definition(NULL, NULL);
+        e->ed.f = function_definition(p, q);
     } else {
-        curr_tok = temp; /* restore */
         e->kind = DECLARATION;
-        e->ed.d = declaration();
+        e->ed.d = declaration(p, q);
     }
 
     return e;
@@ -302,13 +310,13 @@ ExternDecl *external_declaration(void)
 /*
  * function_definition = declaration_specifiers declarator compound_statement
  */
-FuncDef *function_definition(TypeExp *h, TypeExp *d)
+FuncDef *function_definition(TypeExp *decl_specs, TypeExp *header)
 {
     FuncDef *f;
 
     f = malloc(sizeof(FuncDef));
-    f->decl_specs = declaration_specifiers(FALSE);
-    f->header = declarator(TRUE);
+    f->decl_specs = decl_specs; //declaration_specifiers(FALSE);
+    f->header = header; //declarator(TRUE, TOK_ID);
     restore_scope(); /* restore parameters' scope */
 
     f->body = compound_statement(FALSE);
@@ -417,33 +425,22 @@ void install(char *id, Token tok)
 /*
  * declaration = declaration_specifiers [ init_declarator_list ] ";"
  */
-Declaration *declaration(void)
+Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator)
 {
+    Token tok;
     Declaration *d;
 
     d = malloc(sizeof(Declaration));
-    d->decl_specs = declaration_specifiers(FALSE);
     d->idl = NULL;
+    if (decl_specs != NULL) /* declaration() was called from external_declaration() */
+        d->decl_specs = decl_specs;
+    else
+        d->decl_specs = declaration_specifiers(FALSE);
 
-    if (lookahead(1) != TOK_SEMICOLON) {
-        Token tok;
-        TypeExp *p;
+    tok = search_typedef(d->decl_specs)?TOK_TYPEDEFNAME:TOK_ID;
+    if (first_declarator!=NULL || lookahead(1)!=TOK_SEMICOLON)
+        d->idl = init_declarator_list(tok, first_declarator);
 
-        /*
-         * See if `typedef' is between
-         * the declaration specifiers.
-         */
-        for (p = d->decl_specs; p != NULL; p = p->child)
-            if (p->op == TOK_TYPEDEF)
-                break;
-
-        /*
-         * Set the kind of token accordingly.
-         */
-        tok = (p!=NULL)?TOK_TYPEDEFNAME:TOK_ID;
-
-        d->idl = init_declarator_list(tok);
-    }
     match(TOK_SEMICOLON);
 
     return d;
@@ -489,15 +486,15 @@ TypeExp *declaration_specifiers(int type_spec_seen)
 /*
  * init_declarator_list =  init_declarator { "," init_declarator }
  */
-TypeExp *init_declarator_list(Token tok)
+TypeExp *init_declarator_list(Token tok, TypeExp *first_declarator)
 {
     TypeExp *n, *temp;
 
-    n = temp = init_declarator(tok);
+    n = temp = init_declarator(tok, first_declarator);
     n->sibling = NULL;
     while (lookahead(1) == TOK_COMMA) {
         match(TOK_COMMA);
-        temp->sibling = init_declarator(tok);
+        temp->sibling = init_declarator(tok, NULL);
         temp = temp->sibling;
     }
 
@@ -507,16 +504,15 @@ TypeExp *init_declarator_list(Token tok)
 /*
  * init_declarator = declarator [ "=" initializer ]
  */
-TypeExp *init_declarator(Token tok)
+TypeExp *init_declarator(Token tok, TypeExp *first_declarator)
 {
     TypeExp *n;
 
-    n = declarator(FALSE);
-    /* install id */
-    TypeExp *p;
-    for (p = n; p->child != NULL; p = p->child); /* search identifier */
-    install(p->str, tok);
-    /* --- */
+    if (first_declarator == NULL)
+        n = declarator(TRUE, tok);
+    else
+        n = first_declarator;
+
     if (lookahead(1) == TOK_ASSIGN) {
         match(TOK_ASSIGN);
         initializer();
@@ -761,16 +757,16 @@ TypeExp *struct_declarator(void)
 {
     TypeExp *n;
 
-    if (lookahead(1) == TOK_COLON) {
+    /*if (lookahead(1) == TOK_COLON) {
         match(TOK_COLON);
         constant_expression();
-    } else {
-        n = declarator(FALSE);
-        if (lookahead(1) == TOK_COLON) {
+    } else {*/
+        n = declarator(FALSE, 0);
+        /*if (lookahead(1) == TOK_COLON) {
             match(TOK_COLON);
             constant_expression();
         }
-    }
+    }*/
 
     return n;
 }
@@ -879,7 +875,7 @@ TypeExp *type_qualifier(void)
 /*
  * declarator = [ pointer ] direct_declarator
  */
-TypeExp *declarator(int install_id)
+TypeExp *declarator(int install_id, Token tok)
 {
     TypeExp *n, *temp;
 
@@ -887,9 +883,9 @@ TypeExp *declarator(int install_id)
         n = temp = pointer();
         while (temp->child != NULL)
             temp = temp->child;
-        temp->child = direct_declarator(install_id);
+        temp->child = direct_declarator(install_id, tok);
     } else {
-        n = direct_declarator(install_id);
+        n = direct_declarator(install_id, tok);
     }
 
     return n;
@@ -897,8 +893,12 @@ TypeExp *declarator(int install_id)
 
 /*
  * direct_declarator = ( identifier | "(" declarator ")" ) { direct_declarator_postfix }
+ *
+ * Install the identifier in the parser symbol
+ * table if `install_id' == TRUE. `tok' indicates
+ * if it's an identifier or a typedef name.
  */
-TypeExp *direct_declarator(int install_id/* , Token tok */)
+TypeExp *direct_declarator(int install_id, Token tok)
 {
     TypeExp *n, *temp;
 
@@ -908,11 +908,11 @@ TypeExp *direct_declarator(int install_id/* , Token tok */)
         n->op = lookahead(1);
         n->str = get_lexeme(1);
         if (install_id)
-            install(get_lexeme(1), TOK_ID);
+            install(get_lexeme(1), tok);
         match(TOK_ID);
     } else if (lookahead(1) == TOK_LPAREN) {
         match(TOK_LPAREN);
-        n = temp = declarator(install_id);
+        n = temp = declarator(install_id, tok);
         match(TOK_RPAREN);
     } else {
         ERROR("direct_declarator");
@@ -947,12 +947,12 @@ TypeExp *direct_declarator_postfix(void)
         match(TOK_RBRACKET);
     } else if (lookahead(1) == TOK_LPAREN) {
         match(TOK_LPAREN);
-        if (lookahead(1) != TOK_RPAREN) {
+        // if (lookahead(1) != TOK_RPAREN) {
             // if (lookahead(1) == TOK_ID)
-                // identifier_list(); /* old-style declarator */
-            // else /* parameter_type_list or error */
+                // identifier_list(); // old-style declarator
+            // else // parameter_type_list or error
                 n->attr.dl = parameter_type_list();
-        }
+        // }
         match(TOK_RPAREN);
     } else {
         ERROR("direct_declarator_postfix");
@@ -1010,7 +1010,7 @@ DeclList *parameter_type_list(void)
 
     push_scope();
     n = temp = parameter_list();
-    pop_scope();
+    pop_scope(); /* restored if function definition */
     if (lookahead(1) == TOK_COMMA) {
         match(TOK_COMMA);
         match(TOK_ELLIPSIS);
@@ -1111,7 +1111,8 @@ Declaration *parameter_declaration(void)
             ++i;
         }
         if (id_found)
-            n->idl = declarator(TRUE);
+            /* `typedef' must not appear in a parameter declaration */
+            n->idl = declarator(TRUE, TOK_ID);
         else
             n->idl = abstract_declarator();
     }
@@ -1297,11 +1298,11 @@ DeclList *declaration_list(void)
     n = temp = malloc(sizeof(DeclList));
     n->next = NULL;
 
-    n->decl = declaration();
+    n->decl = declaration(NULL, NULL);
     while (in_first_declaration_specifiers()) {
         temp->next = malloc(sizeof(DeclList));
         temp->next->next = NULL;
-        temp->next->decl = declaration();
+        temp->next->decl = declaration(NULL, NULL);
         temp = temp->next;
     }
 

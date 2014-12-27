@@ -111,7 +111,7 @@ struct TokenNode {
     Token token;
     char *lexeme, *file;
     TokenNode *next;
-    int src_line;
+    int src_line/*, src_column*/;
 };
 
 TokenNode *lexer(PreTokenNode *pre_token_list);

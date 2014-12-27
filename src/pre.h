@@ -17,7 +17,7 @@ struct PreTokenNode {
     PreToken token;
     char *lexeme, *file;
     PreTokenNode *next;
-    int src_line;
+    int src_line/*, src_column*/;
     char next_char; /* needed to distinguish between
                       "name(" and "name (" in #define */
     char deleted; /* TRUE/FALSE */
