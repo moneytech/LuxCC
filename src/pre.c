@@ -332,6 +332,11 @@ PreToken get_token(void)
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
+                case '~': /* ~ or ~= */
+                    if (*curr == '=')
+                        SAVE_AND_ADVANCE();
+                    token = PRE_TOK_PUNCTUATOR;
+                    break;
                 case '=': /* = or == */
                     if (*curr == '=')
                         SAVE_AND_ADVANCE();

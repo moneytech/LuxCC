@@ -114,6 +114,8 @@ struct TokenNode {
     int src_line/*, src_column*/;
 };
 
+extern const char *token_table[];
+
 TokenNode *lexer(PreTokenNode *pre_token_list);
 
 #endif
