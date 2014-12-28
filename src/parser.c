@@ -889,7 +889,7 @@ TypeExp *declarator(int install_id, Token tok)
 {
     TypeExp *n, *temp;
 
-    if (lookahead(1) == TOK_ASTERISK) {
+    if (lookahead(1) == TOK_STAR) {
         n = temp = pointer();
         while (temp->child != NULL)
             temp = temp->child;
@@ -982,11 +982,11 @@ TypeExp *pointer(void)
     n->op = lookahead(1);
     n->child = NULL;
 
-    match(TOK_ASTERISK);
+    match(TOK_STAR);
     if (in_first_type_qualifier())
         n->child = type_qualifier_list();
 
-    if (lookahead(1) == TOK_ASTERISK) {
+    if (lookahead(1) == TOK_STAR) {
         while (temp->child != NULL)
             temp = temp->child;
         temp->child = pointer();
@@ -1169,7 +1169,7 @@ TypeExp *abstract_declarator(void)
 {
     TypeExp *n, *temp;
 
-    if (lookahead(1) == TOK_ASTERISK) {
+    if (lookahead(1) == TOK_STAR) {
         n = temp = pointer();
         if (lookahead(1)==TOK_LPAREN || lookahead(1)==TOK_LBRACKET) {
             while (temp->child != NULL)
@@ -1192,7 +1192,7 @@ TypeExp *direct_abstract_declarator(void)
     TypeExp *n, *temp;
 
     if (lookahead(1) == TOK_LPAREN) {
-        if (lookahead(2)==TOK_ASTERISK || lookahead(2)==TOK_LPAREN || lookahead(2)==TOK_LBRACKET) { /* FIRST(abstract_declarator) */
+        if (lookahead(2)==TOK_STAR || lookahead(2)==TOK_LPAREN || lookahead(2)==TOK_LBRACKET) { /* FIRST(abstract_declarator) */
             match(TOK_LPAREN);
             n = temp = abstract_declarator();
             match(TOK_RPAREN);

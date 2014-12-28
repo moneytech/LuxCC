@@ -23,7 +23,7 @@ typedef enum {
     TOK_INC,
     TOK_DEC,
     TOK_AMPERSAND,
-    TOK_ASTERISK,
+    TOK_STAR,
     TOK_PLUS,
     TOK_MINUS,
     TOK_COMPLEMENT,
