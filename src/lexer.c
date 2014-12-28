@@ -20,7 +20,7 @@ int get_esc_seq_val(char **c);
 void check_integer_constant(char *ic);
 static PreTokenNode *pre_tok; /* declared global so ERROR can access its content */
 
-struct {
+const struct Keyword {
     char *str;
     Token tok;
 } keywords_table[] = {
@@ -60,15 +60,27 @@ struct {
     {"while", TOK_WHILE}
 };
 
+static const int
+number_of_keywords = sizeof(keywords_table)/sizeof(struct Keyword);
+
+int cmp_kw(const void *p1, const void *p2)
+{
+   struct Keyword *x1 = (struct Keyword *)p1;
+   struct Keyword *x2 = (struct Keyword *)p2;
+
+   return strcmp(x1->str, x2->str);
+}
+
 Token lookup_id(char *s)
 {
-    static int kt_size = sizeof(keywords_table)/sizeof(keywords_table[0]);
+    struct Keyword key, *res;
 
-    int i;
-    for (i = 0; i < kt_size; i++)
-        if (strcmp(s, keywords_table[i].str) == 0)
-            return keywords_table[i].tok;
-    return TOK_ID;
+    key.str = s;
+    res = bsearch(&key, keywords_table, number_of_keywords, sizeof(struct Keyword), cmp_kw);
+    if (res == NULL)
+        return TOK_ID;
+    else
+        return res->tok;
 }
 
 TokenNode *new_token(Token token, PreTokenNode *ptok)
@@ -85,6 +97,68 @@ TokenNode *new_token(Token token, PreTokenNode *ptok)
     return temp;
 }
 
+const struct Punctuator {
+    char *str;
+    Token tok;
+} punctuators_table[] = {
+    {"!", TOK_NEGATION},
+    {"!=", TOK_NEQ},
+    {"%", TOK_MOD},
+    {"%=", TOK_MOD_ASSIGN},
+    {"&", TOK_AMPERSAND},
+    {"&&", TOK_AND},
+    {"&=", TOK_BW_AND_ASSIGN},
+    {"(", TOK_LPAREN},
+    {")", TOK_RPAREN},
+    {"*", TOK_ASTERISK},
+    {"*=", TOK_MUL_ASSIGN},
+    {"+", TOK_PLUS},
+    {"++", TOK_INC},
+    {"+=", TOK_PLUS_ASSIGN},
+    {",", TOK_COMMA},
+    {"-", TOK_MINUS},
+    {"--", TOK_DEC},
+    {"-=", TOK_MINUS_ASSIGN},
+    {"->", TOK_ARROW},
+    {".", TOK_DOT},
+    {"...", TOK_ELLIPSIS},
+    {"/", TOK_DIV},
+    {"/=", TOK_DIV_ASSIGN},
+    {":", TOK_COLON},
+    {";", TOK_SEMICOLON},
+    {"<", TOK_LT},
+    {"<<", TOK_LSHIFT},
+    {"<<=", TOK_LSHIFT_ASSIGN},
+    {"<=", TOK_LET},
+    {"=", TOK_ASSIGN},
+    {"==", TOK_EQ},
+    {">", TOK_GT},
+    {">=", TOK_GET},
+    {">>", TOK_RSHIFT},
+    {">>=", TOK_RSHIFT_ASSIGN},
+    {"?", TOK_CONDITIONAL},
+    {"[", TOK_LBRACKET},
+    {"]", TOK_RBRACKET},
+    {"^", TOK_BW_XOR},
+    {"^=", TOK_BW_XOR_ASSIGN},
+    {"{", TOK_LBRACE},
+    {"|", TOK_BW_OR},
+    {"|=", TOK_BW_OR_ASSIGN},
+    {"||", TOK_OR},
+    {"}", TOK_RBRACE},
+    {"~", TOK_COMPLEMENT},
+};
+
+static const int
+number_of_punctuators = sizeof(punctuators_table)/sizeof(struct Punctuator);
+
+int cmp_punct(const void *p1, const void *p2)
+{
+   struct Punctuator *x1 = (struct Punctuator *)p1;
+   struct Punctuator *x2 = (struct Punctuator *)p2;
+
+   return strcmp(x1->str, x2->str);
+}
 
 /*
  * Convert preprocessing tokens
@@ -105,34 +179,18 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
         case PRE_TOK_EOF:
             tok->next = new_token(TOK_EOF, pre_tok);
             break;
-        case PRE_TOK_PUNCTUATOR:
-            if (equal(pre_tok->lexeme, "["))
-                tok->next = new_token(TOK_LBRACKET, pre_tok);
-            else if (equal(pre_tok->lexeme, "]"))
-                tok->next = new_token(TOK_RBRACKET, pre_tok);
-            else if (equal(pre_tok->lexeme, "("))
-                tok->next = new_token(TOK_LPAREN, pre_tok);
-            else if (equal(pre_tok->lexeme, ")"))
-                tok->next = new_token(TOK_RPAREN, pre_tok);
-            else if (equal(pre_tok->lexeme, "{"))
-                tok->next = new_token(TOK_LBRACE, pre_tok);
-            else if (equal(pre_tok->lexeme, "}"))
-                tok->next = new_token(TOK_RBRACE, pre_tok);
-            // else if (equal(pre_tok->lexeme, "."))
-            // else if (equal(pre_tok->lexeme, "->"))
-            else if (equal(pre_tok->lexeme, ";"))
-                tok->next = new_token(TOK_SEMICOLON, pre_tok);
-            else if (equal(pre_tok->lexeme, ","))
-                tok->next = new_token(TOK_COMMA, pre_tok);
-            else if (equal(pre_tok->lexeme, "*"))
-                tok->next = new_token(TOK_ASTERISK, pre_tok);
-            else if (equal(pre_tok->lexeme, "="))
-                tok->next = new_token(TOK_ASSIGN, pre_tok);
-            else if (equal(pre_tok->lexeme, ":"))
-                tok->next = new_token(TOK_COLON, pre_tok);
-            else if (equal(pre_tok->lexeme, "..."))
-                tok->next = new_token(TOK_ELLIPSIS, pre_tok);
+        case PRE_TOK_PUNCTUATOR: {
+            struct Punctuator key, *res;
+
+            key.str = pre_tok->lexeme;
+            res = bsearch(&key, punctuators_table, number_of_punctuators, sizeof(struct Punctuator), cmp_punct);
+            if (res == NULL) { /* this shouldn't happen! */
+                fprintf(stderr, "lexer bug: bsearch returned NULL in PRE_TOK_PUNCTUATOR case\n");
+                exit(1);
+            }
+            tok->next = new_token(res->tok, pre_tok);
             break;
+        }
         case PRE_TOK_NUM:
             check_integer_constant(pre_tok->lexeme);
             tok->next = new_token(TOK_ICONST, pre_tok);
