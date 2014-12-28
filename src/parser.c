@@ -9,7 +9,7 @@
 
 #define TRUE  1
 #define FALSE 0
-#define ERROR(...) \
+/*#define ERROR(...) \
     do {\
     if (!speculating) {\
         fprintf(stderr, "error: %s, ", __VA_ARGS__),\
@@ -19,7 +19,12 @@
         longjmp(env, 1);\
     }\
     } while (0)
-
+*/
+#define ERROR(...)\
+    fprintf(stderr, "%s:%d: error: ", curr_tok->file, curr_tok->src_line),\
+    fprintf(stderr, __VA_ARGS__),\
+    fprintf(stderr, "\n"),\
+    exit(EXIT_FAILURE)
 
 static jmp_buf env;
 static TokenNode *curr_tok;
@@ -127,7 +132,7 @@ void match(Token token)
         if (speculating)
             longjmp(env, 1);
         else
-            ERROR("match");
+            ERROR("expecting `%s'; found `%s'", token_table[token*2+1], curr_tok->lexeme);
 }
 
 void parser(TokenNode *tokens)
@@ -462,7 +467,7 @@ TypeExp *declaration_specifiers(int type_spec_seen)
     else if (in_first_type_qualifier())
         n = type_qualifier();
     else
-        ERROR("declaration_specifiers");
+        ERROR("expecting declaration-specifier");
 
     /*
      * static const type_t; // null declaration
@@ -552,8 +557,8 @@ TypeExp *storage_class_specifier(void)
     case TOK_REGISTER:
         match(TOK_REGISTER);
         break;
-    default:
-        ERROR("storage_class_specifier");
+    default: /* shouldn't be reachable */
+        ERROR("parser bug: storage_class_specifier()");
         break;
     }
 
@@ -614,12 +619,15 @@ TypeExp *type_specifier(void)
         n = enum_specifier();
         break;
     case TOK_ID:
-    /* assume type_specifier() was called because in_first_type_specifier() returned TRUE */
+        /*
+         * in_first_type_specifier() said
+         * lookahead(1) is a typedef-name.
+         */
         free(n);
         n = typedef_name();
         break;
-    default:
-        ERROR("type_specifier");
+    default: /* shouldn't be reachable */
+        ERROR("parser bug: type_specifier()");
         break;
     }
 
@@ -648,7 +656,7 @@ TypeExp *struct_or_union_specifier(void)
         n->attr.dl = struct_declaration_list();
         match(TOK_RBRACE);
     } else {
-        ERROR("struct_or_union_specifier");
+        ERROR("expecting identifier or struct-declaration-list");
     }
 
     return n;
@@ -670,7 +678,7 @@ TypeExp *struct_or_union(void)
     else if (lookahead(1) == TOK_UNION)
         match(TOK_UNION);
     else
-        ERROR("struct_or_union");
+        ERROR("parser bug: struct_or_union()");
 
     return n;
 }
@@ -723,7 +731,7 @@ TypeExp *specifier_qualifier_list(int type_spec_seen)
     else if (in_first_type_qualifier())
         n = type_qualifier(), type_spec_seen = TRUE;
     else
-        ERROR("specifier_qualifier_list");
+        ERROR("expecting type specifier or qualifier");
 
     if (in_first_specifier_qualifier_list() && (lookahead(1)!=TOK_ID || !type_spec_seen))
         n->child = specifier_qualifier_list(type_spec_seen);
@@ -797,7 +805,7 @@ TypeExp *enum_specifier(void)
         n->attr.el = enumerator_list();
         match(TOK_RBRACE);
     } else {
-        ERROR("enum_specifier");
+        ERROR("expecting identifier or enumerator-list");
     }
 
     return n;
@@ -849,6 +857,8 @@ TypeExp *enumeration_constant(void)
     install(get_lexeme(1), TOK_ID);
 
     match(TOK_ID);
+
+    return n;
 }
 
 /*
@@ -867,7 +877,7 @@ TypeExp *type_qualifier(void)
     else if (lookahead(1) == TOK_VOLATILE)
         match(TOK_VOLATILE);
     else
-        ERROR("type_qualifier");
+        ERROR("parser bug: type_qualifier()");
 
     return n;
 }
@@ -915,7 +925,7 @@ TypeExp *direct_declarator(int install_id, Token tok)
         n = temp = declarator(install_id, tok);
         match(TOK_RPAREN);
     } else {
-        ERROR("direct_declarator");
+        ERROR("expecting identifier or ( declarator )");
     }
 
     while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN) {
@@ -955,7 +965,7 @@ TypeExp *direct_declarator_postfix(void)
         // }
         match(TOK_RPAREN);
     } else {
-        ERROR("direct_declarator_postfix");
+        ERROR("parser bug: direct_declarator_postfix()");
     }
 
     return n;

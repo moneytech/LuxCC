@@ -11,9 +11,9 @@ int main(void)
     tok = lexer(pre);
     // while (tok != NULL) {
         // printf("%s:%-3d =>   token: %-15s lexeme: `%s'\n", tok->file, tok->src_line,
-        // token_table[tok->token], tok->lexeme);
+        // token_table[tok->token*2], tok->lexeme);
         // tok = tok->next;
     // }
-    // parser(tok);
+    parser(tok);
 	return 0;
 }

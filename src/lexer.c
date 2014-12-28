@@ -20,6 +20,11 @@ int get_esc_seq_val(char **c);
 void check_integer_constant(char *ic);
 static PreTokenNode *pre_tok; /* declared global so ERROR can access its content */
 
+/*
+ * Table that contains token-name/lexeme pairs.
+ * It's indexed by `Token' enumeration constants.
+ * The main use is for diagnostic messages.
+ */
 const char *token_table[] = {
     "LBRACKET", "[",
     "RBRACKET", "]",
@@ -101,11 +106,11 @@ const char *token_table[] = {
     "VOID", "void",
     "VOLATILE", "volatile",
     "WHILE", "while",
-    "ID",
-    "STRLIT",
-    "ICONST",
-    "EOF",
-    "TYPEDEFNAME"
+    "ID", "identifier",
+    "STRLIT", "string literal",
+    "ICONST", "integer constant",
+    "EOF", "end-of-file",
+    "TYPEDEFNAME", "typedef-name"
 };
 
 const struct Keyword {
