@@ -43,6 +43,18 @@ Symbol *symbols[HASH_SIZE][MAX_NEST];
 int nesting_level = 0;
 
 
+typedef enum {
+    ABSTRACT_DECLARATOR,
+    CONCRETE_DECLARATOR,
+    EITHER_DECLARATOR
+} DeclaratorCategory;
+
+TypeExp *concrete_declarator(int install_id, Token tok);
+TypeExp *abstract_declarator(void);
+TypeExp *declarator(DeclaratorCategory dc, int install_id, Token tok);
+TypeExp *direct_declarator(DeclaratorCategory dc, int install_id, Token tok);
+
+
 /*
  * Recursive parser functions.
  */
@@ -67,8 +79,8 @@ TypeExp *enumerator_list(void);
 TypeExp *enumerator(void);
 TypeExp *enumeration_constant(void);
 TypeExp *type_qualifier(void);
-TypeExp *declarator(int install_id, Token tok);
-TypeExp *direct_declarator(int install_id, Token tok);
+// TypeExp *declarator(int install_id, Token tok);
+// TypeExp *direct_declarator(int install_id, Token tok);
 TypeExp *direct_declarator_postfix(void);
 TypeExp *pointer(void);
 TypeExp *type_qualifier_list(void);
@@ -299,7 +311,7 @@ ExternDecl *external_declaration(void)
 
     p = declaration_specifiers(FALSE);
     if (lookahead(1) != TOK_SEMICOLON)
-        q = declarator(TRUE, (search_typedef(p))?TOK_TYPEDEFNAME:TOK_ID);
+        q = concrete_declarator(TRUE, (search_typedef(p))?TOK_TYPEDEFNAME:TOK_ID);
 
     if (lookahead(1) == TOK_LBRACE) {
         e->kind = FUNCTION_DEFINITION;
@@ -514,7 +526,7 @@ TypeExp *init_declarator(Token tok, TypeExp *first_declarator)
     TypeExp *n;
 
     if (first_declarator == NULL)
-        n = declarator(TRUE, tok);
+        n = concrete_declarator(TRUE, tok);
     else
         n = first_declarator;
 
@@ -769,7 +781,7 @@ TypeExp *struct_declarator(void)
         match(TOK_COLON);
         constant_expression();
     } else {*/
-        n = declarator(FALSE, 0);
+        n = concrete_declarator(FALSE, 0);
         /*if (lookahead(1) == TOK_COLON) {
             match(TOK_COLON);
             constant_expression();
@@ -882,10 +894,20 @@ TypeExp *type_qualifier(void)
     return n;
 }
 
+TypeExp *concrete_declarator(int install_id, Token tok)
+{
+    return declarator(CONCRETE_DECLARATOR, install_id, tok);
+}
+
+TypeExp *abstract_declarator(void)
+{
+    return declarator(ABSTRACT_DECLARATOR, 0, 0);
+}
+
 /*
  * declarator = [ pointer ] direct_declarator
  */
-TypeExp *declarator(int install_id, Token tok)
+TypeExp *declarator(DeclaratorCategory dc, int install_id, Token tok)
 {
     TypeExp *n, *temp;
 
@@ -893,26 +915,33 @@ TypeExp *declarator(int install_id, Token tok)
         n = temp = pointer();
         while (temp->child != NULL)
             temp = temp->child;
-        temp->child = direct_declarator(install_id, tok);
+        temp->child = direct_declarator(dc, install_id, tok);
     } else {
-        n = direct_declarator(install_id, tok);
+        n = direct_declarator(dc, install_id, tok);
     }
 
     return n;
 }
 
 /*
- * direct_declarator = ( identifier | "(" declarator ")" ) { direct_declarator_postfix }
+ * direct_declarator = [ identifier | "(" declarator ")" ] { direct_declarator_postfix }
  *
- * Install the identifier in the parser symbol
- * table if `install_id' == TRUE. `tok' indicates
- * if it's an identifier or a typedef name.
+ * The parameters `install_id' and `tok' are used only
+ * when dc != ABSTRACT_DECLARATOR, and their meaning is
+ * as follows:
+ *  If `install_id' == TRUE, install the identifier in the
+ * parser symbol table (`tok' indicates if install ir as
+ * an identifier or a typedef name).
  */
-TypeExp *direct_declarator(int install_id, Token tok)
+TypeExp *direct_declarator(DeclaratorCategory dc, int install_id, Token tok)
 {
     TypeExp *n, *temp;
 
+    n = temp = NULL;
+
     if (lookahead(1) == TOK_ID) {
+        if (dc == ABSTRACT_DECLARATOR)
+            ERROR("identifier not allowed in abstract-declarator");
         n = temp = malloc(sizeof(TypeExp));
         n->child = NULL;
         n->op = lookahead(1);
@@ -920,13 +949,15 @@ TypeExp *direct_declarator(int install_id, Token tok)
         if (install_id)
             install(get_lexeme(1), tok);
         match(TOK_ID);
-    } else if (lookahead(1) == TOK_LPAREN) {
+    } else if ((lookahead(1)==TOK_LPAREN) && (lookahead(2)==TOK_LPAREN
+    || lookahead(2)==TOK_LBRACKET || lookahead(2)==TOK_STAR)) {
         match(TOK_LPAREN);
-        n = temp = declarator(install_id, tok);
+        n = temp = declarator(dc, install_id, tok);
         match(TOK_RPAREN);
-    } else {
-        ERROR("expecting identifier or ( declarator )");
     }
+
+    if (n==NULL && dc==CONCRETE_DECLARATOR)
+        ERROR("missing identifier in concrete-declarator");
 
     while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN) {
         n = direct_declarator_postfix();
@@ -1061,25 +1092,6 @@ DeclList *parameter_list(void)
     return n;
 }
 
-int speculate_declarator(void)
-{
-    // int success;
-    // TokenNode *temp;
-//
-    // temp = curr_tok;
-    // speculating = TRUE;
-    // if (!setjmp(env)) {
-        // declarator();
-        // success = TRUE;
-    // } else {
-        // success = FALSE;
-    // }
-    // speculating = FALSE;
-    // curr_tok = temp;
-//
-    // return success;
-}
-
 /*
  * parameter_declaration = declaration_specifiers declarator |
  *                         declaration_specifiers [ abstract_declarator ]
@@ -1092,41 +1104,8 @@ Declaration *parameter_declaration(void)
 
     n->decl_specs = declaration_specifiers(FALSE);
     if (lookahead(1)!=TOK_COMMA && lookahead(1)!=TOK_RPAREN) { /* FOLLOW(parameter_declaration) */
-        /*if (speculate_declarator())
-            declarator();
-        else
-            abstract_declarator();*/
-        /*
-         * Try to distinguish between a declarator and an abstract_declarator. Search for
-         * an identifier `([here],', `,[here],', or `,[here])', depending on where the
-         * the parameter is.
-         * TO FIX: there are some constructs that will be reported as a declarator, although
-         * they are not. For example:
-         *                  `int (*)(int x)'
-         */
-        int i, pn, id_found;
-
-        i = 1;
-        pn = 0;
-        id_found = FALSE;
-        while (pn>0 || (lookahead(i)!=TOK_COMMA && lookahead(i)!=TOK_RPAREN)) {
-            if (lookahead(i) == TOK_LPAREN) {
-                ++pn;
-            } else if (lookahead(i) == TOK_RPAREN) {
-                --pn;
-            } else if (lookahead(i) == TOK_ID) {
-                id_found = TRUE;
-                break;
-            } else if (lookahead(i) == TOK_EOF) {
-                ERROR("missing parenthesis");
-            }
-            ++i;
-        }
-        if (id_found)
-            /* `typedef' must not appear in a parameter declaration */
-            n->idl = declarator(TRUE, TOK_ID);
-        else
-            n->idl = abstract_declarator();
+        /* `typedef' must not appear in a parameter declaration */
+        n->idl = declarator(EITHER_DECLARATOR, TRUE, TOK_ID);
     }
 
     return n;
@@ -1157,88 +1136,6 @@ Declaration *type_name(void)
     n->decl_specs = specifier_qualifier_list(FALSE);
     if (lookahead(1) != TOK_RPAREN) /* FOLLOW(type_name) = { ")" } */
         n->idl = abstract_declarator();
-
-    return n;
-}
-
-/*
- * abstract_declarator = pointer |
- *                       [ pointer ] direct_abstract_declarator
- */
-TypeExp *abstract_declarator(void)
-{
-    TypeExp *n, *temp;
-
-    if (lookahead(1) == TOK_STAR) {
-        n = temp = pointer();
-        if (lookahead(1)==TOK_LPAREN || lookahead(1)==TOK_LBRACKET) {
-            while (temp->child != NULL)
-                temp = temp->child;
-            temp->child = direct_abstract_declarator();
-        }
-    } else {
-        n = direct_abstract_declarator();
-    }
-
-    return n;
-}
-
-/*
- * direct_abstract_declarator = "(" abstract_declarator ")" { direct_abstract_declarator_postfix } |
- *                              direct_abstract_declarator_postfix { direct_abstract_declarator_postfix }
- */
-TypeExp *direct_abstract_declarator(void)
-{
-    TypeExp *n, *temp;
-
-    if (lookahead(1) == TOK_LPAREN) {
-        if (lookahead(2)==TOK_STAR || lookahead(2)==TOK_LPAREN || lookahead(2)==TOK_LBRACKET) { /* FIRST(abstract_declarator) */
-            match(TOK_LPAREN);
-            n = temp = abstract_declarator();
-            match(TOK_RPAREN);
-        } else {
-            n = temp = direct_abstract_declarator_postfix();
-        }
-    } else if (lookahead(1) == TOK_LBRACKET) {
-        n = temp = direct_abstract_declarator_postfix();
-    } else {
-        ERROR("expecting direct-abstract-declarator");
-    }
-
-    while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN) {
-        n = direct_abstract_declarator_postfix();
-        n->child = temp;
-        temp = n;
-    }
-
-    return n;
-}
-
-/*
- * direct_abstract_declarator_postfix = "[" [ constant_expression ] "]" |
- *                                      "(" [ parameter_type_list ] ")"
- */
-TypeExp *direct_abstract_declarator_postfix(void)
-{
-    TypeExp *n;
-
-    n = malloc(sizeof(TypeExp));
-    n->child = NULL;
-    n->op = lookahead(1);
-
-    if (lookahead(1) == TOK_LBRACKET) {
-        match(TOK_LBRACKET);
-        if (lookahead(1) != TOK_RBRACKET)
-            n->attr.e = constant_expression();
-        match(TOK_RBRACKET);
-    } else if (lookahead(1) == TOK_LPAREN) {
-        match(TOK_LPAREN);
-        if (lookahead(1) != TOK_RPAREN)
-            n->attr.dl = parameter_type_list();
-        match(TOK_RPAREN);
-    } else {
-        ERROR("parser bug: direct_abstract_declarator_postfix()");
-    }
 
     return n;
 }
