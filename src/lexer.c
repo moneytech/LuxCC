@@ -332,8 +332,17 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
         }
             break;
         case PRE_TOK_NL:
+            fprintf(stderr, "lexer bug: new-line token not deleted during preprocessing");
+            exit(1);
             break;
         case PRE_TOK_OTHER:
+            /*
+             * Ignore `other' tokens (though maybe it would be
+             * more convenient to emit a diagnostic informing
+             * to the user of the presence of a extraneous
+             * charater in the input file).
+             */
+            continue;
             break;
         }
         tok = tok->next;

@@ -75,8 +75,8 @@ TypeExp *type_qualifier_list(void);
 DeclList *parameter_type_list(void);
 DeclList *parameter_list(void);
 Declaration *parameter_declaration(void);
-void identifier_list(void);
-void type_name(void);
+// void identifier_list(void);
+Declaration *type_name(void);
 TypeExp *abstract_declarator(void);
 TypeExp *direct_abstract_declarator(void);
 TypeExp *direct_abstract_declarator_postfix(void);
@@ -1117,6 +1117,8 @@ Declaration *parameter_declaration(void)
             } else if (lookahead(i) == TOK_ID) {
                 id_found = TRUE;
                 break;
+            } else if (lookahead(i) == TOK_EOF) {
+                ERROR("missing parenthesis");
             }
             ++i;
         }
@@ -1133,23 +1135,30 @@ Declaration *parameter_declaration(void)
 /*
  * identifier_list = identifier { "," identifier }
  */
-void identifier_list(void)
+/*void identifier_list(void)
 {
     match(TOK_ID);
     while (lookahead(1) == TOK_COMMA) {
         match(TOK_COMMA);
         match(TOK_ID);
     }
-}
+}*/
 
 /*
  * type_name = specifier_qualifier_list [ abstract_declarator ]
  */
-void type_name(void)
+Declaration *type_name(void)
 {
-    specifier_qualifier_list(FALSE);
+    Declaration *n;
+
+    n = malloc(sizeof(Declaration));
+    n->idl = NULL;
+
+    n->decl_specs = specifier_qualifier_list(FALSE);
     if (lookahead(1) != TOK_RPAREN) /* FOLLOW(type_name) = { ")" } */
-        abstract_declarator();
+        n->idl = abstract_declarator();
+
+    return n;
 }
 
 /*
@@ -1158,13 +1167,20 @@ void type_name(void)
  */
 TypeExp *abstract_declarator(void)
 {
+    TypeExp *n, *temp;
+
     if (lookahead(1) == TOK_ASTERISK) {
-        match(TOK_ASTERISK);
-        if (lookahead(1)==TOK_LPAREN || lookahead(1)==TOK_LBRACKET)
-            direct_abstract_declarator();
+        n = temp = pointer();
+        if (lookahead(1)==TOK_LPAREN || lookahead(1)==TOK_LBRACKET) {
+            while (temp->child != NULL)
+                temp = temp->child;
+            temp->child = direct_abstract_declarator();
+        }
     } else {
-        direct_abstract_declarator();
+        n = direct_abstract_declarator();
     }
+
+    return n;
 }
 
 /*
@@ -1173,20 +1189,29 @@ TypeExp *abstract_declarator(void)
  */
 TypeExp *direct_abstract_declarator(void)
 {
+    TypeExp *n, *temp;
+
     if (lookahead(1) == TOK_LPAREN) {
         if (lookahead(2)==TOK_ASTERISK || lookahead(2)==TOK_LPAREN || lookahead(2)==TOK_LBRACKET) { /* FIRST(abstract_declarator) */
             match(TOK_LPAREN);
-            abstract_declarator();
+            n = temp = abstract_declarator();
             match(TOK_RPAREN);
         } else {
-            direct_abstract_declarator_postfix();
+            n = temp = direct_abstract_declarator_postfix();
         }
-    } else { /* "[" [ constant_expression ] "]" or error */
-        direct_abstract_declarator_postfix();
+    } else if (lookahead(1) == TOK_LBRACKET) {
+        n = temp = direct_abstract_declarator_postfix();
+    } else {
+        ERROR("expecting direct-abstract-declarator");
     }
 
-    while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN)
-        direct_abstract_declarator_postfix();
+    while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN) {
+        n = direct_abstract_declarator_postfix();
+        n->child = temp;
+        temp = n;
+    }
+
+    return n;
 }
 
 /*
@@ -1195,19 +1220,27 @@ TypeExp *direct_abstract_declarator(void)
  */
 TypeExp *direct_abstract_declarator_postfix(void)
 {
+    TypeExp *n;
+
+    n = malloc(sizeof(TypeExp));
+    n->child = NULL;
+    n->op = lookahead(1);
+
     if (lookahead(1) == TOK_LBRACKET) {
         match(TOK_LBRACKET);
         if (lookahead(1) != TOK_RBRACKET)
-            constant_expression();
+            n->attr.e = constant_expression();
         match(TOK_RBRACKET);
     } else if (lookahead(1) == TOK_LPAREN) {
         match(TOK_LPAREN);
         if (lookahead(1) != TOK_RPAREN)
-            parameter_type_list();
+            n->attr.dl = parameter_type_list();
         match(TOK_RPAREN);
     } else {
-        ERROR("direct_abstract_declarator_postfix");
+        ERROR("parser bug: direct_abstract_declarator_postfix()");
     }
+
+    return n;
 }
 
 /*
