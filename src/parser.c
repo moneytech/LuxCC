@@ -101,6 +101,17 @@ ExecNode *assignment_expression(void);
 ExecNode *constant_expression(void);
 ExecNode *compound_statement(int new_scope);
 
+static ExecNode *logical_OR_expression(void);
+static ExecNode *logical_AND_expression(void);
+static ExecNode *inclusive_OR_expression(void);
+static ExecNode *exclusive_OR_expression(void);
+static ExecNode *AND_expression(void);
+static ExecNode *equality_expression(void);
+static ExecNode *relational_expression(void);
+static ExecNode *shift_expression(void);
+static ExecNode *additive_expression(void);
+static ExecNode *multiplicative_expression(void);
+
 /*
  * Functions that test lookahead(1).
  */
@@ -264,7 +275,7 @@ ExternDecl *translation_unit(void)
 }
 
 /*
- * See if `typedef' is between
+ * Search `typedef' between
  * the declaration specifiers.
  */
 int search_typedef(TypeExp *t)
@@ -332,8 +343,8 @@ FuncDef *function_definition(TypeExp *decl_specs, TypeExp *header)
     FuncDef *f;
 
     f = malloc(sizeof(FuncDef));
-    f->decl_specs = decl_specs; //declaration_specifiers(FALSE);
-    f->header = header; //declarator(TRUE, TOK_ID);
+    f->decl_specs = decl_specs;
+    f->header = header;
     restore_scope(); /* restore parameters' scope */
 
     f->body = compound_statement(FALSE);
@@ -532,7 +543,7 @@ TypeExp *init_declarator(Token tok, TypeExp *first_declarator)
 
     if (lookahead(1) == TOK_ASSIGN) {
         match(TOK_ASSIGN);
-        initializer();
+        n->attr.e = initializer();
     }
 
     return n;
@@ -739,7 +750,7 @@ TypeExp *specifier_qualifier_list(int type_spec_seen)
     TypeExp *n;
 
     if (in_first_type_specifier())
-        n = type_specifier(); //, type_spec_seen = TRUE;
+        n = type_specifier() , type_spec_seen = TRUE;
     else if (in_first_type_qualifier())
         n = type_qualifier(), type_spec_seen = TRUE;
     else
@@ -930,8 +941,8 @@ TypeExp *declarator(DeclaratorCategory dc, int install_id, Token tok)
  * when dc != ABSTRACT_DECLARATOR, and their meaning is
  * as follows:
  *  If `install_id' == TRUE, install the identifier in the
- * parser symbol table (`tok' indicates if install ir as
- * an identifier or a typedef name).
+ * parser symbol table, and`tok' indicates if install it as
+ * an identifier or a typedef name.
  */
 TypeExp *direct_declarator(DeclaratorCategory dc, int install_id, Token tok)
 {
@@ -1101,11 +1112,16 @@ Declaration *parameter_declaration(void)
     Declaration *n;
 
     n = malloc(sizeof(Declaration));
+    n->idl = NULL;
 
     n->decl_specs = declaration_specifiers(FALSE);
     if (lookahead(1)!=TOK_COMMA && lookahead(1)!=TOK_RPAREN) { /* FOLLOW(parameter_declaration) */
-        /* `typedef' must not appear in a parameter declaration */
+        /* do not allow typedef-name declarations here (always pass TOK_ID to declarator()) */
         n->idl = declarator(EITHER_DECLARATOR, TRUE, TOK_ID);
+        /*
+         * To allow typedef-name declarations one can do:
+         * n->idl = declarator(EITHER_DECLARATOR, TRUE, search_typedef(n->decl_specs)?TOK_TYPEDEFNAME:TOK_ID);
+         */
     }
 
     return n;
@@ -1187,22 +1203,25 @@ ExecNode *initializer_list(void)
     }
 }
 
-#if 0
 // =============================================================================
 // Statements
 // =============================================================================
 
+/*
 statement = labeled_statement |
             compound_statement |
             expression_statement |
             selection_statement |
             iteration_statement |
-            jump_statement ;
+            jump_statement
+ */
 
+/*
 labeled_statement = identifier ":" statement |
                     "case" constant_expression ":" statement |
-                    "default" ":" statement ;
-#endif
+                    "default" ":" statement
+ */
+
 /*
  * compound_statement = "{" [ declaration_list ] [ statement_list ] "}"
  */
@@ -1249,124 +1268,276 @@ DeclList *declaration_list(void)
     return n;
 }
 
-#if 0
-statement_list = statement { statement } ;
+/*
+ * statement_list = statement { statement }
+ */
 
-expression_statement = [ expression ] ";" ;
+/*
+ * expression_statement = [ expression ] ";"
+ */
 
-selection_statement = "if" "(" expression ")" statement [ "else" statement ] |
-                      "switch" "(" expression ")" statement ;
+/*
+ * selection_statement = "if" "(" expression ")" statement [ "else" statement ] |
+ *                       "switch" "(" expression ")" statement
+ */
 
-iteration_statement = "while" "(" expression ")" statement |
-                      "do" statement "while" "(" expression ")" ";" |
-                      "for" "(" [ expression ] ";" [ expression ] ";" [ expression ] ")" statement ;
+/*
+ * iteration_statement = "while" "(" expression ")" statement |
+ *                       "do" statement "while" "(" expression ")" ";" |
+ *                       "for" "(" [ expression ] ";" [ expression ] ";" [ expression ] ")" statement
+ */
 
-jump_statement = "goto" identifier ";" |
-                 "continue" ";" |
-                 "break" ";" |
-                 "return" [ expression ] ";" ;
-
+/*
+ * jump_statement = "goto" identifier ";" |
+ *                  "continue" ";" |
+ *                  "break" ";" |
+ *                  "return" [ expression ] ";"
+ */
 
 // =============================================================================
 // Expressions
 // =============================================================================
-
-primary_expression = identifier |
-                     constant |
-                     string_literal |
-                     "(" expression ")" ;
-
-postfix_expression = primary_expression { postfix } ;
-
-postfix = "[" expression "]" |
-          "(" [ argument_expression_list ] ")" |
-          "." identifier |
-          "->" identifier |
-          "++" |
-          "--" ;
-
-argument_expression_list = assignment_expression { "," assignment_expression } ;
-
-unary_expression = postfix_expression |
-                   "++" unary_expression |
-                   "--" unary_expression |
-                   unary_operator cast_expression |
-                   "sizeof" unary_expression |
-                   "sizeof" "(" type_name ")" ;
-
-unary_operator = "&" | "*" | "+" | "-" | "~" | "!" ;
-
-cast_expression = unary_expression |
-                  "(" type_name ")" cast_expression ;
-
-expression = assignment_expression { "," assignment_expression } ;
-#endif
-
-/*
- * assignment_expression = conditional_expression |
- *                         unary_expression assignment_operator assignment_expression
- */
-ExecNode *assignment_expression(void)
-{
-    if (lookahead(1) == TOK_ICONST)
-        match(TOK_ICONST);
-    else if (lookahead(1) == TOK_ID) {
-        Symbol *s;
-        if ((s=lookup(get_lexeme(1), TRUE)) != NULL)
-            if (s->tok == TOK_TYPEDEFNAME)
-                ERROR("assignment_expression, identifier expected");
-        match(TOK_ID);
-    }
-}
-
-#if 0
-assignment_operator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" ;
-
-conditional_expression = logical_OR_expression [ "?" expression ":" conditional_expression ] ;
-#endif
 
 /*
  * constant_expression = conditional_expression
  */
 ExecNode *constant_expression(void)
 {
-    match(TOK_ICONST);
 }
 
-#if 0
-logical_OR_expression = logical_AND_expression { "||" logical_AND_expression } ;
+/*
+ * expression = assignment_expression { "," assignment_expression }
+ */
+ExecNode *expression(void)
+{
+}
 
-logical_AND_expression = inclusive_OR_expression { "&&" inclusive_OR_expression } ;
+#define IS_ASSIGNMENT_OP(tok) (tok>=TOK_ASSIGN && tok<=TOK_BW_OR_ASSIGN)
 
-inclusive_OR_expression = exclusive_OR_expression { "|" exclusive_OR_expression } ;
+/*
+ * assignment_expression = conditional_expression |
+ *                         unary_expression assignment_operator assignment_expression
+ * assignment_expression = conditional_expression [ assignment_operator assignment_expression ]
+ */
+ExecNode *assignment_expression(void)
+{
+}
 
-exclusive_OR_expression = AND_expression { "^" AND_expression } ;
+/*
+ * assignment_operator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|="
+ */
 
-AND_expression = equality_expression { "&" equality_expression } ;
+/*
+ * conditional_expression = logical_OR_expression [ "?" expression ":" conditional_expression ]
+ */
+ExecNode *conditional_expression(void)
+{
+}
 
-equality_expression = relational_expression { equop relational_expression } ;
+/*
+ * logical_OR_expression = logical_AND_expression { "||" logical_AND_expression }
+ */
+ExecNode *logical_OR_expression(void)
+{
+    ExecNode *temp, *new_temp;
+    temp = logical_AND_expression();
+    while (lookahead(1) == TOK_OR) {
+        // new_temp = new_op_node(LA(1));
+        // match(LA(1));
+        // new_temp->child[0] = temp;
+        // new_temp->child[1] = logical_AND_expression();
+        // temp = new_temp;
+    }
+    return temp;
+}
 
-equop = "==" | "!=" ;
+/*
+ * logical_AND_expression = inclusive_OR_expression { "&&" inclusive_OR_expression }
+ */
+ExecNode *logical_AND_expression(void)
+{
+    ExecNode *temp, *new_temp;
+    temp = inclusive_OR_expression();
+    while (lookahead(1) == TOK_AND) {
+        // new_temp = new_op_node(LA(1));
+        // match(LA(1));
+        // new_temp->child[0] = temp;
+        // new_temp->child[1] = inclusive_OR_expression();
+        // temp = new_temp;
+    }
+    return temp;
+}
 
-relational_expression = shift_expression { relop shift_expression };
+/*
+ * inclusive_OR_expression = exclusive_OR_expression { "|" exclusive_OR_expression }
+ */
+ExecNode *inclusive_OR_expression(void)
+{
+    ExecNode *temp, *new_temp;
+    temp = exclusive_OR_expression();
+    while (lookahead(1) == TOK_BW_OR) {
+        // new_temp = new_op_node(LA(1));
+        // match(LA(1));
+        // new_temp->child[0] = temp;
+        // new_temp->child[1] = exclusive_OR_expression();
+        // temp = new_temp;
+    }
+    return temp;
+}
 
-relop = "<" | ">" | "<=" | ">=" ;
+/*
+ * exclusive_OR_expression = AND_expression { "^" AND_expression }
+ */
+ExecNode *exclusive_OR_expression(void)
+{
+    ExecNode *temp, *new_temp;
+    temp = AND_expression();
+    while (lookahead(1) == TOK_BW_XOR) {
+        // new_temp = new_op_node(LA(1));
+        // match(LA(1));
+        // new_temp->child[0] = temp;
+        // new_temp->child[1] = AND_expression();
+        // temp = new_temp;
+    }
+    return temp;
+}
 
-shift_expression = additive_expression { shiftop additive_expression } ;
+/*
+ * AND_expression = equality_expression { "&" equality_expression }
+ */
+ExecNode *AND_expression(void)
+{
+    ExecNode *temp, *new_temp;
+    temp = equality_expression();
+    while (lookahead(1) == TOK_AMPERSAND) {
+        // new_temp = new_op_node(LA(1));
+        // match(LA(1));
+        // new_temp->child[0] = temp;
+        // new_temp->child[1] = equality_expression();
+        // temp = new_temp;
+    }
+    return temp;
+}
 
-shiftop = "<<" | ">>" ;
+/*
+ * equality_expression = relational_expression { equop relational_expression }
+ * equop = "==" | "!="
+ */
+ExecNode *equality_expression(void)
+{
+    ExecNode *temp, *new_temp;
+    temp = relational_expression();
+    while ((lookahead(1)==TOK_EQ) || (lookahead(1)==TOK_NEQ)) {
+        // new_temp = new_op_node(LA(1));
+        // match(LA(1));
+        // new_temp->child[0] = temp;
+        // new_temp->child[1] = relational_expression();
+        // temp = new_temp;
+    }
+    return temp;
+}
 
-additive_expression = multiplicative_expression { addop multiplicative_expression } ;
+/*
+ * relational_expression = shift_expression { relop shift_expression }
+ * relop = "<" | ">" | "<=" | ">=
+ */
+ExecNode *relational_expression(void)
+{
+    ExecNode *temp, *new_temp;
+    temp = shift_expression();
+    // while (is_relop(LA(1))) {
+        // new_temp = new_op_node(LA(1));
+        // match(LA(1));
+        // new_temp->child[0] = temp;
+        // new_temp->child[1] = shift_expression();
+        // temp = new_temp;
+    // }
+    return temp;
+}
 
-addop = "+" | "-" ;
+/*
+ * shift_expression = additive_expression { shiftop additive_expression }
+ * shiftop = "<<" | ">>"
+ */
+ExecNode *shift_expression(void)
+{
+    ExecNode *temp, *new_temp;
+    temp = additive_expression();
+    while ((lookahead(1)==TOK_LSHIFT) || (lookahead(1)==TOK_RSHIFT)) {
+        // new_temp = new_op_node(LA(1));
+        // match(LA(1));
+        // new_temp->child[0] = temp;
+        // new_temp->child[1] = additive_expression();
+        // temp = new_temp;
+    }
+    return temp;
+}
 
-multiplicative_expression = cast_expression { mulop cast_expression } ;
+/*
+ * additive_expression = multiplicative_expression { addop multiplicative_expression }
+ * addop = "+" | "-" ;
+ */
+ExecNode *additive_expression(void)
+{
+    ExecNode *temp, *new_temp;
+    temp = multiplicative_expression();
+    while ((lookahead(1)==TOK_PLUS) || (lookahead(1)==TOK_MINUS)) {
+        // new_temp = new_op_node(LA(1));
+        // match(LA(1));
+        // new_temp->child[0] = temp;
+        // new_temp->child[1] = multiplicative_expression();
+        // temp = new_temp;
+    }
+    return temp;
+}
 
-mulop = "*" | "/" | "%" ;
+/*
+ * multiplicative_expression = cast_expression { mulop cast_expression }
+ * mulop = "*" | "/" | "%"
+ */
+ExecNode *multiplicative_expression(void)
+{
+}
+
+/*
+ * cast_expression = unary_expression |
+ *                  "(" type_name ")" cast_expression
+ */
+
+/*
+ * unary_expression = postfix_expression |
+ *                    "++" unary_expression |
+ *                    "--" unary_expression |
+ *                    unary_operator cast_expression |
+ *                    "sizeof" unary_expression |
+ *                    "sizeof" "(" type_name ")"
+ */
+
+/*
+ * unary_operator = "&" | "*" | "+" | "-" | "~" | "!"
+ */
 
 
-// =============================================================================
-// Preprocessing directives
-// =============================================================================
-????
-#endif
+/*
+ * postfix_expression = primary_expression { postfix }
+ */
+
+/*
+ * postfix = "[" expression "]" |
+ *           "(" [ argument_expression_list ] ")" |
+ *           "." identifier |
+ *           "->" identifier |
+ *           "++" |
+ *           "--"
+ */
+
+/*
+ * argument_expression_list = assignment_expression { "," assignment_expression }
+ */
+
+/*
+ * primary_expression = identifier |
+ *                      constant |
+ *                      string_literal |
+ *                      "(" expression ")"
+ */

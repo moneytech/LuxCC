@@ -3,17 +3,16 @@
 
 #include "lexer.h"
 
+
+/*
+ * Nodes that represent non-executable code.
+ */
 typedef struct TypeExp TypeExp;
 typedef struct Declaration Declaration;
 typedef struct DeclList DeclList;
 typedef struct FuncDef FuncDef;
 typedef struct ExternDecl ExternDecl;
-typedef struct ExecNode ExecNode;
 
-struct ExecNode {
-    int xyz;
-    DeclList *locals;
-};
 
 struct TypeExp {
     Token op;
@@ -26,14 +25,14 @@ struct TypeExp {
     TypeExp *child, *sibling;
 };
 
-struct Declaration {
-    TypeExp *decl_specs;
-    TypeExp *idl;     /* init declarator list */
-};
-
 struct DeclList {
     Declaration *decl;
     DeclList *next;
+};
+
+struct Declaration {
+    TypeExp *decl_specs;
+    TypeExp *idl;     /* init declarator list */
 };
 
 struct FuncDef {
@@ -54,6 +53,43 @@ struct ExternDecl {
         FuncDef *f;
     } ed;
     ExternDecl *sibling;
+};
+
+
+/*
+ * Nodes representing executable code.
+ */
+typedef struct ExecNode ExecNode;
+
+typedef enum {
+    StmtNode,
+    ExpNode
+} ENKind;
+
+typedef enum {
+    IfStmt, WhileStmt, DoStmt, ForStmt, BreakStmt, ContinueStmt,
+    ReturnStmt, ExpStmt, CmpndStmt, SwitchStmt, CaseStmt, DefaultStmt,
+    LabelStmt, GotoStmt
+} StmtKind;
+
+typedef enum {
+    OpExp, IConstExp, StrLitExp, IdExp
+} ExpKind;
+
+struct ExecNode {
+    ExecNode *child[4];
+    ExecNode *sibling;
+    DeclList *locals;
+    ENKind node_kind;
+    union {
+        StmtKind stmt;
+        ExpKind exp;
+    } kind;
+    union {
+        Token op;
+        char *str;
+    }
+    int src_line;
 };
 
 void parser(TokenNode *);
