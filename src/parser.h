@@ -3,6 +3,7 @@
 
 #include "lexer.h"
 
+typedef struct ExecNode ExecNode;
 
 /*
  * Nodes that represent non-executable code.
@@ -12,7 +13,6 @@ typedef struct Declaration Declaration;
 typedef struct DeclList DeclList;
 typedef struct FuncDef FuncDef;
 typedef struct ExternDecl ExternDecl;
-
 
 struct TypeExp {
     Token op;
@@ -59,8 +59,6 @@ struct ExternDecl {
 /*
  * Nodes representing executable code.
  */
-typedef struct ExecNode ExecNode;
-
 typedef enum {
     StmtNode,
     ExpNode
@@ -88,7 +86,8 @@ struct ExecNode {
     union {
         Token op;
         char *str;
-    }
+        Declaration *tn;
+    } attr;
     int src_line;
 };
 

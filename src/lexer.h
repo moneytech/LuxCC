@@ -103,7 +103,33 @@ typedef enum {
     TOK_ICONST,
     // TOK_ERROR,
     TOK_EOF,
-    TOK_TYPEDEFNAME
+    TOK_TYPEDEFNAME,
+    /*
+     * These are declared here for
+     * convenience (the lexer doesn't use them).
+     */
+    /* ++ */
+    TOK_PRE_INC,
+    TOK_POS_INC,
+    /* -- */
+    TOK_PRE_DEC,
+    TOK_POS_DEC,
+    /* [ ] */
+    TOK_SUBSCRIPT,
+    /* () */
+    TOK_FUNCTION,
+    /* + */
+    TOK_UNARY_PLUS,
+    /* - */
+    TOK_UNARY_MINUS,
+    /* * */
+    TOK_INDIRECTION,
+    TOK_MUL,
+    /* & */
+    TOK_ADDRESS_OF,
+    TOK_BW_AND,
+    /* ( type-name ) */
+    TOK_CAST
 } Token;
 
 typedef struct TokenNode TokenNode;

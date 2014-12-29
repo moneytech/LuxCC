@@ -97,10 +97,11 @@ ExecNode *initializer(void);
 ExecNode *initializer_list(void);
 
 DeclList *declaration_list(void);
+ExecNode *compound_statement(int new_scope);
+ExecNode *conditional_expression(void);
 ExecNode *assignment_expression(void);
 ExecNode *constant_expression(void);
-ExecNode *compound_statement(int new_scope);
-
+ExecNode *expression(void);
 static ExecNode *logical_OR_expression(void);
 static ExecNode *logical_AND_expression(void);
 static ExecNode *inclusive_OR_expression(void);
@@ -111,6 +112,12 @@ static ExecNode *relational_expression(void);
 static ExecNode *shift_expression(void);
 static ExecNode *additive_expression(void);
 static ExecNode *multiplicative_expression(void);
+ExecNode *cast_expression(void);
+ExecNode *unary_expression(void);
+ExecNode *postfix_expression(void);
+ExecNode *argument_expression_list(void);
+ExecNode *primary_expression(void);
+ExecNode *postfix(void);
 
 /*
  * Functions that test lookahead(1).
@@ -752,7 +759,7 @@ TypeExp *specifier_qualifier_list(int type_spec_seen)
     if (in_first_type_specifier())
         n = type_specifier() , type_spec_seen = TRUE;
     else if (in_first_type_qualifier())
-        n = type_qualifier(), type_spec_seen = TRUE;
+        n = type_qualifier();
     else
         ERROR("expecting type specifier or qualifier");
 
@@ -1299,10 +1306,65 @@ DeclList *declaration_list(void)
 // =============================================================================
 
 /*
+ExecNode *new_stmt_node(StmtKind stmt)
+{
+    ExecNode *new_node = calloc(1, sizeof(ExecNode));
+    new_node->node_kind = StmtNode;
+    new_node->kind.stmt = stmt;
+    new_node->lnum = GET_LINE_NUM();
+    return new_node;
+}
+
+ExecNode *new_op_node(int op)
+{
+    ExecNode *new_node = calloc(1, sizeof(ExecNode));
+    new_node->node_kind = ExpNode;
+    new_node->kind.exp = OpExp;
+    new_node->attr.op = op;
+    new_node->lnum = GET_LINE_NUM();
+    return new_node;
+}
+
+ExecNode *new_exp_node(ExpKind exp)
+{
+    ExecNode *new_node = calloc(1, sizeof(ExecNode));
+    new_node->node_kind = ExpNode;
+    new_node->kind.exp = exp;
+    new_node->lnum = GET_LINE_NUM();
+    return new_node;
+}
+*/
+ExecNode *new_op_node(Token op)
+{
+    ExecNode *new_node;
+
+    new_node = calloc(1, sizeof(ExecNode));
+    new_node->node_kind = ExpNode;
+    new_node->kind.exp = OpExp;
+    new_node->attr.op = op;
+    // new_node->src_line = ;
+
+    return new_node;
+}
+
+ExecNode *new_pri_exp_node(ExpKind kind)
+{
+    ExecNode *new_node;
+
+    new_node = calloc(1, sizeof(ExecNode));
+    new_node->node_kind = ExpNode;
+    new_node->kind.exp = kind;
+    // new_node->lnum = GET_LINE_NUM();
+
+    return new_node;
+}
+
+/*
  * constant_expression = conditional_expression
  */
 ExecNode *constant_expression(void)
 {
+    return conditional_expression();
 }
 
 /*
@@ -1310,28 +1372,75 @@ ExecNode *constant_expression(void)
  */
 ExecNode *expression(void)
 {
-}
+    ExecNode *n, *temp;
 
-#define IS_ASSIGNMENT_OP(tok) (tok>=TOK_ASSIGN && tok<=TOK_BW_OR_ASSIGN)
+    n = temp = assignment_expression();
+    while (lookahead(1) == TOK_COMMA) {
+        match(TOK_COMMA);
+        temp = new_op_node(TOK_COMMA);
+        temp->child[0] = n;
+        temp->child[1] = assignment_expression();
+        n = temp;
+    }
 
-/*
- * assignment_expression = conditional_expression |
- *                         unary_expression assignment_operator assignment_expression
- * assignment_expression = conditional_expression [ assignment_operator assignment_expression ]
- */
-ExecNode *assignment_expression(void)
-{
+    return n;
 }
 
 /*
  * assignment_operator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|="
  */
+#define IS_ASSIGNMENT_OP(tok) (tok>=TOK_ASSIGN && tok<=TOK_BW_OR_ASSIGN)
+
+/*
+ * assignment_expression = conditional_expression [ assignment_operator assignment_expression ]
+ *
+ * Note: the original production that appears on
+ * the standard is:
+ *
+ *      assignment_expression = conditional_expression |
+ *                              unary_expression assignment_operator assignment_expression
+ *
+ * To simplify the parsing conditional_expression
+ * is accepted as a left-hand operand of an assignment
+ * operator. As a consequence of this, the expression
+ * `1+2=3' will be detected as an error during semantic
+ * analysis instead of during parsing.
+ */
+ExecNode *assignment_expression(void)
+{
+    ExecNode *n, *temp;
+
+    n = temp = conditional_expression();
+    if (IS_ASSIGNMENT_OP(lookahead(1))) {
+        temp = new_op_node(lookahead(1));
+        match(lookahead(1));
+        temp->child[0] = n;
+        temp->child[0] = assignment_expression();
+        n = temp;
+    }
+
+    return n;
+}
 
 /*
  * conditional_expression = logical_OR_expression [ "?" expression ":" conditional_expression ]
  */
 ExecNode *conditional_expression(void)
 {
+    ExecNode *n, *temp;
+
+    n = temp = logical_OR_expression();
+    if (lookahead(1) == TOK_CONDITIONAL) {
+        match(TOK_CONDITIONAL);
+        temp = new_op_node(TOK_CONDITIONAL);
+        temp->child[0] = n;
+        temp->child[1] = expression();
+        match(TOK_COLON);
+        temp->child[2] = conditional_expression();
+        n = temp;
+    }
+
+    return n;
 }
 
 /*
@@ -1339,16 +1448,18 @@ ExecNode *conditional_expression(void)
  */
 ExecNode *logical_OR_expression(void)
 {
-    ExecNode *temp, *new_temp;
-    temp = logical_AND_expression();
+    ExecNode *n, *temp;
+
+    n = temp = logical_AND_expression();
     while (lookahead(1) == TOK_OR) {
-        // new_temp = new_op_node(LA(1));
-        // match(LA(1));
-        // new_temp->child[0] = temp;
-        // new_temp->child[1] = logical_AND_expression();
-        // temp = new_temp;
+        temp = new_op_node(lookahead(1));
+        match(lookahead(1));
+        temp->child[0] = n;
+        temp->child[1] = logical_AND_expression();
+        n = temp;
     }
-    return temp;
+
+    return n;
 }
 
 /*
@@ -1356,16 +1467,18 @@ ExecNode *logical_OR_expression(void)
  */
 ExecNode *logical_AND_expression(void)
 {
-    ExecNode *temp, *new_temp;
-    temp = inclusive_OR_expression();
+    ExecNode *n, *temp;
+
+    n = temp = inclusive_OR_expression();
     while (lookahead(1) == TOK_AND) {
-        // new_temp = new_op_node(LA(1));
-        // match(LA(1));
-        // new_temp->child[0] = temp;
-        // new_temp->child[1] = inclusive_OR_expression();
-        // temp = new_temp;
+        temp = new_op_node(lookahead(1));
+        match(lookahead(1));
+        temp->child[0] = n;
+        temp->child[1] = inclusive_OR_expression();
+        n = temp;
     }
-    return temp;
+
+    return n;
 }
 
 /*
@@ -1373,16 +1486,18 @@ ExecNode *logical_AND_expression(void)
  */
 ExecNode *inclusive_OR_expression(void)
 {
-    ExecNode *temp, *new_temp;
-    temp = exclusive_OR_expression();
+    ExecNode *n, *temp;
+
+    n = temp = exclusive_OR_expression();
     while (lookahead(1) == TOK_BW_OR) {
-        // new_temp = new_op_node(LA(1));
-        // match(LA(1));
-        // new_temp->child[0] = temp;
-        // new_temp->child[1] = exclusive_OR_expression();
-        // temp = new_temp;
+        temp = new_op_node(lookahead(1));
+        match(lookahead(1));
+        temp->child[0] = n;
+        temp->child[1] = exclusive_OR_expression();
+        n = temp;
     }
-    return temp;
+
+    return n;
 }
 
 /*
@@ -1390,16 +1505,18 @@ ExecNode *inclusive_OR_expression(void)
  */
 ExecNode *exclusive_OR_expression(void)
 {
-    ExecNode *temp, *new_temp;
-    temp = AND_expression();
+    ExecNode *n, *temp;
+
+    n = temp = AND_expression();
     while (lookahead(1) == TOK_BW_XOR) {
-        // new_temp = new_op_node(LA(1));
-        // match(LA(1));
-        // new_temp->child[0] = temp;
-        // new_temp->child[1] = AND_expression();
-        // temp = new_temp;
+        temp = new_op_node(lookahead(1));
+        match(lookahead(1));
+        temp->child[0] = n;
+        temp->child[1] = AND_expression();
+        n = temp;
     }
-    return temp;
+
+    return n;
 }
 
 /*
@@ -1407,16 +1524,18 @@ ExecNode *exclusive_OR_expression(void)
  */
 ExecNode *AND_expression(void)
 {
-    ExecNode *temp, *new_temp;
-    temp = equality_expression();
+    ExecNode *n, *temp;
+
+    n = temp = equality_expression();
     while (lookahead(1) == TOK_AMPERSAND) {
-        // new_temp = new_op_node(LA(1));
-        // match(LA(1));
-        // new_temp->child[0] = temp;
-        // new_temp->child[1] = equality_expression();
-        // temp = new_temp;
+        temp = new_op_node(lookahead(1));
+        match(lookahead(1));
+        temp->child[0] = n;
+        temp->child[1] = equality_expression();
+        n = temp;
     }
-    return temp;
+
+    return n;
 }
 
 /*
@@ -1425,34 +1544,42 @@ ExecNode *AND_expression(void)
  */
 ExecNode *equality_expression(void)
 {
-    ExecNode *temp, *new_temp;
-    temp = relational_expression();
-    while ((lookahead(1)==TOK_EQ) || (lookahead(1)==TOK_NEQ)) {
-        // new_temp = new_op_node(LA(1));
-        // match(LA(1));
-        // new_temp->child[0] = temp;
-        // new_temp->child[1] = relational_expression();
-        // temp = new_temp;
+    ExecNode *n, *temp;
+
+    n = temp = relational_expression();
+    while (lookahead(1)==TOK_EQ || lookahead(1)==TOK_NEQ) {
+        temp = new_op_node(lookahead(1));
+        match(lookahead(1));
+        temp->child[0] = n;
+        temp->child[1] = relational_expression();
+        n = temp;
     }
-    return temp;
+
+    return n;
 }
 
 /*
- * relational_expression = shift_expression { relop shift_expression }
  * relop = "<" | ">" | "<=" | ">=
+ */
+#define IS_RELOP(tok) (tok>=TOK_LT && tok<=TOK_GET)
+
+/*
+ * relational_expression = shift_expression { relop shift_expression }
  */
 ExecNode *relational_expression(void)
 {
-    ExecNode *temp, *new_temp;
-    temp = shift_expression();
-    // while (is_relop(LA(1))) {
-        // new_temp = new_op_node(LA(1));
-        // match(LA(1));
-        // new_temp->child[0] = temp;
-        // new_temp->child[1] = shift_expression();
-        // temp = new_temp;
-    // }
-    return temp;
+    ExecNode *n, *temp;
+
+    n = temp = shift_expression();
+    while (IS_RELOP(lookahead(1))) {
+        temp = new_op_node(lookahead(1));
+        match(lookahead(1));
+        temp->child[0] = n;
+        temp->child[1] = shift_expression();
+        n = temp;
+    }
+
+    return n;
 }
 
 /*
@@ -1461,16 +1588,18 @@ ExecNode *relational_expression(void)
  */
 ExecNode *shift_expression(void)
 {
-    ExecNode *temp, *new_temp;
-    temp = additive_expression();
-    while ((lookahead(1)==TOK_LSHIFT) || (lookahead(1)==TOK_RSHIFT)) {
-        // new_temp = new_op_node(LA(1));
-        // match(LA(1));
-        // new_temp->child[0] = temp;
-        // new_temp->child[1] = additive_expression();
-        // temp = new_temp;
+    ExecNode *n, *temp;
+
+    n = temp = additive_expression();
+    while (lookahead(1)==TOK_LSHIFT || lookahead(1)==TOK_RSHIFT) {
+        temp = new_op_node(lookahead(1));
+        match(lookahead(1));
+        temp->child[0] = n;
+        temp->child[1] = additive_expression();
+        n = temp;
     }
-    return temp;
+
+    return n;
 }
 
 /*
@@ -1479,16 +1608,18 @@ ExecNode *shift_expression(void)
  */
 ExecNode *additive_expression(void)
 {
-    ExecNode *temp, *new_temp;
-    temp = multiplicative_expression();
-    while ((lookahead(1)==TOK_PLUS) || (lookahead(1)==TOK_MINUS)) {
-        // new_temp = new_op_node(LA(1));
-        // match(LA(1));
-        // new_temp->child[0] = temp;
-        // new_temp->child[1] = multiplicative_expression();
-        // temp = new_temp;
+    ExecNode *n, *temp;
+
+    n = temp = multiplicative_expression();
+    while (lookahead(1)==TOK_PLUS || lookahead(1)==TOK_MINUS) {
+        temp = new_op_node(lookahead(1));
+        match(lookahead(1));
+        temp->child[0] = n;
+        temp->child[1] = multiplicative_expression();
+        n = temp;
     }
-    return temp;
+
+    return n;
 }
 
 /*
@@ -1497,12 +1628,53 @@ ExecNode *additive_expression(void)
  */
 ExecNode *multiplicative_expression(void)
 {
+    ExecNode *n, *temp;
+
+    n = temp = cast_expression();
+    while (lookahead(1)==TOK_STAR || lookahead(1)==TOK_DIV || lookahead(1)==TOK_MOD) {
+        temp = new_op_node(lookahead(1));
+        match(lookahead(1));
+        temp->child[0] = n;
+        temp->child[1] = cast_expression();
+        n = temp;
+    }
+
+    return n;
 }
 
 /*
  * cast_expression = unary_expression |
  *                  "(" type_name ")" cast_expression
  */
+ExecNode *cast_expression(void)
+{
+    ExecNode *n;
+
+    if (lookahead(1) == TOK_LPAREN) {
+        TokenNode *temp;
+
+        temp = curr_tok; /* save */
+        match(TOK_LPAREN);
+        if (in_first_specifier_qualifier_list()) {
+            n = new_op_node(TOK_CAST);
+            n->attr.tn = type_name();
+            match(TOK_RPAREN);
+            n->child[0] = cast_expression();
+        } else {
+            curr_tok = temp; /* restore */
+            n = unary_expression();
+        }
+    } else {
+        n = unary_expression();
+    }
+
+    return n;
+}
+
+/*
+ * unary_operator = "&" | "*" | "+" | "-" | "~" | "!"
+ */
+#define IS_UNARY_OP(tok) (tok>=TOK_AMPERSAND && tok<=TOK_NEGATION)
 
 /*
  * unary_expression = postfix_expression |
@@ -1512,15 +1684,94 @@ ExecNode *multiplicative_expression(void)
  *                    "sizeof" unary_expression |
  *                    "sizeof" "(" type_name ")"
  */
+ExecNode *unary_expression(void)
+{
+    ExecNode *n;
 
-/*
- * unary_operator = "&" | "*" | "+" | "-" | "~" | "!"
- */
+    switch (lookahead(1)) {
+    case TOK_INC:
+        match(TOK_INC);
+        n = new_op_node(TOK_PRE_INC);
+        n->child[0] = unary_expression();
+        break;
+    case TOK_DEC:
+        match(TOK_DEC);
+        n = new_op_node(TOK_PRE_DEC);
+        n->child[0] = unary_expression();
+        break;
+    case TOK_SIZEOF: {
+        match(TOK_SIZEOF);
+        n = new_op_node(TOK_SIZEOF);
+        if (lookahead(1) == TOK_LPAREN) {
+            TokenNode *temp;
 
+            temp = curr_tok; /* save */
+            match(TOK_LPAREN);
+            if (in_first_specifier_qualifier_list()) {
+                n->attr.tn = type_name();
+                match(TOK_RPAREN);
+            } else { /* sizeof applied to a parenthesized expression */
+                curr_tok = temp; /* restore */
+                n->child[0] = unary_expression();
+            }
+        } else {
+            n->child[0] = unary_expression();
+        }
+        break;
+    }
+    case TOK_AMPERSAND:
+        match(TOK_AMPERSAND);
+        n = new_op_node(TOK_ADDRESS_OF);
+        n->child[0] = cast_expression();
+        break;
+    case TOK_STAR:
+        match(TOK_STAR);
+        n = new_op_node(TOK_INDIRECTION);
+        n->child[0] = cast_expression();
+        break;
+    case TOK_PLUS:
+        match(TOK_PLUS);
+        n = new_op_node(TOK_UNARY_PLUS);
+        n->child[0] = cast_expression();
+        break;
+    case TOK_MINUS:
+        match(TOK_MINUS);
+        n = new_op_node(TOK_UNARY_MINUS);
+        n->child[0] = cast_expression();
+        break;
+    case TOK_COMPLEMENT:
+    case TOK_NEGATION:
+        n = new_op_node(lookahead(1));
+        match(lookahead(1));
+        n->child[0] = cast_expression();
+        break;
+    default:
+        n = postfix_expression();
+        break;
+    }
+
+    return n;
+}
+
+#define IS_POSTFIX_OP(t) (t==TOK_LBRACKET || t==TOK_LPAREN || t==TOK_DOT || t==TOK_ARROW\
+|| t==TOK_INC || t==TOK_DEC)
 
 /*
  * postfix_expression = primary_expression { postfix }
  */
+ExecNode *postfix_expression(void)
+{
+    ExecNode *n, *temp;
+
+    n = temp = primary_expression();
+    while (IS_POSTFIX_OP(lookahead(1))) {
+        n = postfix();
+        n->child[0] = temp;
+        temp = n;
+    }
+
+    return n;
+}
 
 /*
  * postfix = "[" expression "]" |
@@ -1530,10 +1781,48 @@ ExecNode *multiplicative_expression(void)
  *           "++" |
  *           "--"
  */
+ExecNode *postfix(void)
+{
+    ExecNode *n;
 
-/*
- * argument_expression_list = assignment_expression { "," assignment_expression }
- */
+    switch (lookahead(1)) {
+    case TOK_LBRACKET:
+        match(TOK_LBRACKET);
+        n = new_op_node(TOK_SUBSCRIPT);
+        n->child[1] = expression();
+        match(TOK_RBRACKET);
+        break;
+    case TOK_LPAREN:
+        match(TOK_LPAREN);
+        n = new_op_node(TOK_FUNCTION);
+        if (lookahead(1) != TOK_RPAREN)
+            n->child[1] = argument_expression_list();
+        match(TOK_RPAREN);
+        break;
+    case TOK_DOT:
+        match(TOK_DOT);
+        n = new_op_node(TOK_DOT);
+        n->attr.str = get_lexeme(1);
+        match(TOK_ID);
+        break;
+    case TOK_ARROW:
+        match(TOK_ARROW);
+        n = new_op_node(TOK_ARROW);
+        n->attr.str = get_lexeme(1);
+        match(TOK_ID);
+        break;
+    case TOK_INC:
+        match(TOK_INC);
+        n = new_op_node(TOK_POS_INC);
+        break;
+    case TOK_DEC:
+        match(TOK_DEC);
+        n = new_op_node(TOK_POS_DEC);
+        break;
+    }
+
+    return n;
+}
 
 /*
  * primary_expression = identifier |
@@ -1541,3 +1830,52 @@ ExecNode *multiplicative_expression(void)
  *                      string_literal |
  *                      "(" expression ")"
  */
+ExecNode *primary_expression(void)
+{
+    ExecNode *n;
+
+    switch (lookahead(1)) {
+    case TOK_ID:
+        n = new_pri_exp_node(IdExp);
+        n->attr.str = get_lexeme(1);
+        match(TOK_ID);
+        break;
+    case TOK_ICONST:
+        n = new_pri_exp_node(IConstExp);
+        n->attr.str = get_lexeme(1);
+        match(TOK_ICONST);
+        break;
+    case TOK_STRLIT:
+        n = new_pri_exp_node(StrLitExp);
+        n->attr.str = get_lexeme(1);
+        match(TOK_STRLIT);
+        break;
+    case TOK_LPAREN:
+        match(TOK_LPAREN);
+        n = expression();
+        match(TOK_RPAREN);
+        break;
+    default:
+        ERROR("expecting primary-expression; found `%s'", get_lexeme(1));
+        break;
+    }
+
+    return n;
+}
+
+/*
+ * argument_expression_list = assignment_expression { "," assignment_expression }
+ */
+ExecNode *argument_expression_list(void)
+{
+    ExecNode *n, *temp;
+
+    n = temp = assignment_expression();
+    while (lookahead(1) == TOK_COMMA) {
+        match(TOK_COMMA);
+        temp->sibling = assignment_expression();
+        temp = temp->sibling;
+    }
+
+    return n;
+}

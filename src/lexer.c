@@ -54,7 +54,7 @@ const char *token_table[] = {
     "NEQ", "!=",
     "BW_XOR", "^",
     "BW_OR", "|",
-    "AND", "&",
+    "AND", "&&",
     "OR", "||",
     "CONDITIONAL", "?",
     "COLON", ":",
@@ -264,9 +264,11 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
 
     pre_tok = pre_token_list;
     first = tok = malloc(sizeof(TokenNode)); /* this node is deleted later */
-    for (; pre_tok != NULL; pre_tok = pre_tok->next) {
-        if (pre_tok->deleted)
+    while (pre_tok != NULL) {
+        if (pre_tok->deleted) {
+            pre_tok = pre_tok->next;
             continue;
+        }
 
         switch (pre_tok->token) {
         case PRE_TOK_EOF:
@@ -318,7 +320,43 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
         case PRE_TOK_STRLIT: {
             char *src, *dest;
 
-            src = dest = pre_tok->lexeme;
+            tok->next = new_token(TOK_STRLIT, pre_tok);
+
+            /*
+             * Concatenate any adjacent strings.
+             */
+            if (pre_tok->next!=NULL && pre_tok->next->token==PRE_TOK_STRLIT) {
+                int new_len;
+                PreTokenNode *p;
+
+                /* get length of concatenated strings */
+                new_len = 0, p = pre_tok;
+                while (p!=NULL && (p->token==PRE_TOK_NL || p->token==PRE_TOK_STRLIT)) {
+                    if (p->token != PRE_TOK_NL)
+                        new_len += strlen(p->lexeme);
+                    p = p->next;
+                }
+                ++new_len; /* make room for '\0' */
+
+                /* allocate all at one time */
+                tok->next->lexeme = malloc(new_len);
+                tok->next->lexeme[0] = '\0';
+
+                /* copy the strings to the buffer (pre_tok is
+                   left pointing to the last string concatenated) */
+                new_len = 0, p = pre_tok;
+                while (p!=NULL && (p->token==PRE_TOK_NL || p->token==PRE_TOK_STRLIT)) {
+                    if (p->token != PRE_TOK_NL)
+                        strcat(tok->next->lexeme, p->lexeme);
+                    pre_tok = p;
+                    p = p->next;
+                }
+            }
+
+            /*
+             * Convert escape sequences.
+             */
+            src = dest = tok->lexeme;
             while (*src != '\0') {
                 if (*src == '\\') {
                     ++src; /* skip \ */
@@ -328,7 +366,6 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
                 }
             }
             *dest = *src; /* copy '\0' */
-            tok->next = new_token(TOK_STRLIT, pre_tok);
         }
             break;
         case PRE_TOK_NL:
@@ -337,18 +374,18 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
             break;
         case PRE_TOK_OTHER:
             /*
-             * Ignore `other' tokens (though maybe it would be
-             * more convenient to emit a diagnostic informing
-             * to the user of the presence of a extraneous
-             * charater in the input file).
+             * Ignore `other' tokens (`, $, etc).
              */
+            pre_tok = pre_tok->next;
             continue;
             break;
         }
+        pre_tok = pre_tok->next;
         tok = tok->next;
     }
     tok = first->next;
     free(first);
+
     return tok;
 }
 
