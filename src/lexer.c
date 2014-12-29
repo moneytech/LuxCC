@@ -254,6 +254,25 @@ int cmp_punct(const void *p1, const void *p2)
 }
 
 /*
+ * Convert escape sequences.
+ */
+void convert_string(char *s)
+{
+    char *src, *dest;
+
+    src = dest = s;
+    while (*src != '\0') {
+        if (*src == '\\') {
+            ++src; /* skip \ */
+            *dest++ = (char)get_esc_seq_val(&src);
+        } else {
+            *dest++ = *src++;
+        }
+    }
+    *dest = *src; /* copy '\0' */
+}
+
+/*
  * Convert preprocessing tokens
  * to compiler tokens.
  */
@@ -317,9 +336,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
             strcpy(tok->next->lexeme, buf);
         }
             break;
-        case PRE_TOK_STRLIT: {
-            char *src, *dest;
-
+        case PRE_TOK_STRLIT:
             tok->next = new_token(TOK_STRLIT, pre_tok);
 
             /*
@@ -332,8 +349,10 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
                 /* get length of concatenated strings */
                 new_len = 0, p = pre_tok;
                 while (p!=NULL && (p->token==PRE_TOK_NL || p->token==PRE_TOK_STRLIT)) {
-                    if (p->token != PRE_TOK_NL)
+                    if (p->token != PRE_TOK_NL) {
+                        convert_string(p->lexeme);
                         new_len += strlen(p->lexeme);
+                    }
                     p = p->next;
                 }
                 ++new_len; /* make room for '\0' */
@@ -351,22 +370,9 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
                     pre_tok = p;
                     p = p->next;
                 }
+            } else { /* no adjacent string */
+                convert_string(tok->next->lexeme);
             }
-
-            /*
-             * Convert escape sequences.
-             */
-            src = dest = tok->lexeme;
-            while (*src != '\0') {
-                if (*src == '\\') {
-                    ++src; /* skip \ */
-                    *dest++ = (char)get_esc_seq_val(&src);
-                } else {
-                    *dest++ = *src++;
-                }
-            }
-            *dest = *src; /* copy '\0' */
-        }
             break;
         case PRE_TOK_NL:
             fprintf(stderr, "lexer bug: new-line token not deleted during preprocessing");
