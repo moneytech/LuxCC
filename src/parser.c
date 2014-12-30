@@ -21,7 +21,7 @@
     } while (0)
 */
 #define ERROR(...)\
-    fprintf(stderr, "%s:%d: error: ", curr_tok->file, curr_tok->src_line),\
+    fprintf(stderr, "%s:%d: error: ", curr_tok->src_file, curr_tok->src_line),\
     fprintf(stderr, __VA_ARGS__),\
     fprintf(stderr, "\n"),\
     exit(EXIT_FAILURE)
@@ -1415,7 +1415,7 @@ ExecNode *assignment_expression(void)
         temp = new_op_node(lookahead(1));
         match(lookahead(1));
         temp->child[0] = n;
-        temp->child[0] = assignment_expression();
+        temp->child[1] = assignment_expression();
         n = temp;
     }
 

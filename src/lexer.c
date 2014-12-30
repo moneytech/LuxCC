@@ -8,7 +8,7 @@
 #define FALSE 0
 
 #define ERROR(...)\
-    fprintf(stderr, "%s:%d: error: ", pre_tok->file, pre_tok->src_line),\
+    fprintf(stderr, "%s:%d: error: ", pre_tok->src_file, pre_tok->src_line),\
     fprintf(stderr, __VA_ARGS__),\
     fprintf(stderr, "\n"),\
     exit(EXIT_FAILURE)
@@ -23,7 +23,7 @@ static PreTokenNode *pre_tok; /* declared global so ERROR can access its content
 /*
  * Table that contains token-name/lexeme pairs.
  * It's indexed by `Token' enumeration constants.
- * The main use is for diagnostic messages.
+ * Mainly used for diagnostic messages.
  */
 const char *token_table[] = {
     "LBRACKET", "[",
@@ -184,7 +184,8 @@ TokenNode *new_token(Token token, PreTokenNode *ptok)
     temp->token = token;
     temp->lexeme = ptok->lexeme;
     temp->src_line = ptok->src_line;
-    temp->file = ptok->file;
+    temp->src_column = ptok->src_column;
+    temp->src_file = ptok->src_file;
     temp->next = NULL;
 
     return temp;

@@ -10,7 +10,7 @@
 #define FALSE 0
 
 #define ERROR(...)\
-    fprintf(stderr, "%s:%d: error: ", curr_tok->file, curr_tok->src_line),\
+    fprintf(stderr, "%s:%d: error: ", curr_tok->src_file, curr_tok->src_line),\
     fprintf(stderr, __VA_ARGS__),\
     fprintf(stderr, "\n"),\
     exit(EXIT_FAILURE)
@@ -37,7 +37,7 @@ typedef enum {
 static char *buf, *curr, *curr_source_file;
 static char token_string[128];
 static PreTokenNode *curr_tok, *token_list;
-static int curr_line/*, curr_column*/;
+static int curr_line, src_column;
 
 
 typedef enum {
@@ -64,7 +64,8 @@ PreTokenNode *new_node(PreToken token, char *lexeme)
     temp->next = NULL;
     temp->deleted = FALSE;
     temp->src_line = curr_line;
-    temp->file = curr_source_file;
+    temp->src_column = src_column;
+    temp->src_file = curr_source_file;
 
     return temp;
 }
@@ -244,13 +245,16 @@ PreToken get_token(void)
     PreToken token;
     State state = STATE_START;
     int save;
+    static int curr_column = 0;
 
     while (state != STATE_DONE) {
         int c = *curr++;
         save = TRUE;
+        ++curr_column;
 
         switch (state) {
         case STATE_START:
+            src_column = curr_column-1;
             if (c==' ' || c=='\t') {
                 save = FALSE;
             } else if (isdigit(c)) {
@@ -279,7 +283,7 @@ PreToken get_token(void)
                 case '\n':
                     save = FALSE; // ?
                     token = PRE_TOK_NL;
-                    ++curr_line;
+                    ++curr_line, curr_column=0;
                     break;
                 /*
                  * single-char punctuators
@@ -299,9 +303,11 @@ PreToken get_token(void)
                 /*
                  * multi-char punctuators
                  */
-#define SAVE_AND_ADVANCE() \
-    token_string[tok_str_ind++] = (char)c, \
-    c = *curr++
+#define ADVANCE() (++curr_column, *curr++)
+#define REWIND() (--curr_column, --curr)
+#define SAVE_AND_ADVANCE()\
+    token_string[tok_str_ind++] = (char)c,\
+    c = ADVANCE() //*curr++
                 case '+': /* +, ++ or += */
                     if (*curr=='+' || *curr=='=')
                         SAVE_AND_ADVANCE();
@@ -403,41 +409,46 @@ PreToken get_token(void)
         case STATE_INID:
             if (!isalpha(c) && !isdigit(c) && (c!='_')) {
                 save = FALSE;
-                --curr;
+                // --curr;
+                REWIND();
                 token = (state==STATE_INNUM)?PRE_TOK_NUM:PRE_TOK_ID;
                 state = STATE_DONE;
             }
             break;
         case STATE_INCHAR:
-            --curr;
+            // --curr;
+            REWIND();
             if (*curr=='\0' || *curr=='\n') {
                 ERROR2("missing terminating \"'\" character");
             } else if (*curr == '\'') {
                 ERROR2("empty character constant");
             } else {
-                token_string[tok_str_ind++] = *curr++;
+                token_string[tok_str_ind++] = ADVANCE();//*curr++;
                 while (*curr!='\'' || *(curr-1)=='\\') {
                     if (*curr=='\0' || *curr=='\n')
                         ERROR2("missing terminating \"'\" character");
-                    token_string[tok_str_ind++] = *curr++;
+                    token_string[tok_str_ind++] = ADVANCE();//*curr++;
                 }
-                ++curr; /* skip ' */
+                // ++curr; /* skip ' */
+                ADVANCE();
                 save = FALSE;
                 state = STATE_DONE;
                 token = PRE_TOK_CHACON;
             }
             break;
         case STATE_INSTR:
-            --curr;
+            // --curr;
+            REWIND();
             if (*curr=='\0' || *curr=='\n') {
                 ERROR2("missing terminating '\"' character");
             } else {
                 while (*curr!='"' || *(curr-1)=='\\') {
                     if (*curr=='\0' || *curr=='\n')
                         ERROR2("missing terminating '\"' character");
-                    token_string[tok_str_ind++] = *curr++;
+                    token_string[tok_str_ind++] = ADVANCE();//*curr++;
                 }
-                ++curr; /* skip " */
+                // ++curr; /* skip " */
+                ADVANCE();
                 save = FALSE;
                 state = STATE_DONE;
                 token = PRE_TOK_STRLIT;
@@ -450,7 +461,7 @@ PreToken get_token(void)
             else if (c == '*')
                 state = STATE_INCOMMENT2;
             else if (c == '\n')
-                ++curr_line;
+                ++curr_line, curr_column=0;
             break;
         case STATE_INCOMMENT2:
             save = FALSE;
@@ -461,16 +472,18 @@ PreToken get_token(void)
             else if (c != '*') {
                 state = STATE_INCOMMENT1;
                 if (c == '\n')
-                    ++curr_line;
+                    ++curr_line, curr_column=0;
             }
             break;
         case STATE_INLINECOMMENT:
             save = FALSE;
             if (c == '\n') {
-                --curr;
+                // --curr;
+                REWIND();
                 state = STATE_START;
             } else if (c == '\0') {
-                --curr;
+                // --curr;
+                REWIND();
                 state = STATE_START;
             }
             break;

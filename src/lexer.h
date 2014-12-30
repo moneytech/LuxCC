@@ -135,9 +135,9 @@ typedef enum {
 typedef struct TokenNode TokenNode;
 struct TokenNode {
     Token token;
-    char *lexeme, *file;
+    char *lexeme, *src_file;
     TokenNode *next;
-    int src_line/*, src_column*/;
+    int src_line, src_column;
 };
 
 extern const char *token_table[];
