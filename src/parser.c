@@ -21,7 +21,7 @@
     } while (0)
 */
 #define ERROR(...)\
-    fprintf(stderr, "%s:%d: error: ", curr_tok->src_file, curr_tok->src_line),\
+    fprintf(stderr, "%s:%d:%d: error: ", curr_tok->src_file, curr_tok->src_line, curr_tok->src_column),\
     fprintf(stderr, __VA_ARGS__),\
     fprintf(stderr, "\n"),\
     exit(EXIT_FAILURE)

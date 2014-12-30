@@ -8,7 +8,7 @@
 #define FALSE 0
 
 #define ERROR(...)\
-    fprintf(stderr, "%s:%d: error: ", pre_tok->src_file, pre_tok->src_line),\
+    fprintf(stderr, "%s:%d:%d: error: ", pre_tok->src_file, pre_tok->src_line, pre_tok->src_column),\
     fprintf(stderr, __VA_ARGS__),\
     fprintf(stderr, "\n"),\
     exit(EXIT_FAILURE)
@@ -18,7 +18,7 @@
 #define not_equal(s, t) (strcmp(s, t) != 0)
 int get_esc_seq_val(char **c);
 void check_integer_constant(char *ic);
-static PreTokenNode *pre_tok; /* declared global so ERROR can access its content */
+static PreTokenNode *pre_tok; /* declared global so ERROR can access it */
 
 /*
  * Table that contains token-name/lexeme pairs.
@@ -337,15 +337,19 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
             strcpy(tok->next->lexeme, buf);
         }
             break;
-        case PRE_TOK_STRLIT:
+        case PRE_TOK_STRLIT: {
+            PreTokenNode *p;
+
             tok->next = new_token(TOK_STRLIT, pre_tok);
 
             /*
              * Concatenate any adjacent strings.
              */
-            if (pre_tok->next!=NULL && pre_tok->next->token==PRE_TOK_STRLIT) {
+            p = pre_tok->next;
+            while (p!=NULL && p->token==PRE_TOK_NL)
+                p = p->next;
+            if (p!=NULL && p->token==PRE_TOK_STRLIT) {
                 int new_len;
-                PreTokenNode *p;
 
                 /* get length of concatenated strings */
                 new_len = 0, p = pre_tok;
@@ -375,6 +379,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
                 convert_string(tok->next->lexeme);
             }
             break;
+        }
         case PRE_TOK_NL:
             fprintf(stderr, "lexer bug: new-line token not deleted during preprocessing");
             exit(1);

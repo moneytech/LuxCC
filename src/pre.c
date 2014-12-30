@@ -5,18 +5,17 @@
 #include <ctype.h>
 #include "util.h"
 
-
 #define TRUE  1
 #define FALSE 0
 
 #define ERROR(...)\
-    fprintf(stderr, "%s:%d: error: ", curr_tok->src_file, curr_tok->src_line),\
+    fprintf(stderr, "%s:%d:%d: error: ", curr_tok->src_file, curr_tok->src_line, curr_tok->src_column),\
     fprintf(stderr, __VA_ARGS__),\
     fprintf(stderr, "\n"),\
     exit(EXIT_FAILURE)
 
 #define ERROR2(...)\
-    fprintf(stderr, "%s:%d: error: ", curr_source_file, curr_line),\
+    fprintf(stderr, "%s:%d:%d: error: ", curr_source_file, curr_line, src_column),\
     fprintf(stderr, __VA_ARGS__),\
     fprintf(stderr, "\n"),\
     exit(EXIT_FAILURE)
@@ -35,7 +34,7 @@ typedef enum {
 } State;
 
 static char *buf, *curr, *curr_source_file;
-static char token_string[128];
+static char token_string[1024];
 static PreTokenNode *curr_tok, *token_list;
 static int curr_line, src_column;
 
@@ -116,7 +115,6 @@ PreTokenNode *tokenize(void)
         p->next = new_node(t, token_string);
         p->next->next_char = *curr;
         p = p->next;
-
     } while (t != PRE_TOK_EOF);
 
     return n;
@@ -124,8 +122,8 @@ PreTokenNode *tokenize(void)
 
 static char *str_tok[] = {
     "EOF",
-    "punctuator"
-    "preprocessor number"
+    "punctuator",
+    "preprocessor number",
     "identifier",
     "character constant",
     "string literal",
@@ -423,10 +421,30 @@ PreToken get_token(void)
             } else if (*curr == '\'') {
                 ERROR2("empty character constant");
             } else {
+                /*
+                 *   If ' is found and it is preceded by:
+                 * 1) an even number of backslashes = stop
+                 *      'a'
+                 *      '\\',
+                 *      '\\\\'
+                 * 2) an odd number of backslashes = don't stop
+                 *      'abc\'def',
+                 *      '\'   <-error!
+                 *      '\\\' <-error!
+                 */
+                int cb; /* consecutive backslashes */
+
+                cb = 0;
+                if (*curr == '\\')
+                    ++cb;
                 token_string[tok_str_ind++] = ADVANCE();//*curr++;
-                while (*curr!='\'' || *(curr-1)=='\\') {
+                while (*curr!='\'' || cb%2!=0) {
                     if (*curr=='\0' || *curr=='\n')
                         ERROR2("missing terminating \"'\" character");
+                    else if (*curr == '\\')
+                        ++cb;
+                    else
+                        cb = 0;
                     token_string[tok_str_ind++] = ADVANCE();//*curr++;
                 }
                 // ++curr; /* skip ' */
@@ -442,9 +460,17 @@ PreToken get_token(void)
             if (*curr=='\0' || *curr=='\n') {
                 ERROR2("missing terminating '\"' character");
             } else {
-                while (*curr!='"' || *(curr-1)=='\\') {
+                /* the same rule as for character constants */
+                int cb;
+
+                cb = 0;
+                while (*curr!='"' || cb%2!=0) {
                     if (*curr=='\0' || *curr=='\n')
                         ERROR2("missing terminating '\"' character");
+                    else if (*curr == '\\')
+                        ++cb;
+                    else
+                        cb = 0;
                     token_string[tok_str_ind++] = ADVANCE();//*curr++;
                 }
                 // ++curr; /* skip " */

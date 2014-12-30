@@ -17,13 +17,14 @@ int main(void)
 
     /* only tokenize */
     tok = lexer(pre);
-    // while (tok != NULL) {
-        // printf("%s:%d:%-3d =>   token: %-15s lexeme: `%s'\n", tok->src_file, tok->src_line,
-        // tok->src_column, token_table[tok->token*2], tok->lexeme);
-        // tok = tok->next;
-    // }
+    while (tok != NULL) {
+        printf("%s:%d:%-3d =>   token: %-15s lexeme: `%s'\n", tok->src_file, tok->src_line,
+        tok->src_column, token_table[tok->token*2], tok->lexeme);
+        tok = tok->next;
+    }
 
     /* only parse */
     // parser(tok);
+    // printf("Parsed OK\n");
 	return 0;
 }
