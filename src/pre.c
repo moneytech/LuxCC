@@ -281,7 +281,7 @@ PreToken get_token(void)
                     token = PRE_TOK_EOF;
                     break;
                 case '\n':
-                    save = FALSE; // ?
+                    // save = FALSE;
                     token = PRE_TOK_NL;
                     ++curr_line, curr_column=0;
                     break;

@@ -56,7 +56,7 @@ TypeExp *direct_declarator(DeclaratorCategory dc, int install_id, Token tok);
 
 
 /*
- * Recursive parser functions.
+ * Recursive parsing functions.
  */
 ExternDecl *translation_unit(void);
 ExternDecl *external_declaration(void);
@@ -462,7 +462,6 @@ void install(char *id, Token tok)
  */
 Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator)
 {
-    Token tok;
     Declaration *d;
 
     d = malloc(sizeof(Declaration));
@@ -472,9 +471,12 @@ Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator)
     else
         d->decl_specs = declaration_specifiers(FALSE);
 
-    tok = search_typedef(d->decl_specs)?TOK_TYPEDEFNAME:TOK_ID;
-    if (first_declarator!=NULL || lookahead(1)!=TOK_SEMICOLON)
+    if (first_declarator!=NULL || lookahead(1)!=TOK_SEMICOLON) {
+        Token tok;
+
+        tok = (search_typedef(d->decl_specs))?TOK_TYPEDEFNAME:TOK_ID;
         d->idl = init_declarator_list(tok, first_declarator);
+    }
 
     match(TOK_SEMICOLON);
 
@@ -556,6 +558,16 @@ TypeExp *init_declarator(Token tok, TypeExp *first_declarator)
     return n;
 }
 
+TypeExp *new_type_exp_node(void)
+{
+    TypeExp *new_node;
+
+    new_node = calloc(1, sizeof(TypeExp));
+    new_node->src_line = curr_tok->src_line;
+
+    return new_node;
+}
+
 /*
 storage_class_specifier = "typedef" |
                           "extern" |
@@ -567,8 +579,7 @@ TypeExp *storage_class_specifier(void)
 {
     TypeExp *s;
 
-    s = malloc(sizeof(TypeExp));
-    s->child = NULL;
+    s = new_type_exp_node();
     s->op = lookahead(1);
 
     switch (lookahead(1)) {
@@ -613,8 +624,7 @@ TypeExp *type_specifier(void)
 {
     TypeExp *n;
 
-    n = malloc(sizeof(TypeExp));
-    n->child = NULL;
+    n = new_type_exp_node();
     n->op = lookahead(1);
 
     switch (lookahead(1)) {
@@ -699,8 +709,7 @@ TypeExp *struct_or_union(void)
 {
     TypeExp *n;
 
-    n = malloc(sizeof(TypeExp));
-    n->child = NULL;
+    n = new_type_exp_node();
     n->op = lookahead(1);
 
     if (lookahead(1) == TOK_STRUCT)
@@ -817,9 +826,8 @@ TypeExp *enum_specifier(void)
 {
     TypeExp *n;
 
-    n = malloc(sizeof(TypeExp));
+    n = new_type_exp_node();
     n->op = lookahead(1);
-    n->child = NULL;
 
     match(TOK_ENUM);
     if (lookahead(1) == TOK_ID) {
@@ -881,8 +889,7 @@ TypeExp *enumeration_constant(void)
 {
     TypeExp *n;
 
-    n = malloc(sizeof(TypeExp));
-    n->sibling = NULL;
+    n = new_type_exp_node();
     n->str = get_lexeme(1);
     install(get_lexeme(1), TOK_ID);
 
@@ -898,9 +905,8 @@ TypeExp *type_qualifier(void)
 {
     TypeExp *n;
 
-    n = malloc(sizeof(TypeExp));
+    n = new_type_exp_node();
     n->op = lookahead(1);
-    n->child = NULL;
 
     if (lookahead(1) == TOK_CONST)
         match(TOK_CONST);
@@ -960,8 +966,7 @@ TypeExp *direct_declarator(DeclaratorCategory dc, int install_id, Token tok)
     if (lookahead(1) == TOK_ID) {
         if (dc == ABSTRACT_DECLARATOR)
             ERROR("identifier not allowed in abstract-declarator");
-        n = temp = malloc(sizeof(TypeExp));
-        n->child = NULL;
+        n = temp = new_type_exp_node();
         n->op = lookahead(1);
         n->str = get_lexeme(1);
         if (install_id)
@@ -995,16 +1000,17 @@ TypeExp *direct_declarator_postfix(void)
 {
     TypeExp *n;
 
-    n = malloc(sizeof(TypeExp));
-    n->child = NULL;
-    n->op = lookahead(1);
+    n = new_type_exp_node();
+    // n->op = lookahead(1);
 
     if (lookahead(1) == TOK_LBRACKET) {
+        n->op = TOK_SUBSCRIPT;
         match(TOK_LBRACKET);
         if (lookahead(1) != TOK_RBRACKET)
             n->attr.e = constant_expression();
         match(TOK_RBRACKET);
     } else if (lookahead(1) == TOK_LPAREN) {
+        n->op = TOK_FUNCTION;
         match(TOK_LPAREN);
         // if (lookahead(1) != TOK_RPAREN) {
             // if (lookahead(1) == TOK_ID)
@@ -1027,9 +1033,8 @@ TypeExp *pointer(void)
 {
     TypeExp *n, *temp;
 
-    n = temp = malloc(sizeof(TypeExp));
+    n = temp = new_type_exp_node();
     n->op = lookahead(1);
-    n->child = NULL;
 
     match(TOK_STAR);
     if (in_first_type_qualifier())
@@ -1081,7 +1086,7 @@ DeclList *parameter_type_list(void)
             temp = temp->next;
         temp->next = malloc(sizeof(DeclList));
         temp->next->decl = malloc(sizeof(Declaration));
-        temp->next->decl->decl_specs = malloc(sizeof(TypeExp));
+        temp->next->decl->decl_specs = new_type_exp_node();
         temp->next->decl->decl_specs->op = TOK_ELLIPSIS;
     }
 
@@ -1170,11 +1175,10 @@ TypeExp *typedef_name(void)
 {
     TypeExp *n;
 
-    n = malloc(sizeof(TypeExp));
+    n = new_type_exp_node();
     n->op = TOK_TYPEDEFNAME;
     n->str = get_lexeme(1);
-    n->child = NULL;
-    printf("typedef-name found:%s\n", get_lexeme(1));
+    // printf("typedef-name found:%s\n", get_lexeme(1));
 
     match(TOK_ID);
 
@@ -1187,15 +1191,19 @@ TypeExp *typedef_name(void)
  */
 ExecNode *initializer(void)
 {
+    ExecNode *n;
+
     if (lookahead(1) == TOK_LBRACE) {
         match(TOK_LBRACE);
-        initializer_list();
+        n = initializer_list();
         if (lookahead(1) == TOK_COMMA)
             match(TOK_COMMA);
         match(TOK_RBRACE);
     } else {
-        assignment_expression();
+        n = assignment_expression();
     }
+
+    return n;
 }
 
 /*
@@ -1203,31 +1211,115 @@ ExecNode *initializer(void)
  */
 ExecNode *initializer_list(void)
 {
-    initializer();
+    ExecNode *n, *temp;
+
+    n = temp = initializer();
     while (lookahead(1)==TOK_COMMA && lookahead(2)!=TOK_RBRACE) {
         match(TOK_COMMA);
-        initializer();
+        temp->sibling = initializer();
+        temp = temp->sibling;
     }
+
+    return n;
 }
 
 // =============================================================================
 // Statements
 // =============================================================================
 
-/*
-statement = labeled_statement |
-            compound_statement |
-            expression_statement |
-            selection_statement |
-            iteration_statement |
-            jump_statement
- */
+ExecNode *new_stmt_node(StmtKind kind)
+{
+    ExecNode *new_node;
+
+    new_node = calloc(1, sizeof(ExecNode));
+    new_node->node_kind = StmtNode;
+    new_node->kind.exp = kind;
+    new_node->src_line = curr_tok->src_line;
+
+    return new_node;
+}
+
+ExecNode *statement(void);
+ExecNode *labeled_statement(void);
+ExecNode *compound_statement(int new_scope);
+DeclList *declaration_list(void);
+ExecNode *statement_list(void);
+ExecNode *expression_statement(void);
+ExecNode *selection_statement(void);
+ExecNode *iteration_statement(void);
+ExecNode *jump_statement(void);
 
 /*
-labeled_statement = identifier ":" statement |
-                    "case" constant_expression ":" statement |
-                    "default" ":" statement
+ * statement = labeled_statement |
+ *             compound_statement |
+ *             expression_statement |
+ *             selection_statement |
+ *             iteration_statement |
+ *             jump_statement
  */
+ExecNode *statement(void)
+{
+    switch (lookahead(1)) {
+    case TOK_LBRACE:
+        return compound_statement(TRUE);
+    case TOK_IF:
+    case TOK_SWITCH:
+        return selection_statement();
+    case TOK_WHILE:
+    case TOK_DO:
+    case TOK_FOR:
+        return iteration_statement();
+    case TOK_GOTO:
+    case TOK_CONTINUE:
+    case TOK_BREAK:
+    case TOK_RETURN:
+        return jump_statement();
+    case TOK_CASE:
+    case TOK_DEFAULT:
+        return labeled_statement();
+    case TOK_ID:
+        if (lookahead(2) == TOK_COLON)
+            return labeled_statement();
+        /* fall through */
+    default: /* expression statement or error */
+        return expression_statement();
+    }
+}
+
+/*
+ * labeled_statement = identifier ":" statement |
+ *                     "case" constant_expression ":" statement |
+ *                     "default" ":" statement
+ */
+ExecNode *labeled_statement(void)
+{
+    ExecNode *n;
+
+    switch (lookahead(1)) {
+    case TOK_ID:
+        n = new_stmt_node(LabelStmt);
+        n->attr.str = get_lexeme(1);
+        match(TOK_ID);
+        match(TOK_COLON);
+        n->child[0] = statement();
+        break;
+    case TOK_CASE:
+        n = new_stmt_node(CaseStmt);
+        match(TOK_CASE);
+        n->child[0] = constant_expression();
+        match(TOK_COLON);
+        n->child[1] = statement();
+        break;
+    case TOK_DEFAULT:
+        n = new_stmt_node(DefaultStmt);
+        match(TOK_DEFAULT);
+        match(TOK_COLON);
+        n->child[0] = statement();
+        break;
+    }
+
+    return n;
+}
 
 /*
  * compound_statement = "{" [ declaration_list ] [ statement_list ] "}"
@@ -1236,8 +1328,7 @@ ExecNode *compound_statement(int new_scope)
 {
     ExecNode *n;
 
-    n = malloc(sizeof(ExecNode));
-    n->locals = NULL;
+    n = new_stmt_node(CmpndStmt);
 
     match(TOK_LBRACE);
     if (in_first_declaration_specifiers()) {
@@ -1245,6 +1336,8 @@ ExecNode *compound_statement(int new_scope)
             push_scope();
         n->locals = declaration_list();
     }
+    if (lookahead(1) != TOK_RBRACE)
+        n->child[0] = statement_list();
     match(TOK_RBRACE);
 
     if (new_scope && n->locals!=NULL)
@@ -1252,7 +1345,6 @@ ExecNode *compound_statement(int new_scope)
 
     return n;
 }
-
 
 /*
  * declaration_list = declaration { declaration }
@@ -1278,21 +1370,115 @@ DeclList *declaration_list(void)
 /*
  * statement_list = statement { statement }
  */
+ExecNode *statement_list(void)
+{
+    ExecNode *n, *temp;
+
+    n = temp = statement();
+    while (lookahead(1) != TOK_RBRACE) { /* FOLLOW(statement_list) = { "}" } */
+        temp->sibling = statement();
+        temp = temp->sibling;
+    }
+
+    return n;
+}
 
 /*
  * expression_statement = [ expression ] ";"
  */
+ExecNode *expression_statement(void)
+{
+    ExecNode *n;
+
+    n = new_stmt_node(ExpStmt);
+    if (lookahead(1) != TOK_SEMICOLON)
+        n->child[0] = expression();
+    match(TOK_SEMICOLON);
+
+    return n;
+}
 
 /*
  * selection_statement = "if" "(" expression ")" statement [ "else" statement ] |
  *                       "switch" "(" expression ")" statement
  */
+ExecNode *selection_statement(void)
+{
+    ExecNode *n;
+
+    switch (lookahead(1)) {
+    case TOK_IF:
+        n = new_stmt_node(IfStmt);
+        match(TOK_IF);
+        match(TOK_LPAREN);
+        n->child[0] = expression();
+        match(TOK_RPAREN);
+        n->child[1] = statement();
+        if (lookahead(1) == TOK_ELSE) {
+            match(TOK_ELSE);
+            n->child[2] = statement();
+        }
+        break;
+    case TOK_SWITCH:
+        n = new_stmt_node(SwitchStmt);
+        match(TOK_SWITCH);
+        match(TOK_LPAREN);
+        n->child[0] = expression();
+        match(TOK_RPAREN);
+        n->child[1] = statement();
+        break;
+    }
+
+    return n;
+}
 
 /*
  * iteration_statement = "while" "(" expression ")" statement |
  *                       "do" statement "while" "(" expression ")" ";" |
  *                       "for" "(" [ expression ] ";" [ expression ] ";" [ expression ] ")" statement
  */
+ExecNode *iteration_statement(void)
+{
+    ExecNode *n;
+
+    switch (lookahead(1)) {
+    case TOK_WHILE:
+        n = new_stmt_node(WhileStmt);
+        match(TOK_WHILE);
+        match(TOK_LPAREN);
+        n->child[0] = expression();
+        match(TOK_RPAREN);
+        n->child[1] = statement();
+        break;
+    case TOK_DO:
+        n = new_stmt_node(DoStmt);
+        match(TOK_DO);
+        n->child[0] = statement();
+        match(TOK_WHILE);
+        match(TOK_LPAREN);
+        n->child[1] = expression();
+        match(TOK_RPAREN);
+        match(TOK_SEMICOLON);
+        break;
+    case TOK_FOR:
+        n = new_stmt_node(ForStmt);
+        match(TOK_FOR);
+        match(TOK_LPAREN);
+        if (lookahead(1) != TOK_SEMICOLON)
+            n->child[0] = expression();
+        match(TOK_SEMICOLON);
+        if (lookahead(1) != TOK_SEMICOLON)
+            n->child[1] = expression();
+        match(TOK_SEMICOLON);
+        if (lookahead(1) != TOK_RPAREN)
+            n->child[2] = expression();
+        match(TOK_RPAREN);
+        n->child[3] = statement();
+        break;
+    }
+
+    return n;
+}
 
 /*
  * jump_statement = "goto" identifier ";" |
@@ -1300,40 +1486,41 @@ DeclList *declaration_list(void)
  *                  "break" ";" |
  *                  "return" [ expression ] ";"
  */
+ExecNode *jump_statement(void)
+{
+    ExecNode *n;
+
+    switch (lookahead(1)) {
+    case TOK_GOTO:
+        n = new_stmt_node(GotoStmt);
+        match(TOK_GOTO);
+        n->attr.str = get_lexeme(1);
+        match(TOK_ID);
+        break;
+    case TOK_CONTINUE:
+        n = new_stmt_node(ContinueStmt);
+        match(TOK_CONTINUE);
+        break;
+    case TOK_BREAK:
+        n = new_stmt_node(BreakStmt);
+        match(TOK_BREAK);
+        break;
+    case TOK_RETURN:
+        n = new_stmt_node(ReturnStmt);
+        match(TOK_RETURN);
+        if (lookahead(1) != TOK_SEMICOLON)
+            n->child[0] = expression();
+        break;
+    }
+    match(TOK_SEMICOLON);
+
+    return n;
+}
 
 // =============================================================================
 // Expressions
 // =============================================================================
 
-/*
-ExecNode *new_stmt_node(StmtKind stmt)
-{
-    ExecNode *new_node = calloc(1, sizeof(ExecNode));
-    new_node->node_kind = StmtNode;
-    new_node->kind.stmt = stmt;
-    new_node->lnum = GET_LINE_NUM();
-    return new_node;
-}
-
-ExecNode *new_op_node(int op)
-{
-    ExecNode *new_node = calloc(1, sizeof(ExecNode));
-    new_node->node_kind = ExpNode;
-    new_node->kind.exp = OpExp;
-    new_node->attr.op = op;
-    new_node->lnum = GET_LINE_NUM();
-    return new_node;
-}
-
-ExecNode *new_exp_node(ExpKind exp)
-{
-    ExecNode *new_node = calloc(1, sizeof(ExecNode));
-    new_node->node_kind = ExpNode;
-    new_node->kind.exp = exp;
-    new_node->lnum = GET_LINE_NUM();
-    return new_node;
-}
-*/
 ExecNode *new_op_node(Token op)
 {
     ExecNode *new_node;
@@ -1342,7 +1529,7 @@ ExecNode *new_op_node(Token op)
     new_node->node_kind = ExpNode;
     new_node->kind.exp = OpExp;
     new_node->attr.op = op;
-    // new_node->src_line = ;
+    new_node->src_line = curr_tok->src_line;
 
     return new_node;
 }
@@ -1354,7 +1541,7 @@ ExecNode *new_pri_exp_node(ExpKind kind)
     new_node = calloc(1, sizeof(ExecNode));
     new_node->node_kind = ExpNode;
     new_node->kind.exp = kind;
-    // new_node->lnum = GET_LINE_NUM();
+    new_node->src_line = curr_tok->src_line;
 
     return new_node;
 }
@@ -1376,8 +1563,8 @@ ExecNode *expression(void)
 
     n = temp = assignment_expression();
     while (lookahead(1) == TOK_COMMA) {
-        match(TOK_COMMA);
         temp = new_op_node(TOK_COMMA);
+        match(TOK_COMMA);
         temp->child[0] = n;
         temp->child[1] = assignment_expression();
         n = temp;
@@ -1431,8 +1618,8 @@ ExecNode *conditional_expression(void)
 
     n = temp = logical_OR_expression();
     if (lookahead(1) == TOK_CONDITIONAL) {
-        match(TOK_CONDITIONAL);
         temp = new_op_node(TOK_CONDITIONAL);
+        match(TOK_CONDITIONAL);
         temp->child[0] = n;
         temp->child[1] = expression();
         match(TOK_COLON);
@@ -1528,7 +1715,7 @@ ExecNode *AND_expression(void)
 
     n = temp = equality_expression();
     while (lookahead(1) == TOK_AMPERSAND) {
-        temp = new_op_node(lookahead(1));
+        temp = new_op_node(TOK_BW_AND);
         match(lookahead(1));
         temp->child[0] = n;
         temp->child[1] = equality_expression();
@@ -1632,7 +1819,7 @@ ExecNode *multiplicative_expression(void)
 
     n = temp = cast_expression();
     while (lookahead(1)==TOK_STAR || lookahead(1)==TOK_DIV || lookahead(1)==TOK_MOD) {
-        temp = new_op_node(lookahead(1));
+        temp = new_op_node((lookahead(1)!=TOK_STAR)?lookahead(1):TOK_MUL);
         match(lookahead(1));
         temp->child[0] = n;
         temp->child[1] = cast_expression();
@@ -1690,18 +1877,18 @@ ExecNode *unary_expression(void)
 
     switch (lookahead(1)) {
     case TOK_INC:
-        match(TOK_INC);
         n = new_op_node(TOK_PRE_INC);
+        match(TOK_INC);
         n->child[0] = unary_expression();
         break;
     case TOK_DEC:
-        match(TOK_DEC);
         n = new_op_node(TOK_PRE_DEC);
+        match(TOK_DEC);
         n->child[0] = unary_expression();
         break;
     case TOK_SIZEOF: {
-        match(TOK_SIZEOF);
         n = new_op_node(TOK_SIZEOF);
+        match(TOK_SIZEOF);
         if (lookahead(1) == TOK_LPAREN) {
             TokenNode *temp;
 
@@ -1720,23 +1907,23 @@ ExecNode *unary_expression(void)
         break;
     }
     case TOK_AMPERSAND:
-        match(TOK_AMPERSAND);
         n = new_op_node(TOK_ADDRESS_OF);
+        match(TOK_AMPERSAND);
         n->child[0] = cast_expression();
         break;
     case TOK_STAR:
-        match(TOK_STAR);
         n = new_op_node(TOK_INDIRECTION);
+        match(TOK_STAR);
         n->child[0] = cast_expression();
         break;
     case TOK_PLUS:
-        match(TOK_PLUS);
         n = new_op_node(TOK_UNARY_PLUS);
+        match(TOK_PLUS);
         n->child[0] = cast_expression();
         break;
     case TOK_MINUS:
-        match(TOK_MINUS);
         n = new_op_node(TOK_UNARY_MINUS);
+        match(TOK_MINUS);
         n->child[0] = cast_expression();
         break;
     case TOK_COMPLEMENT:
@@ -1787,37 +1974,37 @@ ExecNode *postfix(void)
 
     switch (lookahead(1)) {
     case TOK_LBRACKET:
-        match(TOK_LBRACKET);
         n = new_op_node(TOK_SUBSCRIPT);
+        match(TOK_LBRACKET);
         n->child[1] = expression();
         match(TOK_RBRACKET);
         break;
     case TOK_LPAREN:
-        match(TOK_LPAREN);
         n = new_op_node(TOK_FUNCTION);
+        match(TOK_LPAREN);
         if (lookahead(1) != TOK_RPAREN)
             n->child[1] = argument_expression_list();
         match(TOK_RPAREN);
         break;
     case TOK_DOT:
-        match(TOK_DOT);
         n = new_op_node(TOK_DOT);
+        match(TOK_DOT);
         n->attr.str = get_lexeme(1);
         match(TOK_ID);
         break;
     case TOK_ARROW:
-        match(TOK_ARROW);
         n = new_op_node(TOK_ARROW);
+        match(TOK_ARROW);
         n->attr.str = get_lexeme(1);
         match(TOK_ID);
         break;
     case TOK_INC:
-        match(TOK_INC);
         n = new_op_node(TOK_POS_INC);
+        match(TOK_INC);
         break;
     case TOK_DEC:
-        match(TOK_DEC);
         n = new_op_node(TOK_POS_DEC);
+        match(TOK_DEC);
         break;
     }
 
