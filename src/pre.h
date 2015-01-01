@@ -9,7 +9,8 @@ typedef enum {
     PRE_TOK_CHACON,
     PRE_TOK_STRLIT,
     PRE_TOK_NL,
-    PRE_TOK_OTHER
+    PRE_TOK_OTHER,
+    PRE_TOK_MACRO_REENABLER
 } PreToken;
 
 typedef struct PreTokenNode PreTokenNode;

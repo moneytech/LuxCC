@@ -29,6 +29,7 @@
 static jmp_buf env;
 static TokenNode *curr_tok;
 static int speculating = FALSE;
+unsigned number_of_ast_nodes;
 
 
 #define HASH_SIZE 101
@@ -564,6 +565,7 @@ TypeExp *new_type_exp_node(void)
 
     new_node = calloc(1, sizeof(TypeExp));
     new_node->src_line = curr_tok->src_line;
+    ++number_of_ast_nodes;
 
     return new_node;
 }
@@ -1175,10 +1177,15 @@ TypeExp *typedef_name(void)
 {
     TypeExp *n;
 
+    /*
+     * Don't check if identifier is indeed a typedef-name
+     * because it's assumed that this fuction is only called
+     * if in_first_type_specifier() returned TRUE.
+     */
     n = new_type_exp_node();
     n->op = TOK_TYPEDEFNAME;
     n->str = get_lexeme(1);
-    // printf("typedef-name found:%s\n", get_lexeme(1));
+    printf("typedef-name found: `%s'\n", get_lexeme(1));
 
     match(TOK_ID);
 
@@ -1235,6 +1242,7 @@ ExecNode *new_stmt_node(StmtKind kind)
     new_node->node_kind = StmtNode;
     new_node->kind.exp = kind;
     new_node->src_line = curr_tok->src_line;
+    ++number_of_ast_nodes;
 
     return new_node;
 }
@@ -1530,6 +1538,7 @@ ExecNode *new_op_node(Token op)
     new_node->kind.exp = OpExp;
     new_node->attr.op = op;
     new_node->src_line = curr_tok->src_line;
+    ++number_of_ast_nodes;
 
     return new_node;
 }
@@ -1542,6 +1551,7 @@ ExecNode *new_pri_exp_node(ExpKind kind)
     new_node->node_kind = ExpNode;
     new_node->kind.exp = kind;
     new_node->src_line = curr_tok->src_line;
+    ++number_of_ast_nodes;
 
     return new_node;
 }
@@ -2022,11 +2032,27 @@ ExecNode *primary_expression(void)
     ExecNode *n;
 
     switch (lookahead(1)) {
-    case TOK_ID:
-        n = new_pri_exp_node(IdExp);
-        n->attr.str = get_lexeme(1);
-        match(TOK_ID);
+    case TOK_ID: {
+    /*
+     * C99 Standard. 6.5.1.2:
+     * An identifier is a primary expression, provided it has been declared as designating an
+     * object (in which case it is an lvalue) or a function (in which case it is a function
+     * designator).
+     * Footnote: Thus, an undeclared identifier is a violation of the syntax.
+     */
+        Symbol *s;
+
+        if ((s=lookup(get_lexeme(1), TRUE)) == NULL)
+            ERROR("undeclared identifier `%s'", get_lexeme(1));
+        if (s->tok == TOK_ID) {
+            n = new_pri_exp_node(IdExp);
+            n->attr.str = get_lexeme(1);
+            match(TOK_ID);
+        } else {
+            ERROR("expecting primary-expression; found typedef-name `%s'", get_lexeme(1));
+        }
         break;
+    }
     case TOK_ICONST:
         n = new_pri_exp_node(IConstExp);
         n->attr.str = get_lexeme(1);

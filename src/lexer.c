@@ -19,6 +19,7 @@
 int get_esc_seq_val(char **c);
 void check_integer_constant(char *ic);
 static PreTokenNode *pre_tok; /* declared global so ERROR can access it */
+unsigned number_of_c_tokens;
 
 /*
  * Table that contains token-name/lexeme pairs.
@@ -187,6 +188,7 @@ TokenNode *new_token(Token token, PreTokenNode *ptok)
     temp->src_column = ptok->src_column;
     temp->src_file = ptok->src_file;
     temp->next = NULL;
+    ++number_of_c_tokens;
 
     return temp;
 }
@@ -388,6 +390,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
             /*
              * Ignore `other' tokens (`, $, etc).
              */
+            fprintf(stderr, "stray `%s' found; ignoring...\n", pre_tok->lexeme);
             pre_tok = pre_tok->next;
             continue;
             break;
