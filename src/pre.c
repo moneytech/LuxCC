@@ -3,8 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#define DEBUG 1
+#define DEBUG 0
 #include "util.h"
+
 
 #define TRUE  1
 #define FALSE 0
@@ -12,17 +13,39 @@
 #define equal(s, t)     (strcmp(s, t) == 0)
 #define not_equal(s, t) (strcmp(s, t) != 0)
 
+
 #define ERROR(...)\
     fprintf(stderr, "%s:%d:%d: error: ", curr_tok->src_file, curr_tok->src_line, curr_tok->src_column),\
     fprintf(stderr, __VA_ARGS__),\
     fprintf(stderr, "\n"),\
     exit(EXIT_FAILURE)
-
+/* ERROR version used by get_token() */
 #define ERROR2(...)\
     fprintf(stderr, "%s:%d:%d: error: ", curr_source_file, curr_line, src_column),\
     fprintf(stderr, __VA_ARGS__),\
     fprintf(stderr, "\n"),\
     exit(EXIT_FAILURE)
+
+
+#define MACRO_TABLE_SIZE 101
+
+typedef enum {
+    SIMPLE,
+    PARAMETERIZED
+} MacroKind;
+struct Macro {
+    char *name;
+    MacroKind kind;
+    PreTokenNode *rep, *params;
+    int enabled;
+    Macro *next;
+};
+
+static void install(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params);
+static Macro *macro_table[MACRO_TABLE_SIZE];
+static Macro *lookup(char *s);
+static void uninstall(char *name);
+
 
 typedef enum {
     STATE_START,
@@ -42,19 +65,6 @@ static char token_string[1024];
 static PreTokenNode *curr_tok, *token_list;
 static int curr_line, src_column;
 unsigned number_of_pre_tokens;
-
-typedef enum {
-    SIMPLE,
-    PARAMETERIZED
-} MacroKind;
-// typedef struct Macro Macro;
-struct Macro {
-    char *name;
-    MacroKind kind;
-    PreTokenNode *rep, *params;
-    int enabled;
-    Macro *next;
-};
 
 static
 PreTokenNode *new_node(PreToken token, char *lexeme)
@@ -80,7 +90,7 @@ PreToken lookahead(int i)
     PreTokenNode *p;
 
     p = curr_tok;
-    while (--i)
+    while (/*p!=NULL && */--i)
         p = p->next;
     return p->token;
 }
@@ -91,19 +101,20 @@ char *get_lexeme(int i)
     PreTokenNode *p;
 
     p = curr_tok;
-    while (--i)
+    while (/*p!=NULL && */--i)
         p = p->next;
     return p->lexeme;
 }
 
 PreToken get_token(void);
 
-static PreTokenNode *penultimate_node;
+static PreTokenNode *penultimate_node; /* the code for #include use this */
 
 /*
- * Tokenize the buffer 'buf' and return
+ * Tokenize the buffer `buf' and return
  * the resulting chain of tokens.
  */
+static
 PreTokenNode *tokenize(void)
 {
     PreToken t;
@@ -145,7 +156,8 @@ void match(PreToken x)
         ERROR("expecting: `%s'; found: `%s'", str_tok[x], str_tok[curr_tok->token]);
 }
 
-void match2(PreToken x)
+static
+void match2(PreToken x) /* same as match but mark the token as deleted */
 {
     if (curr_tok->token == x) {
         curr_tok->deleted = TRUE;
@@ -161,7 +173,6 @@ void match2(PreToken x)
  * single LF) and line splicing.
  */
 static
-// void init(FILE *fp)
 void init(char *file_path)
 {
     FILE *fp;
@@ -175,11 +186,11 @@ void init(char *file_path)
 
     fseek(fp, 0, SEEK_END);
     buf_size = ftell(fp); /* number of chars of the file */
-    ++buf_size; /* makes room for '\0' */
+    ++buf_size; /* make room for '\0' */
     rewind(fp);
     curr = buf = malloc(buf_size);
 
-    while (fgets(curr, 0x7FFFFFFF, fp) != NULL) {
+    while (fgets(curr, /*0x7FFFFFFF*/0x1000, fp) != NULL) {
         int line_len = strlen(curr);
 #if WIN_LINE_ENDING
         /* replace CRLFs for LFs */
@@ -188,10 +199,10 @@ void init(char *file_path)
             --line_len;
         }
 #endif
-        /* join lines ending in \ with the next line (the last line must not end in \) */
+        /* join lines ending in \ with the next line (the last line must not end with \) */
         while (line_len>1 && curr[line_len-2]=='\\') {
             line_len -= 2; /* removes '\\' and '\n' */
-            fgets(curr+line_len, 0x7FFFFFFF, fp);
+            fgets(curr+line_len, /*0x7FFFFFFF*/0x1000, fp);
             line_len += strlen(curr+line_len);
 #if WIN_LINE_ENDING
             /* again, replace CRLFs for LFs */
@@ -214,7 +225,7 @@ void init(char *file_path)
     curr_source_file = strdup(file_path);
 }
 
-void preprocessing_file(void);
+static void preprocessing_file(void);
 
 /*
  * Preprocess the source file and any file
@@ -223,29 +234,18 @@ void preprocessing_file(void);
  */
 PreTokenNode *preprocess(char *source_file)
 {
-    // FILE *fp;
-
-    // curr_source_file = source_file;
-    // fp = fopen(source_file, "rb");
-    // init(fp);
     init(source_file);
-    // fclose(fp);
     token_list = curr_tok = tokenize();
     preprocessing_file();
-    // while (token_list != NULL) {
-        // if (!token_list->deleted)
-            // printf("%d, %s\n", token_list->token, token_list->lexeme);
-        // token_list = token_list->next;
-    // }
+
     return token_list;
 }
 
 PreToken get_token(void)
 {
-    int tok_str_ind = 0;
     PreToken token;
+    int tok_str_ind = 0, save;
     State state = STATE_START;
-    int save;
     static int curr_column = 0;
 
     while (state != STATE_DONE) {
@@ -256,7 +256,7 @@ PreToken get_token(void)
         switch (state) {
         case STATE_START:
             src_column = curr_column-1;
-            if (c==' ' || c=='\t') {
+            if (c==' ' || c=='\t' /* add other desired white space chars here */) {
                 save = FALSE;
             } else if (isdigit(c)) {
                 state = STATE_INNUM;
@@ -518,7 +518,8 @@ PreToken get_token(void)
             break;
         case STATE_DONE:
         default:
-            /* scanner bug */
+            fprintf(stderr, "get_token() bug\n");
+            exit(1);
             break;
         } /* switch (state) */
 
@@ -527,32 +528,31 @@ PreToken get_token(void)
         if (state == STATE_DONE)
             token_string[tok_str_ind] = '\0';
     } /* while (state != STATE_DONE) */
+
     return token;
 }
 
 /* recursive parser functions */
-void group(int skip);
-void group_part(int skip);
-void if_section(int skip);
-int if_group(int skip);
-int elif_groups(int skip);
-int elif_group(int skip);
-void else_group(int skip);
-void endif_line(void);
-void control_line(int skip);
-void pp_tokens(int skip);
-void preprocessing_token(int skip);
+static void group(int skip);
+static void group_part(int skip);
+static void if_section(int skip);
+static int if_group(int skip);
+static int elif_groups(int skip);
+static int elif_group(int skip);
+static void else_group(int skip);
+static void endif_line(void);
+static void control_line(int skip);
+static void pp_tokens(int skip);
+static void preprocessing_token(int skip);
 
 
 int is_group_part(void)
 {
-    if (lookahead(1) == PRE_TOK_EOF)
-        return FALSE;
-
-    if (!strcmp(get_lexeme(1), "#")
-    && (!strcmp(get_lexeme(2), "elif")
-    ||  !strcmp(get_lexeme(2), "else")
-    ||  !strcmp(get_lexeme(2), "endif")))
+    if (lookahead(1) == PRE_TOK_EOF
+    || (equal(get_lexeme(1), "#")
+    && (equal(get_lexeme(2), "elif")
+    ||  equal(get_lexeme(2), "else")
+    ||  equal(get_lexeme(2), "endif"))))
         return FALSE;
 
     return TRUE;
@@ -585,10 +585,10 @@ void group(int skip)
  */
 void group_part(int skip)
 {
-    if (!strcmp(get_lexeme(1), "#")) {
-        if (!strcmp(get_lexeme(2), "if")
-        ||  !strcmp(get_lexeme(2), "ifdef")
-        ||  !strcmp(get_lexeme(2), "ifndef"))
+    if (equal(get_lexeme(1), "#")) {
+        if (equal(get_lexeme(2), "if")
+        ||  equal(get_lexeme(2), "ifdef")
+        ||  equal(get_lexeme(2), "ifndef"))
             if_section(skip);
         else
             control_line(skip);
@@ -607,14 +607,12 @@ void if_section(int skip)
     int if_cond, elif_cond = 0;
 
     if_cond = if_group(skip);
-    if (!strcmp(get_lexeme(1), "#") && !strcmp(get_lexeme(2), "elif"))
+    if (equal(get_lexeme(1), "#") && equal(get_lexeme(2), "elif"))
         elif_cond = elif_groups(skip || if_cond);
-    if (!strcmp(get_lexeme(1), "#") && !strcmp(get_lexeme(2), "else"))
+    if (equal(get_lexeme(1), "#") && equal(get_lexeme(2), "else"))
         else_group(skip || if_cond || elif_cond);
     endif_line();
 }
-
-static Macro *lookup(char *s);
 
 /*
  * if_group = "#" "if" constant_expression new_line [ group ] |
@@ -628,10 +626,9 @@ int if_group(int skip)
     /*
      * group_part() confirmed either #if, #ifdef or #ifndef
      */
-    match2(PRE_TOK_PUNCTUATOR);
-    if (!strcmp(get_lexeme(1), "if")) {
+    match2(PRE_TOK_PUNCTUATOR); /* # */
+    if (equal(get_lexeme(1), "if")) {
         match2(PRE_TOK_ID);
-
         /*
          * The only constant expressions supported
          * are decimal numbers or macro names that
@@ -639,6 +636,7 @@ int if_group(int skip)
          */
         if (lookahead(1) == PRE_TOK_ID) {
             Macro *m;
+
             if ((m=lookup(get_lexeme(1))) != NULL)
                 cond_res = atoi(m->rep->lexeme);
             else
@@ -647,17 +645,19 @@ int if_group(int skip)
             cond_res = atoi(get_lexeme(1));
         }
         match2(lookahead(1)); /* id or number */
-    } else if (!strcmp(get_lexeme(1), "ifdef")) {
-        /* */
+    } else if (equal(get_lexeme(1), "ifdef")) {
+        match2(PRE_TOK_ID);
+        cond_res = (lookup(get_lexeme(1))!=NULL)?1:0;
+        match2(PRE_TOK_ID);
     } else { /* ifndef */
         match2(PRE_TOK_ID);
         cond_res = (lookup(get_lexeme(1))==NULL)?1:0;
-        match2(lookahead(1));
+        match2(PRE_TOK_ID);
     }
     match2(PRE_TOK_NL);
     /*
      * Skip if the condition evaluated to false or if the
-     * if/ifdef/ifndef is inside a block being skipped.
+     * if/ifdef/ifndef already is within of a block being skipped.
      */
     skip = (cond_res==0)?1:skip;
     if (is_group_part())
@@ -674,9 +674,10 @@ int elif_groups(int skip)
     int cond_res;
 
     cond_res = elif_group(skip);
-    while (!strcmp(get_lexeme(1), "#") && !strcmp(get_lexeme(2), "elif"))
+    while (equal(get_lexeme(1), "#") && equal(get_lexeme(2), "elif"))
         if (elif_group(skip || cond_res))
             cond_res = TRUE;
+
     return cond_res;
 }
 
@@ -692,13 +693,24 @@ int elif_group(int skip)
      */
     match2(PRE_TOK_PUNCTUATOR);
     match2(PRE_TOK_ID);
+
     /* condition */
-    cond_res = atoi(get_lexeme(1));
-    match2(PRE_TOK_NUM);
-    /* --- */
+    if (lookahead(1) == PRE_TOK_ID) {
+        Macro *m;
+
+        if ((m=lookup(get_lexeme(1))) != NULL)
+            cond_res = atoi(m->rep->lexeme);
+        else
+            cond_res = 0; /* undefined macro names evaluate to zero */
+    } else {
+        cond_res = atoi(get_lexeme(1));
+    }
+    match2(lookahead(1)); /* id or number */
     match2(PRE_TOK_NL);
+
+    skip = (cond_res==0)?1:skip;
     if (is_group_part())
-        group(skip || !cond_res);
+        group(skip);
 
     return cond_res;
 }
@@ -723,11 +735,11 @@ void else_group(int skip)
  */
 void endif_line(void)
 {
-    if (!strcmp(get_lexeme(1), "#"))
+    if (equal(get_lexeme(1), "#"))
         match2(PRE_TOK_PUNCTUATOR);
     else
         ERROR("`#endif' expected");
-    if (!strcmp(get_lexeme(1), "endif"))
+    if (equal(get_lexeme(1), "endif"))
         match2(PRE_TOK_ID);
     else
         ERROR("`#endif' expected");
@@ -738,27 +750,27 @@ void simple_define(void);
 void parameterized_define(void);
 
 /*
-control_line = "#" "include" pp_tokens new_line |
-               "#" "define" identifier replacement_list new_line |
-               "#" "define" identifier lparen [ identifier_list ] ")" replacement_list new_line |
-               "#" "undef" identifier new_line |
-               "#" "line" pp_tokens new_line |
-               "#" "error" [ pp_tokens ] new_line |
-               "#" "pragma" [ pp_tokens ] new_line |
-               "#" new_line
-*/
+ * control_line = "#" "include" pp_tokens new_line |
+ *                "#" "define" identifier replacement_list new_line |
+ *                "#" "define" identifier lparen [ identifier_list ] ")" replacement_list new_line |
+ *                "#" "undef" identifier new_line |
+ *                "#" "line" pp_tokens new_line |
+ *                "#" "error" [ pp_tokens ] new_line |
+ *                "#" "pragma" [ pp_tokens ] new_line |
+ *                "#" new_line
+ */
 void control_line(int skip)
 {
     if (skip)
         goto bottom;
 
-    /* by group_part(), we know we have # */
+    /* by group_part() confirmed # */
     match2(PRE_TOK_PUNCTUATOR);
 
     /*
      * Identify and interpret directive.
      */
-    if (!strcmp(get_lexeme(1), "include")) {
+    if (equal(get_lexeme(1), "include")) {
         PreTokenNode *tokenized_file;
 
         match2(PRE_TOK_ID);
@@ -778,12 +790,15 @@ void control_line(int skip)
              * Open the file.
              */
             p = curr_source_file+strlen(curr_source_file);
-            while (p!=curr_source_file && *p!='/')
+            while (p!=curr_source_file && *p!='/') /* search the last '/' of the path */
                 p--;
             if (p == curr_source_file) {
                 /* the file being processed is in the compiler's working directory */
                 init(get_lexeme(1));
             } else {
+                /* Construct the path. For example if the file being processed
+                   is src/foo.c and the argument of #include is "foo.h", the
+                   resulting path is src/foo.h. */
                 int n;
                 char *path;
 
@@ -796,18 +811,18 @@ void control_line(int skip)
                 free(path);
             }
             match2(lookahead(1)); /* filename */
-        } else if (!strcmp(get_lexeme(1), "<")) {
-            char path[128] = "src/include/";
+        } else if (equal(get_lexeme(1), "<")) {
+            char path[128] = "include/";
 
             match2(PRE_TOK_PUNCTUATOR);
-            if (!strcmp(get_lexeme(1), ">"))
+            if (equal(get_lexeme(1), ">"))
                 ERROR("include: empty `<>'");
             do {
                 if (lookahead(1) == PRE_TOK_NL)
                     ERROR("include: missing closing `>'");
                 strcat(path, get_lexeme(1));
                 match2(lookahead(1));
-            } while (strcmp(get_lexeme(1), ">") != 0);
+            } while (not_equal(get_lexeme(1), ">"));
             init(path);
             match2(PRE_TOK_PUNCTUATOR); /* > */
         } else {
@@ -831,7 +846,7 @@ void control_line(int skip)
         /* insert */
         penultimate_node->next = curr_tok->next;
         curr_tok->next = tokenized_file;
-    } else if (!strcmp(get_lexeme(1), "define")) {
+    } else if (equal(get_lexeme(1), "define")) {
         match2(PRE_TOK_ID);
         if (lookahead(1) == PRE_TOK_ID) {
             if (curr_tok->next_char == '(')
@@ -841,10 +856,15 @@ void control_line(int skip)
         } else {
             ERROR("define: name expected");
         }
-    } else if (!strcmp(get_lexeme(1), "undef")) {
-        ;
-    } else if (!strcmp(get_lexeme(1), "\n")) {
-        ;
+    } else if (equal(get_lexeme(1), "undef")) {
+        match2(PRE_TOK_ID);
+        if (lookahead(1) == PRE_TOK_ID)
+            uninstall(get_lexeme(1));
+        else
+            ERROR("undef: name expected");
+    } else if (equal(get_lexeme(1), "\n")) {
+        ; /* NULL directive */
+    /* --> add the remaining directives here <-- */
     } else {
         ERROR("unknown directive `%s'", get_lexeme(1));
     }
@@ -856,70 +876,6 @@ bottom:
     while (lookahead(1) != PRE_TOK_NL)
         match2(lookahead(1));
     match2(PRE_TOK_NL);
-}
-
-#define MACRO_TABLE_SIZE 101
-
-static Macro *macro_table[MACRO_TABLE_SIZE];
-
-static
-Macro *lookup(char *s)
-{
-	Macro *np;
-	for(np = macro_table[hash(s)%MACRO_TABLE_SIZE]; np != NULL; np = np->next)
-		if(np->enabled && strcmp(s, np->name)==0)
-			return np;
-	return NULL;
-}
-
-static
-void install(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params)
-{
-    Macro *np;
-    unsigned int hashval;
-
-    if ((np=lookup(name)) == NULL) {
-        np = malloc(sizeof(Macro));
-        np->kind = kind;
-        np->name = name;
-        np->rep = rep;
-        np->enabled = TRUE;
-        np->params = params;
-        hashval = hash(name)%MACRO_TABLE_SIZE;
-        np->next = macro_table[hashval];
-        macro_table[hashval] = np;
-    } else {
-        // free(np->rep);
-        ERROR("macro `%s' redefined", name);
-    }
-    // np->rep = copy_string(rep);
-}
-
-/* duplicate a replacement list */
-PreTokenNode *dup_rep_list(PreTokenNode *r)
-{
-    PreTokenNode *new_rep_list, *temp;
-
-    /*
-     * Test for empty replacement list.
-     */
-    if (r->token == PRE_TOK_NL)
-        return NULL;
-
-    /*
-     * Make the duplicate.
-     */
-    new_rep_list = temp = new_node(r->token, r->lexeme);
-    new_rep_list->src_line = curr_tok->src_line;
-    r = r->next;
-    while (r->token != PRE_TOK_NL) {
-        temp->next = new_node(r->token, r->lexeme);
-        temp->next->src_line = curr_tok->src_line;
-        temp = temp->next;
-        r = r->next;
-    }
-
-    return new_rep_list;
 }
 
 void simple_define(void)
@@ -936,20 +892,20 @@ void parameterized_define(void) // TODO: check for duplicate parameter names
      *          ^                   ^
      *    we are here           and must go here
      */
-    for (rep = curr_tok->next->next; strcmp(rep->lexeme, ")") != 0 ; ) {
-        if (strcmp(rep->lexeme, "...") == 0) {
-            if (strcmp(rep->next->lexeme, ")") != 0)
+    for (rep = curr_tok->next->next; not_equal(rep->lexeme, ")"); ) {
+        if (equal(rep->lexeme, "...")) {
+            if (not_equal(rep->next->lexeme, ")"))
                 ERROR("`...' not at the end of the parameter list");
         } else if (rep->token != PRE_TOK_ID) {
             ERROR("expecting parameter name");
         }
 
         rep = rep->next;
-        if (strcmp(rep->lexeme, ",") == 0) {
+        if (equal(rep->lexeme, ",")) {
             rep = rep->next;
-            if (strcmp(rep->lexeme, ")") == 0)
+            if (equal(rep->lexeme, ")")) /* something like #define A(x,) */
                 ERROR("missing parameter name");
-        } else if (strcmp(rep->lexeme, ")") != 0) {
+        } else if (not_equal(rep->lexeme, ")")) {
             /* otherwise (a,b...) would be considered valid */
             ERROR("expecting parameter name");
         }
@@ -969,16 +925,17 @@ void pp_tokens(int skip)
 
 void expand_simple_macro(Macro *m);
 void expand_parameterized_macro(Macro *m);
+void reenable_macro(char *name);
 
 /*
-preprocessing_token = header_name
-                      identifier
-                      pp_number
-                      character_constant
-                      string_literal
-                      punctuator
-                      each non-white-space character that cannot be one of the above
-*/
+ * preprocessing_token = header_name
+ *                       identifier
+ *                       pp_number
+ *                       character_constant
+ *                       string_literal
+ *                       punctuator
+ *                       each non-white-space character that cannot be one of the above
+ */
 void preprocessing_token(int skip)
 {
     Macro *m;
@@ -989,24 +946,44 @@ void preprocessing_token(int skip)
     }
 
     if (lookahead(1)==PRE_TOK_ID && (m=lookup(get_lexeme(1)))!=NULL) {
-        DEBUG_PRINTF("found `%s'\n", get_lexeme(1));
+        DEBUG_PRINTF("found macro `%s'\n", get_lexeme(1));
         if (m->kind == SIMPLE)
             expand_simple_macro(m);
         else
             expand_parameterized_macro(m);
     } else if (lookahead(1) == PRE_TOK_MACRO_REENABLER) {
-        DEBUG_PRINTF("reenabling `%s'\n", get_lexeme(1));
-        /*for(m = macro_table[hash(get_lexeme(1))%MACRO_TABLE_SIZE]; m != NULL; m = m->next) {
-            if(strcmp(get_lexeme(1), m->name) == 0) {
-                m->enabled = TRUE;
-                break;
-            }
-        }*/
-        curr_tok->re->enabled = TRUE;
+        DEBUG_PRINTF("reenabling macro `%s'\n", get_lexeme(1));
+        reenable_macro(get_lexeme(1));
         match2(PRE_TOK_MACRO_REENABLER);
     } else {
         match(lookahead(1));
     }
+}
+
+/*
+ * Duplicate a replacement list.
+ */
+static
+PreTokenNode *dup_rep_list(PreTokenNode *r)
+{
+    PreTokenNode *new_rep_list, *temp;
+
+    /* test for empty replacement list */
+    if (r->token == PRE_TOK_NL)
+        return NULL;
+
+    /* make the duplicate */
+    new_rep_list = temp = new_node(r->token, r->lexeme);
+    new_rep_list->src_line = curr_tok->src_line;
+    r = r->next;
+    while (r->token != PRE_TOK_NL) {
+        temp->next = new_node(r->token, r->lexeme);
+        temp->next->src_line = curr_tok->src_line;
+        temp = temp->next;
+        r = r->next;
+    }
+
+    return new_rep_list;
 }
 
 /*
@@ -1016,9 +993,7 @@ void expand_simple_macro(Macro *m)
 {
     PreTokenNode *r, *old_next;
 
-    /*
-     * Test empty replacement list.
-     */
+    /* test empty replacement list */
     if ((r=dup_rep_list(m->rep)) == NULL)
         goto empty_rep_list;
     /*
@@ -1031,7 +1006,6 @@ void expand_simple_macro(Macro *m)
         r = r->next;
     // r->next = old_next;
     r->next = new_node(PRE_TOK_MACRO_REENABLER, m->name);
-    r->next->re = m;
     r->next->next = old_next;
     m->enabled = FALSE; /* disable the macro temporally */
 empty_rep_list:
@@ -1048,7 +1022,7 @@ typedef enum {
 
 /*
  * Support function for parameterized macro calls.
- * Make a copy of the token string that form an argument.
+ * Make a copy of the token string that conform an argument.
  * `kind' modifies the main loop stop condition.
  */
 PreTokenNode *copy_arg(PreTokenNode **a, ParaListKind kind)
@@ -1103,10 +1077,9 @@ PreTokenNode *copy_arg2(PreTokenNode *a, PreTokenNode **last)
 
 void expand_parameterized_macro(Macro *m)
 {
-    int pn, i;
     PreTokenNode *r, *p, *prev, *param, *arg;
     PreTokenNode *par_arg_tab[16][2] = { { NULL } };
-    int tab_size = 0;
+    int tab_size = 0, i;
 
     /*
      * The name of a function-like macro not followed by left parenthesis,
@@ -1252,18 +1225,16 @@ void expand_parameterized_macro(Macro *m)
     /*while (r != NULL) {
         printf("r=%s\n", r->lexeme);
         r = r->next;
-    }*/
+    }
+    exit(0);*/
 empty_rep_list:
     /*
      * Mark the macro call as deleted.
      */
-    pn = 0;
-    while (pn>1 || not_equal(curr_tok->lexeme, ")")) {
-        if (equal(curr_tok->lexeme, "(")) pn++;
-        else if (equal(curr_tok->lexeme, ")")) pn--;
-        else if (curr_tok->token == PRE_TOK_MACRO_REENABLER) {
-            DEBUG_PRINTF("reenablingx `%s'\n", curr_tok->lexeme);
-            curr_tok->re->enabled = TRUE;
+    while (curr_tok != arg) {
+        if (curr_tok->token == PRE_TOK_MACRO_REENABLER) {
+            DEBUG_PRINTF("reenabling macro `%s'\n", curr_tok->lexeme);
+            reenable_macro(curr_tok->lexeme);
         }
         match2(lookahead(1));
     }
@@ -1273,11 +1244,60 @@ empty_rep_list:
      */
     if (r != NULL) {
         prev->next = new_node(PRE_TOK_MACRO_REENABLER, m->name);
-        prev->next->re = m;
         prev->next->next = curr_tok->next;
         m->enabled = FALSE;
         // prev->next = curr_tok->next;
         curr_tok->next = r;
     }
     match2(lookahead(1)); /* ) */
+}
+
+void reenable_macro(char *name)
+{
+    Macro *m;
+
+    for(m = macro_table[hash(name)%MACRO_TABLE_SIZE]; m != NULL; m = m->next) {
+        if(equal(get_lexeme(1), m->name)) {
+            m->enabled = TRUE;
+            break;
+        }
+    }
+}
+
+Macro *lookup(char *s)
+{
+	Macro *np;
+
+	for(np = macro_table[hash(s)%MACRO_TABLE_SIZE]; np != NULL; np = np->next)
+		if(np->enabled && equal(s, np->name))
+			return np;
+	return NULL;
+}
+
+void install(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params)
+{
+    Macro *np;
+    unsigned int hashval;
+
+    if ((np=lookup(name)) == NULL) {
+        np = malloc(sizeof(Macro));
+        np->kind = kind;
+        np->name = name;
+        np->rep = rep;
+        np->enabled = TRUE;
+        np->params = params;
+        hashval = hash(name)%MACRO_TABLE_SIZE;
+        np->next = macro_table[hashval];
+        macro_table[hashval] = np;
+    } else {
+        ERROR("macro `%s' redefined", name);
+    }
+}
+
+void uninstall(char *name)
+{
+	Macro *np;
+
+	if ((np=lookup(name)) != NULL)
+        np->enabled = FALSE;
 }

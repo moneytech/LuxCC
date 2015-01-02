@@ -24,7 +24,6 @@ struct PreTokenNode {
     char next_char; /* needed to distinguish between
                       "name(" and "name (" in #define */
     char deleted; /* TRUE/FALSE */
-    Macro *re;
 };
 
 PreTokenNode *preprocess(char *source_file);

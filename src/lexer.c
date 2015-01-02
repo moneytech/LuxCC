@@ -117,7 +117,7 @@ const char *token_table[] = {
 const struct Keyword {
     char *str;
     Token tok;
-} keywords_table[] = {
+} keywords_table[] = { /* sorted for bsearch() */
     {"auto", TOK_AUTO},
     {"break", TOK_BREAK},
     {"case", TOK_CASE},
@@ -196,7 +196,7 @@ TokenNode *new_token(Token token, PreTokenNode *ptok)
 const struct Punctuator {
     char *str;
     Token tok;
-} punctuators_table[] = {
+} punctuators_table[] = { /* sorted for bsearch() */
     {"!", TOK_NEGATION},
     {"!=", TOK_NEQ},
     {"%", TOK_MOD},
@@ -301,7 +301,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
 
             key.str = pre_tok->lexeme;
             res = bsearch(&key, punctuators_table, number_of_punctuators, sizeof(struct Punctuator), cmp_punct);
-            if (res == NULL) { /* this shouldn't happen! */
+            if (res == NULL) {
                 fprintf(stderr, "lexer bug: bsearch returned NULL in PRE_TOK_PUNCTUATOR case\n");
                 exit(1);
             }
@@ -321,8 +321,8 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
 
             /*
              * If the character constant has more than
-             * one character, set as its value the value
-             * of its rightmost character.
+             * one character, set its value to the value
+             * of the rightmost character.
              */
             p = pre_tok->lexeme;
             while (*p != '\0') {
