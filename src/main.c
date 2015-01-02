@@ -11,7 +11,7 @@ int main(int argc, char *argv[])
     pre = preprocess(argv[1]); //"src/test.c");
     while (pre != NULL) {
         if (!pre->deleted || pre->token==PRE_TOK_NL)
-            printf("%s ", pre->lexeme);
+            printf("%s", pre->lexeme);
         pre = pre->next;
     }
     // extern unsigned number_of_pre_tokens;

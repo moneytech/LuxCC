@@ -13,6 +13,8 @@ typedef enum {
     PRE_TOK_MACRO_REENABLER
 } PreToken;
 
+typedef struct Macro Macro;
+
 typedef struct PreTokenNode PreTokenNode;
 struct PreTokenNode {
     PreToken token;
@@ -22,6 +24,7 @@ struct PreTokenNode {
     char next_char; /* needed to distinguish between
                       "name(" and "name (" in #define */
     char deleted; /* TRUE/FALSE */
+    Macro *re;
 };
 
 PreTokenNode *preprocess(char *source_file);
