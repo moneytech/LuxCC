@@ -3,29 +3,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#define DEBUG 0
 #include "util.h"
 
-
-#define TRUE  1
-#define FALSE 0
 
 #define equal(s, t)     (strcmp(s, t) == 0)
 #define not_equal(s, t) (strcmp(s, t) != 0)
 
-
-#define ERROR(...)\
-    fprintf(stderr, "%s:%d:%d: error: ", curr_tok->src_file, curr_tok->src_line, curr_tok->src_column),\
-    fprintf(stderr, __VA_ARGS__),\
-    fprintf(stderr, "\n"),\
-    exit(EXIT_FAILURE)
-/* ERROR version used by get_token() */
-#define ERROR2(...)\
-    fprintf(stderr, "%s:%d:%d: error: ", curr_source_file, curr_line, src_column),\
-    fprintf(stderr, __VA_ARGS__),\
-    fprintf(stderr, "\n"),\
-    exit(EXIT_FAILURE)
-
+#define SRC_FILE    curr_source_file
+#define SRC_LINE    curr_line
+#define SRC_COLUMN  src_column
 
 #define MACRO_TABLE_SIZE 101
 
@@ -147,26 +133,6 @@ static char *str_tok[] = {
     "other"
 };
 
-static
-void match(PreToken x)
-{
-    if (curr_tok->token == x)
-        curr_tok = curr_tok->next;
-    else
-        ERROR("expecting: `%s'; found: `%s'", str_tok[x], str_tok[curr_tok->token]);
-}
-
-static
-void match2(PreToken x) /* same as match but mark the token as deleted */
-{
-    if (curr_tok->token == x) {
-        curr_tok->deleted = TRUE;
-        curr_tok = curr_tok->next;
-    } else {
-        ERROR("expecting: `%s'; found: `%s'", str_tok[x], str_tok[curr_tok->token]);
-    }
-}
-
 /*
  * Load the file located at `file_path' into the global buffer `buf',
  * and perform end-of-line replacing (DOS's CRLF are replaced for a
@@ -266,7 +232,7 @@ PreToken get_token(void)
                 save = FALSE;
                 state = STATE_INCHAR;
             } else if (c == '\"') {
-                save = FALSE;
+                // save = FALSE;
                 state = STATE_INSTR;
             } else if ((c=='/') && ((*curr=='/')||(*curr=='*'))) { /* // or /* */
                 save = FALSE;
@@ -420,9 +386,9 @@ PreToken get_token(void)
             // --curr;
             REWIND();
             if (*curr=='\0' || *curr=='\n') {
-                ERROR2("missing terminating \"'\" character");
+                ERROR("missing terminating \"'\" character");
             } else if (*curr == '\'') {
-                ERROR2("empty character constant");
+                ERROR("empty character constant");
             } else {
                 /*
                  *   If ' is found and it is preceded by:
@@ -443,7 +409,7 @@ PreToken get_token(void)
                 token_string[tok_str_ind++] = ADVANCE();//*curr++;
                 while (*curr!='\'' || cb%2!=0) {
                     if (*curr=='\0' || *curr=='\n')
-                        ERROR2("missing terminating \"'\" character");
+                        ERROR("missing terminating \"'\" character");
                     else if (*curr == '\\')
                         ++cb;
                     else
@@ -461,7 +427,7 @@ PreToken get_token(void)
             // --curr;
             REWIND();
             if (*curr=='\0' || *curr=='\n') {
-                ERROR2("missing terminating '\"' character");
+                ERROR("missing terminating '\"' character");
             } else {
                 /* backslashes: the same rule as for character constants */
                 int cb;
@@ -469,7 +435,7 @@ PreToken get_token(void)
                 cb = 0;
                 while (*curr!='"' || cb%2!=0) {
                     if (*curr=='\0' || *curr=='\n')
-                        ERROR2("missing terminating '\"' character");
+                        ERROR("missing terminating '\"' character");
                     else if (*curr == '\\')
                         ++cb;
                     else
@@ -477,8 +443,9 @@ PreToken get_token(void)
                     token_string[tok_str_ind++] = ADVANCE();//*curr++;
                 }
                 // ++curr; /* skip " */
-                ADVANCE();
-                save = FALSE;
+                // ADVANCE();
+                // save = FALSE;
+                c = *curr++;
                 state = STATE_DONE;
                 token = PRE_TOK_STRLIT;
             }
@@ -486,7 +453,7 @@ PreToken get_token(void)
         case STATE_INCOMMENT1:
             save = FALSE;
             if (c == '\0')
-                ERROR2("unterminated comment");
+                ERROR("unterminated comment");
             else if (c == '*')
                 state = STATE_INCOMMENT2;
             else if (c == '\n')
@@ -495,7 +462,7 @@ PreToken get_token(void)
         case STATE_INCOMMENT2:
             save = FALSE;
             if (c == '\0')
-                ERROR2("unterminated comment");
+                ERROR("unterminated comment");
             else if (c == '/')
                 state = STATE_START;
             else if (c != '*') {
@@ -532,6 +499,33 @@ PreToken get_token(void)
     return token;
 }
 
+#undef SRC_FILE
+#undef SRC_LINE
+#undef SRC_COLUMN
+#define SRC_FILE    curr_tok->src_file
+#define SRC_LINE    curr_tok->src_line
+#define SRC_COLUMN  curr_tok->src_column
+
+static
+void match(PreToken x)
+{
+    if (curr_tok->token == x)
+        curr_tok = curr_tok->next;
+    else
+        ERROR("expecting: `%s'; found: `%s'", str_tok[x], str_tok[curr_tok->token]);
+}
+
+static
+void match2(PreToken x) /* same as match but mark the token as deleted */
+{
+    if (curr_tok->token == x) {
+        curr_tok->deleted = TRUE;
+        curr_tok = curr_tok->next;
+    } else {
+        ERROR("expecting: `%s'; found: `%s'", str_tok[x], str_tok[curr_tok->token]);
+    }
+}
+
 /* recursive parser functions */
 static void group(int skip);
 static void group_part(int skip);
@@ -548,6 +542,10 @@ static void preprocessing_token(int skip);
 
 int is_group_part(void)
 {
+    /*
+     * group_part cannot begin with neither EOF
+     * nor #elif nor #else nor #endif.
+     */
     if (lookahead(1) == PRE_TOK_EOF
     || (equal(get_lexeme(1), "#")
     && (equal(get_lexeme(2), "elif")
@@ -780,11 +778,16 @@ void control_line(int skip)
          *      #include <file.h>
          */
         if (lookahead(1) == PRE_TOK_STRLIT) {
+            char *p;
             /*
              * Search for the file in the same directory as
              * the file that contains the #include directive.
              */
-            char *p;
+            curr_source_file = curr_tok->src_file;
+
+            /* remove "" */
+            memmove(curr_tok->lexeme, curr_tok->lexeme+1, strlen(curr_tok->lexeme+1)+1);
+            curr_tok->lexeme[strlen(curr_tok->lexeme)-1] = '\0';
 
             /*
              * Open the file.
@@ -1092,8 +1095,9 @@ void expand_parameterized_macro(Macro *m)
         return;
     }
 
-    if ((r=dup_rep_list(m->rep)) == NULL)
-        goto empty_rep_list;
+    // if ((r=dup_rep_list(m->rep)) == NULL)
+        // goto empty_rep_list;
+    r=dup_rep_list(m->rep);
 
     param = m->params;
     // arg = curr_tok->next->next; /* ID -> "(" -> first-argument */
@@ -1227,7 +1231,7 @@ void expand_parameterized_macro(Macro *m)
         r = r->next;
     }
     exit(0);*/
-empty_rep_list:
+// empty_rep_list:
     /*
      * Mark the macro call as deleted.
      */

@@ -3,45 +3,15 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
-#include <setjmp.h>
 #include "util.h"
+#include "sema.h"
 
+#define SRC_FILE    curr_tok->src_file
+#define SRC_LINE    curr_tok->src_line
+#define SRC_COLUMN  curr_tok->src_column
 
-#define TRUE  1
-#define FALSE 0
-/*#define ERROR(...) \
-    do {\
-    if (!speculating) {\
-        fprintf(stderr, "error: %s, ", __VA_ARGS__),\
-        fprintf(stderr, "curr_tok->lexeme: %s\n", curr_tok->lexeme),\
-        exit(1);\
-    } else {\
-        longjmp(env, 1);\
-    }\
-    } while (0)
-*/
-#define ERROR(...)\
-    fprintf(stderr, "%s:%d:%d: error: ", curr_tok->src_file, curr_tok->src_line, curr_tok->src_column),\
-    fprintf(stderr, __VA_ARGS__),\
-    fprintf(stderr, "\n"),\
-    exit(EXIT_FAILURE)
-
-static jmp_buf env;
 static TokenNode *curr_tok;
-static int speculating = FALSE;
 unsigned number_of_ast_nodes;
-
-
-#define HASH_SIZE 101
-#define MAX_NEST  16
-typedef struct Symbol Symbol;
-struct Symbol {
-    char *id;
-    Token tok;
-    Symbol *next;
-};
-Symbol *symbols[HASH_SIZE][MAX_NEST];
-int nesting_level = 0;
 
 
 typedef enum {
@@ -129,11 +99,6 @@ int in_first_type_specifier(void);
 int in_first_specifier_qualifier_list(void);
 int in_first_type_qualifier(void);
 
-/*
- * Other functions.
- */
-int speculate_declaration(void);
-
 
 Token lookahead(int i)
 {
@@ -160,35 +125,13 @@ void match(Token token)
     if (curr_tok->token == token)
         curr_tok = curr_tok->next;
     else
-        if (speculating)
-            longjmp(env, 1);
-        else
-            ERROR("expecting `%s'; found `%s'", token_table[token*2+1], curr_tok->lexeme);
+        ERROR("expecting `%s'; found `%s'", token_table[token*2+1], curr_tok->lexeme);
 }
 
 void parser(TokenNode *tokens)
 {
     curr_tok = tokens;
     translation_unit();
-}
-
-int speculate_declaration(void)
-{
-    int success;
-    TokenNode *temp;
-
-    temp = curr_tok;
-    speculating = TRUE;
-    if (!setjmp(env)) {
-        // declaration();
-        success = TRUE;
-    } else {
-        success = FALSE;
-    }
-    speculating = FALSE;
-    curr_tok = temp;
-
-    return success;
 }
 
 int in_first_declaration_specifiers(void)
@@ -213,12 +156,6 @@ int in_first_storage_class_specifier(void)
         return FALSE;
     }
 }
-
-void push_scope(void);
-void pop_scope(void);
-Symbol *lookup(char *id, int all);
-void install(char *id, Token tok);
-void restore_scope(void);
 
 int in_first_type_specifier(void)
 {
@@ -365,99 +302,6 @@ FuncDef *function_definition(TypeExp *decl_specs, TypeExp *header)
 // Declarations
 // =============================================================================
 
-int delayed_delete = FALSE;
-
-void delete_scope(void)
-{
-    if (nesting_level < 0) {
-        fprintf(stderr, "Underflow in pop_scope().\n");
-        exit(EXIT_FAILURE);
-    }
-    Symbol *np, *temp;
-    int i;
-
-    for (i = 0; i < HASH_SIZE; i++) {
-        if (symbols[i][nesting_level] != NULL) {
-            for (np = symbols[i][nesting_level]; np != NULL;) { /* delete chain */
-                temp = np;
-                np = np->next;
-                free(temp);
-            }
-            symbols[i][nesting_level] = NULL;
-        }
-    }
-    --nesting_level;
-    // DEBUG_PRINTF("Popping scope, nest_level=%d\n", nest_level);
-    delayed_delete = FALSE;
-}
-
-void restore_scope(void)
-{
-    delayed_delete = FALSE;
-}
-
-void push_scope(void)
-{
-    if (delayed_delete)
-        delete_scope();
-
-    if (++nesting_level == MAX_NEST) {
-        fprintf(stderr, "Too many nested scopes.\n");
-        exit(EXIT_FAILURE);
-    }
-    // DEBUG_PRINTF("Pushing scope, nest_level=%d\n", nest_level);
-}
-
-void pop_scope(void)
-{
-    if (delayed_delete)
-        delete_scope();
-    else
-        delayed_delete = TRUE;
-}
-
-Symbol *lookup(char *id, int all)
-{
-    Symbol *np;
-    int n = nesting_level;
-
-    if (delayed_delete)
-        delete_scope();
-
-    if (all == TRUE) {
-        for (; n >= 0; n--)
-            for (np = symbols[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
-                if (strcmp(id, np->id) == 0)
-                    return np;
-        return NULL; /* not found */
-    } else {
-        for (np = symbols[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
-            if (strcmp(id, np->id) == 0)
-                return np;
-        return NULL; /* not found */
-    }
-}
-
-void install(char *id, Token tok)
-{
-    Symbol *np;
-    unsigned hash_val;
-
-    if (delayed_delete)
-        delete_scope();
-
-    if ((np=lookup(id, FALSE)) == NULL) { /* not found */
-        np = malloc(sizeof(Symbol));
-        np->id = id;
-        np->tok = tok;
-        hash_val = hash(id)%HASH_SIZE;
-        np->next = symbols[hash_val][nesting_level];
-        symbols[hash_val][nesting_level] = np;
-    } else { /* already in this scope */
-        np->tok = tok; /* overwrite token type */
-    }
-}
-
 /*
  * declaration = declaration_specifiers [ init_declarator_list ] ";"
  */
@@ -478,8 +322,34 @@ Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator)
         tok = (search_typedef(d->decl_specs))?TOK_TYPEDEFNAME:TOK_ID;
         d->idl = init_declarator_list(tok, first_declarator);
     }
+    check_decl_specs(d->decl_specs);
 
     match(TOK_SEMICOLON);
+
+    //
+    /*TypeExp *p = d->idl;
+    while (p != NULL) {
+        if (p->op == TOK_FUNCTION)
+            printf("function returning\n");
+        else if (p->op == TOK_SUBSCRIPT)
+            printf("array of\n");
+        else if (p->op == TOK_STAR)
+            printf("pointer to\n");
+        else if (p->op == TOK_ID)
+            printf("id=%s\n", p->str);
+        p = p->child;
+    }
+    p = d->decl_specs;
+    while (p != NULL) {
+        if (p->op == TOK_INT)
+            printf("int\n");
+        if (p->op == TOK_STATIC)
+            printf("static\n");
+        if (p->op == TOK_CONST)
+            printf("const\n");
+        p = p->child;
+    }*/
+    //
 
     return d;
 }
@@ -564,7 +434,7 @@ TypeExp *new_type_exp_node(void)
     TypeExp *new_node;
 
     new_node = calloc(1, sizeof(TypeExp));
-    new_node->src_line = curr_tok->src_line;
+    new_node->info = curr_tok;
     ++number_of_ast_nodes;
 
     return new_node;
@@ -662,7 +532,7 @@ TypeExp *type_specifier(void)
         break;
     case TOK_ID:
         /*
-         * in_first_type_specifier() said
+         * assume in_first_type_specifier() said
          * lookahead(1) is a typedef-name.
          */
         free(n);
@@ -935,13 +805,31 @@ TypeExp *abstract_declarator(void)
  */
 TypeExp *declarator(DeclaratorCategory dc, int install_id, Token tok)
 {
-    TypeExp *n, *temp;
+    /*TypeExp *n, *temp;
 
     if (lookahead(1) == TOK_STAR) {
         n = temp = pointer();
         while (temp->child != NULL)
             temp = temp->child;
         temp->child = direct_declarator(dc, install_id, tok);
+    } else {
+        n = direct_declarator(dc, install_id, tok);
+    }*/
+    TypeExp *n;
+
+    if (lookahead(1) == TOK_STAR) {
+        TypeExp *p, *temp;
+
+        p = pointer();
+
+        n = temp = direct_declarator(dc, install_id, tok);
+        if (temp != NULL) {
+            while (temp->child != NULL)
+                temp = temp->child;
+            temp->child = p;
+        } else {
+            n = p;
+        }
     } else {
         n = direct_declarator(dc, install_id, tok);
     }
@@ -956,7 +844,7 @@ TypeExp *declarator(DeclaratorCategory dc, int install_id, Token tok)
  * when dc != ABSTRACT_DECLARATOR, and their meaning is
  * as follows:
  *  If `install_id' == TRUE, install the identifier in the
- * parser symbol table, and`tok' indicates if install it as
+ * parser symbol table, and `tok' indicates if install it as
  * an identifier or a typedef name.
  */
 TypeExp *direct_declarator(DeclaratorCategory dc, int install_id, Token tok)
@@ -984,10 +872,18 @@ TypeExp *direct_declarator(DeclaratorCategory dc, int install_id, Token tok)
     if (n==NULL && dc==CONCRETE_DECLARATOR)
         ERROR("missing identifier in concrete-declarator");
 
-    while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN) {
+    /*while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN) {
         n = direct_declarator_postfix();
         n->child = temp;
         temp = n;
+    }*/
+    if (temp != NULL) {
+        while (temp->child != NULL)
+            temp = temp->child;
+    }
+    while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN) {
+        temp->child = direct_declarator_postfix();
+        temp = temp->child;
     }
 
     return n;
@@ -1033,7 +929,7 @@ TypeExp *direct_declarator_postfix(void)
  */
 TypeExp *pointer(void)
 {
-    TypeExp *n, *temp;
+    /*TypeExp *n, *temp;
 
     n = temp = new_type_exp_node();
     n->op = lookahead(1);
@@ -1046,6 +942,24 @@ TypeExp *pointer(void)
         while (temp->child != NULL)
             temp = temp->child;
         temp->child = pointer();
+    }*/
+    TypeExp *n;
+
+    n = new_type_exp_node();
+    n->op = lookahead(1);
+
+    match(TOK_STAR);
+    if (in_first_type_qualifier())
+        n->attr.el = type_qualifier_list();
+
+    if (lookahead(1) == TOK_STAR) {
+        TypeExp *p, *temp;
+
+        p = temp = pointer();
+        while (temp->child != NULL)
+            temp = temp->child;
+        temp->child = n;
+        n = p;
     }
 
     return n;
@@ -1185,7 +1099,7 @@ TypeExp *typedef_name(void)
     n = new_type_exp_node();
     n->op = TOK_TYPEDEFNAME;
     n->str = get_lexeme(1);
-    printf("typedef-name found: `%s'\n", get_lexeme(1));
+    DEBUG_PRINTF("typedef-name found: `%s'\n", get_lexeme(1));
 
     match(TOK_ID);
 

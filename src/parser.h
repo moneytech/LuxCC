@@ -23,7 +23,7 @@ struct TypeExp {
         TypeExp *el;  /* enumerator list */
     } attr;
     TypeExp *child, *sibling;
-    int src_line;
+    TokenNode *info;
 };
 
 struct DeclList {

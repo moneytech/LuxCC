@@ -3,15 +3,12 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
+#include "util.h"
 
-#define TRUE  1
-#define FALSE 0
 
-#define ERROR(...)\
-    fprintf(stderr, "%s:%d:%d: error: ", pre_tok->src_file, pre_tok->src_line, pre_tok->src_column),\
-    fprintf(stderr, __VA_ARGS__),\
-    fprintf(stderr, "\n"),\
-    exit(EXIT_FAILURE)
+#define SRC_FILE    pre_tok->src_file
+#define SRC_LINE    pre_tok->src_line
+#define SRC_COLUMN  pre_tok->src_column
 
 
 #define equal(s, t)     (strcmp(s, t) == 0)
@@ -261,7 +258,13 @@ int cmp_punct(const void *p1, const void *p2)
  */
 void convert_string(char *s)
 {
+    size_t len;
     char *src, *dest;
+
+    /* remove "" */
+    len = strlen(s+1);
+    memmove(s, s+1, len+1);
+    s[len-1] = '\0';
 
     src = dest = s;
     while (*src != '\0') {
@@ -277,7 +280,7 @@ void convert_string(char *s)
 
 /*
  * Convert preprocessing tokens
- * to compiler tokens.
+ * to compiler C tokens.
  */
 TokenNode *lexer(PreTokenNode *pre_token_list)
 {

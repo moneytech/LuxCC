@@ -21,7 +21,7 @@ depend:
 
 main.o: parser.h lexer.h pre.h
 pre.o: pre.h util.h
-lexer.o: lexer.h pre.h
-parser.o: parser.h lexer.h pre.h
+lexer.o: lexer.h pre.h util.h
+parser.o: parser.h lexer.h pre.h util.h
 util.o: util.h
-sema.o: sema.h
+sema.o: sema.h lexer.h pre.h util.h
