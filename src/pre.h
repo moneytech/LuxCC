@@ -13,8 +13,6 @@ typedef enum {
     PRE_TOK_MACRO_REENABLER
 } PreToken;
 
-typedef struct Macro Macro;
-
 typedef struct PreTokenNode PreTokenNode;
 struct PreTokenNode {
     PreToken token;

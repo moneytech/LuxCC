@@ -108,7 +108,25 @@ const char *token_table[] = {
     "STRLIT", "string literal",
     "ICONST", "integer constant",
     "EOF", "end-of-file",
-    "TYPEDEFNAME", "typedef-name"
+    "TYPEDEFNAME", "typedef-name",
+    "PRE_INC", "++",
+    "POS_INC", "++",
+    "PRE_DEC", "--",
+    "POS_DEC", "--",
+    "SUBSCRIPT", "[]",
+    "FUNCTION", "()",
+    "UNARY_PLUS", "+",
+    "UNARY_MINUS", "-",
+    "INDIRECTION", "*",
+    "MUL", "*",
+    "ADDRESS_OF", "&",
+    "BW_AND", "&",
+    "CAST", "(type-name)",
+    "SIGNED_CHAR", "signed char",
+    "UNSIGNED_CHAR", "unsigned char",
+    "UNSIGNED_SHORT", "unsigned short",
+    "UNSIGNED_LONG", "unsigned long",
+    "CONST_VOLATILE", "const volatile"
 };
 
 const struct Keyword {

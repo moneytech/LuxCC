@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
+#define DEBUG 0
 #include "util.h"
 #include "sema.h"
 
@@ -20,10 +21,10 @@ typedef enum {
     EITHER_DECLARATOR
 } DeclaratorCategory;
 
-TypeExp *concrete_declarator(int install_id, Token tok);
-TypeExp *abstract_declarator(void);
-TypeExp *declarator(DeclaratorCategory dc, int install_id, Token tok);
-TypeExp *direct_declarator(DeclaratorCategory dc, int install_id, Token tok);
+TypeExp *concrete_declarator(void/*int install_id, TypeExp *decl_specs*/);
+// TypeExp *abstract_declarator(void);
+TypeExp *declarator(DeclaratorCategory dc/*, int install_id, TypeExp *decl_specs*/);
+TypeExp *direct_declarator(DeclaratorCategory dc/*, int install_id, TypeExp *decl_specs*/);
 
 
 /*
@@ -34,8 +35,8 @@ ExternDecl *external_declaration(void);
 FuncDef *function_definition(TypeExp *decl_specs, TypeExp *header);
 Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator);
 TypeExp *declaration_specifiers(int type_spec_seen);
-TypeExp *init_declarator_list(Token tok, TypeExp *first_declarator);
-TypeExp *init_declarator(Token tok, TypeExp *first_declarator);
+TypeExp *init_declarator_list(TypeExp *decl_specs, TypeExp *first_declarator);
+TypeExp *init_declarator(TypeExp *decl_specs, TypeExp *first_declarator);
 TypeExp *storage_class_specifier(void);
 TypeExp *type_specifier(void);
 TypeExp *struct_or_union_specifier(void);
@@ -171,14 +172,15 @@ int in_first_type_specifier(void)
     case TOK_UNION:
     case TOK_ENUM:
         return TRUE;
-    case TOK_ID: {
+    case TOK_ID: /*{
         Symbol *s;
 
         if ((s=lookup(get_lexeme(1), TRUE)) != NULL)
             if (s->tok == TOK_TYPEDEFNAME)
                 return TRUE;
         return FALSE;
-    }
+    }*/
+        return is_typedef_name(get_lexeme(1));
     default:
         return FALSE;
     }
@@ -266,8 +268,9 @@ ExternDecl *external_declaration(void)
     e->sibling = NULL;
 
     p = declaration_specifiers(FALSE);
+    analyze_decl_specs(p);
     if (lookahead(1) != TOK_SEMICOLON)
-        q = concrete_declarator(TRUE, (search_typedef(p))?TOK_TYPEDEFNAME:TOK_ID);
+        q = concrete_declarator(/*TRUE, p*/);
 
     if (lookahead(1) == TOK_LBRACE) {
         e->kind = FUNCTION_DEFINITION;
@@ -290,7 +293,8 @@ FuncDef *function_definition(TypeExp *decl_specs, TypeExp *header)
     f = malloc(sizeof(FuncDef));
     f->decl_specs = decl_specs;
     f->header = header;
-    restore_scope(); /* restore parameters' scope */
+    analyze_function_definition(f);
+    // restore_scope(); /* restore parameters' scope */  <= unnecessary
 
     f->body = compound_statement(FALSE);
     pop_scope();
@@ -311,45 +315,23 @@ Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator)
 
     d = malloc(sizeof(Declaration));
     d->idl = NULL;
-    if (decl_specs != NULL) /* declaration() was called from external_declaration() */
+    if (decl_specs != NULL) { /* declaration() was called from external_declaration() */
         d->decl_specs = decl_specs;
-    else
+    } else {
         d->decl_specs = declaration_specifiers(FALSE);
-
-    if (first_declarator!=NULL || lookahead(1)!=TOK_SEMICOLON) {
-        Token tok;
-
-        tok = (search_typedef(d->decl_specs))?TOK_TYPEDEFNAME:TOK_ID;
-        d->idl = init_declarator_list(tok, first_declarator);
+        analyze_decl_specs(d->decl_specs);
     }
-    check_decl_specs(d->decl_specs);
+
+    if (first_declarator!=NULL || lookahead(1)!=TOK_SEMICOLON)
+        d->idl = init_declarator_list(d->decl_specs, first_declarator);
+    /* else
+        check for empty declaration
+    */
 
     match(TOK_SEMICOLON);
 
-    //
-    /*TypeExp *p = d->idl;
-    while (p != NULL) {
-        if (p->op == TOK_FUNCTION)
-            printf("function returning\n");
-        else if (p->op == TOK_SUBSCRIPT)
-            printf("array of\n");
-        else if (p->op == TOK_STAR)
-            printf("pointer to\n");
-        else if (p->op == TOK_ID)
-            printf("id=%s\n", p->str);
-        p = p->child;
-    }
-    p = d->decl_specs;
-    while (p != NULL) {
-        if (p->op == TOK_INT)
-            printf("int\n");
-        if (p->op == TOK_STATIC)
-            printf("static\n");
-        if (p->op == TOK_CONST)
-            printf("const\n");
-        p = p->child;
-    }*/
-    //
+    printf("%s\n", stringify_type_exp(d));
+    // stringify_type_exp(d); printf("\n");
 
     return d;
 }
@@ -394,15 +376,14 @@ TypeExp *declaration_specifiers(int type_spec_seen)
 /*
  * init_declarator_list =  init_declarator { "," init_declarator }
  */
-TypeExp *init_declarator_list(Token tok, TypeExp *first_declarator)
+TypeExp *init_declarator_list(TypeExp *decl_specs, TypeExp *first_declarator)
 {
     TypeExp *n, *temp;
 
-    n = temp = init_declarator(tok, first_declarator);
-    n->sibling = NULL;
+    n = temp = init_declarator(decl_specs, first_declarator);
     while (lookahead(1) == TOK_COMMA) {
         match(TOK_COMMA);
-        temp->sibling = init_declarator(tok, NULL);
+        temp->sibling = init_declarator(decl_specs, NULL);
         temp = temp->sibling;
     }
 
@@ -412,19 +393,24 @@ TypeExp *init_declarator_list(Token tok, TypeExp *first_declarator)
 /*
  * init_declarator = declarator [ "=" initializer ]
  */
-TypeExp *init_declarator(Token tok, TypeExp *first_declarator)
+TypeExp *init_declarator(TypeExp *decl_specs, TypeExp *first_declarator)
 {
     TypeExp *n;
 
     if (first_declarator == NULL)
-        n = concrete_declarator(TRUE, tok);
+        n = concrete_declarator(/*TRUE, decl_specs*/);
     else
         n = first_declarator;
+
+    // install(decl_specs, n);
+    analyze_declarator(decl_specs, n);
 
     if (lookahead(1) == TOK_ASSIGN) {
         match(TOK_ASSIGN);
         n->attr.e = initializer();
     }
+
+    analyze_init_declarator(decl_specs, n, FALSE);
 
     return n;
 }
@@ -441,12 +427,12 @@ TypeExp *new_type_exp_node(void)
 }
 
 /*
-storage_class_specifier = "typedef" |
-                          "extern" |
-                          "static" |
-                          "auto" |
-                          "register"
-*/
+ * storage_class_specifier = "typedef" |
+ *                           "extern" |
+ *                           "static" |
+ *                           "auto" |
+ *                           "register"
+ */
 TypeExp *storage_class_specifier(void)
 {
     TypeExp *s;
@@ -479,19 +465,19 @@ TypeExp *storage_class_specifier(void)
 }
 
 /*
-type_specifier = "void" |
-                 "char" |
-                 "short" |
-                 "int" |
-                 "long" |
-                 "float" |
-                 "double" |
-                 "signed" |
-                 "unsigned" |
-                 struct_or_union_specifier |
-                 enum_specifier |
-                 typedef_name
-*/
+ * type_specifier = "void" |
+ *                  "char" |
+ *                  "short" |
+ *                  "int" |
+ *                  "long" |
+ *                  "float" |
+ *                  "double" |
+ *                  "signed" |
+ *                  "unsigned" |
+ *                  struct_or_union_specifier |
+ *                  enum_specifier |
+ *                  typedef_name
+ */
 TypeExp *type_specifier(void)
 {
     TypeExp *n;
@@ -556,14 +542,54 @@ TypeExp *struct_or_union_specifier(void)
 
     n = struct_or_union();
     if (lookahead(1) == TOK_ID) {
+        TypeTag *cur, *all;
+
         n->str = get_lexeme(1);
+
+        cur = lookup_tag(n->str, FALSE);
+        all = lookup_tag(n->str, TRUE);
+        if (all != NULL) {
+            /*
+             * A declaration of the identifier as a tag
+             * is visible in this or an enclosing scope.
+             */
+            if (cur==NULL && (lookahead(2)==TOK_SEMICOLON||lookahead(2)==TOK_LBRACE)) {
+                /*
+                 * A declaration of the identifier as a tag is not visible in the current
+                 * scope, and the declaration is of the form
+                 *      struct-or-union identifier ";"
+                 * or
+                 *      struct-or-union identifier "{" struct-declaration-list "}"
+                 */
+                install_tag(n); /* new incomplete type */
+            } else {
+                if (n->op != all->type->op)
+                    ERROR("use of `%s' with tag type that does not match previous declaration", n->str);
+                n->str = all->type->str; /* this allows to do type compatibility through pointers comparison */
+            }
+        } else {
+            install_tag(n); /* new incomplete type */
+        }
         match(TOK_ID);
         if (lookahead(1) == TOK_LBRACE) {
+            if (cur != NULL) {
+                if (cur->type->attr.dl != NULL)
+                    ERROR("redefinition of `%s %s'", token_table[n->op*2+1], n->str);
+            }
             match(TOK_LBRACE);
             n->attr.dl = struct_declaration_list();
-            match(TOK_RBRACE);
+            match(TOK_RBRACE); /* the type is complete now */
+            if (cur!=NULL && cur->type!=n)
+                cur->type = n; /* update the previous incomplete declaration */
         }
     } else if (lookahead(1) == TOK_LBRACE) {
+        static int anon_counter = 0;
+        char *anon_tag;
+
+        anon_tag = malloc(32);
+        sprintf(anon_tag, "<anonymous_%d>", anon_counter++);
+        n->str = anon_tag;
+
         match(TOK_LBRACE);
         n->attr.dl = struct_declaration_list();
         match(TOK_RBRACE);
@@ -606,9 +632,9 @@ DeclList *struct_declaration_list(void)
     n->next = NULL;
     while (in_first_specifier_qualifier_list()) {
         temp->next = malloc(sizeof(DeclList));
-        temp->next->decl = struct_declaration();
-        temp->next->next = NULL;
         temp = temp->next;
+        temp->decl = struct_declaration();
+        temp->next = NULL;
     }
 
     return n;
@@ -624,6 +650,7 @@ Declaration *struct_declaration(void)
     n = malloc(sizeof(Declaration));
 
     n->decl_specs = specifier_qualifier_list(FALSE);
+    analyze_decl_specs(n->decl_specs);
     n->idl = struct_declarator_list();
     match(TOK_SEMICOLON);
 
@@ -658,7 +685,6 @@ TypeExp *struct_declarator_list(void)
     TypeExp *n, *temp;
 
     n = temp = struct_declarator();
-    n->sibling = NULL;
     while (lookahead(1) == TOK_COMMA) {
         match(TOK_COMMA);
         temp->sibling = struct_declarator();
@@ -680,7 +706,7 @@ TypeExp *struct_declarator(void)
         match(TOK_COLON);
         constant_expression();
     } else {*/
-        n = concrete_declarator(FALSE, 0);
+        n = concrete_declarator(/*FALSE, 0*/);
         /*if (lookahead(1) == TOK_COLON) {
             match(TOK_COLON);
             constant_expression();
@@ -696,6 +722,9 @@ TypeExp *struct_declarator(void)
  */
 TypeExp *enum_specifier(void)
 {
+    /*
+     * Note: Incomplete enums are not standard.
+     */
     TypeExp *n;
 
     n = new_type_exp_node();
@@ -703,14 +732,55 @@ TypeExp *enum_specifier(void)
 
     match(TOK_ENUM);
     if (lookahead(1) == TOK_ID) {
+        TypeTag *cur, *all;
+
         n->str = get_lexeme(1);
+
+        cur = lookup_tag(n->str, FALSE);
+        all = lookup_tag(n->str, TRUE);
+        if (all != NULL) {
+            /*
+             * A declaration of the identifier as a tag
+             * is visible in this or an enclosing scope.
+             */
+            if (cur==NULL && (lookahead(2)==TOK_SEMICOLON||lookahead(2)==TOK_LBRACE)) {
+                /*
+                 * A declaration of the identifier as a tag is not visible in the current
+                 * scope, and the declaration is of the form
+                 *      enum identifier ";"
+                 * or
+                 *      enum identifier "{" struct-declaration-list "}"
+                 */
+                install_tag(n); /* new incomplete type */
+            } else {
+                if (n->op != all->type->op)
+                    ERROR("use of `%s' with tag type that does not match previous declaration", n->str);
+                n->str = all->type->str;
+            }
+        } else {
+            install_tag(n); /* new incomplete type */
+        }
         match(TOK_ID);
         if (lookahead(1) == TOK_LBRACE) {
+            if (cur != NULL) {
+                if (cur->type->attr.dl != NULL)
+                    ERROR("redefinition of `enum %s'", n->str);
+            }
             match(TOK_LBRACE);
             n->attr.el = enumerator_list();
             match(TOK_RBRACE);
+            if (cur!=NULL && cur->type!=n)
+                cur->type = n;
+
         }
     } else if (lookahead(1) == TOK_LBRACE) {
+        static int anon_counter = 0;
+        char *anon_tag;
+
+        anon_tag = malloc(32);
+        sprintf(anon_tag, "<anonymous_%d>", anon_counter++);
+        n->str = anon_tag;
+
         match(TOK_LBRACE);
         n->attr.el = enumerator_list();
         match(TOK_RBRACE);
@@ -750,6 +820,7 @@ TypeExp *enumerator(void)
         match(TOK_ASSIGN);
         n->attr.e = constant_expression();
     }
+    analyze_enumerator(n);
 
     return n;
 }
@@ -763,7 +834,7 @@ TypeExp *enumeration_constant(void)
 
     n = new_type_exp_node();
     n->str = get_lexeme(1);
-    install(get_lexeme(1), TOK_ID);
+    // install(get_lexeme(1), TOK_ID);
 
     match(TOK_ID);
 
@@ -790,20 +861,20 @@ TypeExp *type_qualifier(void)
     return n;
 }
 
-TypeExp *concrete_declarator(int install_id, Token tok)
+TypeExp *concrete_declarator(void/*int install_id, TypeExp *decl_specs*/)
 {
-    return declarator(CONCRETE_DECLARATOR, install_id, tok);
+    return declarator(CONCRETE_DECLARATOR/*, install_id, decl_specs*/);
 }
 
 TypeExp *abstract_declarator(void)
 {
-    return declarator(ABSTRACT_DECLARATOR, 0, 0);
+    return declarator(ABSTRACT_DECLARATOR/*, 0, 0*/);
 }
 
 /*
  * declarator = [ pointer ] direct_declarator
  */
-TypeExp *declarator(DeclaratorCategory dc, int install_id, Token tok)
+TypeExp *declarator(DeclaratorCategory dc/*, int install_id, TypeExp *decl_specs*/)
 {
     /*TypeExp *n, *temp;
 
@@ -822,7 +893,7 @@ TypeExp *declarator(DeclaratorCategory dc, int install_id, Token tok)
 
         p = pointer();
 
-        n = temp = direct_declarator(dc, install_id, tok);
+        n = temp = direct_declarator(dc/*, install_id, decl_specs*/);
         if (temp != NULL) {
             while (temp->child != NULL)
                 temp = temp->child;
@@ -831,7 +902,7 @@ TypeExp *declarator(DeclaratorCategory dc, int install_id, Token tok)
             n = p;
         }
     } else {
-        n = direct_declarator(dc, install_id, tok);
+        n = direct_declarator(dc/*, install_id, decl_specs*/);
     }
 
     return n;
@@ -839,15 +910,8 @@ TypeExp *declarator(DeclaratorCategory dc, int install_id, Token tok)
 
 /*
  * direct_declarator = [ identifier | "(" declarator ")" ] { direct_declarator_postfix }
- *
- * The parameters `install_id' and `tok' are used only
- * when dc != ABSTRACT_DECLARATOR, and their meaning is
- * as follows:
- *  If `install_id' == TRUE, install the identifier in the
- * parser symbol table, and `tok' indicates if install it as
- * an identifier or a typedef name.
  */
-TypeExp *direct_declarator(DeclaratorCategory dc, int install_id, Token tok)
+TypeExp *direct_declarator(DeclaratorCategory dc/*, int install_id, TypeExp *decl_specs*/)
 {
     TypeExp *n, *temp;
 
@@ -859,13 +923,16 @@ TypeExp *direct_declarator(DeclaratorCategory dc, int install_id, Token tok)
         n = temp = new_type_exp_node();
         n->op = lookahead(1);
         n->str = get_lexeme(1);
-        if (install_id)
-            install(get_lexeme(1), tok);
+        /*if (install_id)
+            install(decl_specs, n);*/
         match(TOK_ID);
-    } else if ((lookahead(1)==TOK_LPAREN) && (lookahead(2)==TOK_LPAREN
-    || lookahead(2)==TOK_LBRACKET || lookahead(2)==TOK_STAR)) {
+    } else if (lookahead(1)==TOK_LPAREN
+    && (lookahead(2)==TOK_LPAREN
+    || lookahead(2)==TOK_LBRACKET
+    || lookahead(2)==TOK_STAR
+    || lookahead(2)==TOK_ID && (dc==CONCRETE_DECLARATOR||/*dc==ABSTRACT_DECLARATOR&&*/!is_typedef_name(get_lexeme(2))))) {
         match(TOK_LPAREN);
-        n = temp = declarator(dc, install_id, tok);
+        n = temp = declarator(dc/*, install_id, decl_specs*/);
         match(TOK_RPAREN);
     }
 
@@ -877,13 +944,21 @@ TypeExp *direct_declarator(DeclaratorCategory dc, int install_id, Token tok)
         n->child = temp;
         temp = n;
     }*/
-    if (temp != NULL) {
-        while (temp->child != NULL)
-            temp = temp->child;
-    }
-    while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN) {
-        temp->child = direct_declarator_postfix();
-        temp = temp->child;
+    if (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN) {
+        if (temp == NULL) {
+            n = temp = direct_declarator_postfix();
+            while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN) {
+                temp->child = direct_declarator_postfix();
+                temp = temp->child;
+            }
+        } else {
+            while (temp->child != NULL)
+                temp = temp->child;
+            do {
+                temp->child = direct_declarator_postfix();
+                temp = temp->child;
+            } while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN);
+        }
     }
 
     return n;
@@ -910,12 +985,12 @@ TypeExp *direct_declarator_postfix(void)
     } else if (lookahead(1) == TOK_LPAREN) {
         n->op = TOK_FUNCTION;
         match(TOK_LPAREN);
-        // if (lookahead(1) != TOK_RPAREN) {
-            // if (lookahead(1) == TOK_ID)
-                // identifier_list(); // old-style declarator
-            // else // parameter_type_list or error
+        /*if (lookahead(1) != TOK_RPAREN) {
+            if (lookahead(1) == TOK_ID)
+                identifier_list(); // old-style declarator
+            else // parameter_type_list or error*/
                 n->attr.dl = parameter_type_list();
-        // }
+        /*}*/
         match(TOK_RPAREN);
     } else {
         ERROR("parser bug: direct_declarator_postfix()");
@@ -972,10 +1047,15 @@ TypeExp *type_qualifier_list(void)
 {
     TypeExp *n, *temp;
 
-    n = temp = type_qualifier();
+    // n = temp = type_qualifier();
+    n = type_qualifier();
     while (in_first_type_qualifier()) {
-        temp->child = type_qualifier();
-        temp = temp->child;
+        // temp->child = type_qualifier();
+        // temp = temp->child;
+        temp = type_qualifier();
+        if (temp->op != n->op)
+            n->op = TOK_CONST_VOLATILE;
+        free(temp);
     }
 
     return n;
@@ -1001,9 +1081,11 @@ DeclList *parameter_type_list(void)
         while (temp->next != NULL)
             temp = temp->next;
         temp->next = malloc(sizeof(DeclList));
-        temp->next->decl = malloc(sizeof(Declaration));
-        temp->next->decl->decl_specs = new_type_exp_node();
-        temp->next->decl->decl_specs->op = TOK_ELLIPSIS;
+        temp = temp->next;
+        temp->decl = malloc(sizeof(Declaration));
+        temp->decl->idl = new_type_exp_node();
+        temp->decl->idl->op = TOK_ELLIPSIS;
+        temp->decl->decl_specs = NULL;
     }
 
     return n;
@@ -1023,9 +1105,9 @@ DeclList *parameter_list(void)
     while (lookahead(1)==TOK_COMMA && lookahead(2)!=TOK_ELLIPSIS) {
         match(TOK_COMMA);
         temp->next = malloc(sizeof(DeclList));
-        temp->next->next = NULL;
-        temp->next->decl = parameter_declaration();
         temp = temp->next;
+        temp->next = NULL;
+        temp->decl = parameter_declaration();
     }
 
     return n;
@@ -1043,14 +1125,9 @@ Declaration *parameter_declaration(void)
     n->idl = NULL;
 
     n->decl_specs = declaration_specifiers(FALSE);
-    if (lookahead(1)!=TOK_COMMA && lookahead(1)!=TOK_RPAREN) { /* FOLLOW(parameter_declaration) */
-        /* do not allow typedef-name declarations here (always pass TOK_ID to declarator()) */
-        n->idl = declarator(EITHER_DECLARATOR, TRUE, TOK_ID);
-        /*
-         * To allow typedef-name declarations one can do:
-         * n->idl = declarator(EITHER_DECLARATOR, TRUE, search_typedef(n->decl_specs)?TOK_TYPEDEFNAME:TOK_ID);
-         */
-    }
+    if (lookahead(1)!=TOK_COMMA && lookahead(1)!=TOK_RPAREN) /* FOLLOW(parameter_declaration) */
+        n->idl = declarator(EITHER_DECLARATOR/*, TRUE, n->decl_specs*/);
+    analyze_parameter_declaration(n);
 
     return n;
 }
@@ -1078,8 +1155,10 @@ Declaration *type_name(void)
     n->idl = NULL;
 
     n->decl_specs = specifier_qualifier_list(FALSE);
-    if (lookahead(1) != TOK_RPAREN) /* FOLLOW(type_name) = { ")" } */
+    if (lookahead(1) != TOK_RPAREN) { /* FOLLOW(type_name) = { ")" } */
         n->idl = abstract_declarator();
+        stringify_type_exp(n); printf("\n");
+    }
 
     return n;
 }
@@ -1505,13 +1584,13 @@ ExecNode *expression(void)
 /*
  * assignment_expression = conditional_expression [ assignment_operator assignment_expression ]
  *
- * Note: the original production that appears on
+ * Note: the original production that appears in
  * the standard is:
  *
  *      assignment_expression = conditional_expression |
  *                              unary_expression assignment_operator assignment_expression
  *
- * To simplify the parsing conditional_expression
+ * To simplify the parsing, conditional_expression
  * is accepted as a left-hand operand of an assignment
  * operator. As a consequence of this, the expression
  * `1+2=3' will be detected as an error during semantic
@@ -1948,13 +2027,13 @@ ExecNode *primary_expression(void)
     switch (lookahead(1)) {
     case TOK_ID: {
     /*
-     * C99 Standard. 6.5.1.2:
+     * 6.5.1.2:
      * An identifier is a primary expression, provided it has been declared as designating an
      * object (in which case it is an lvalue) or a function (in which case it is a function
      * designator).
      * Footnote: Thus, an undeclared identifier is a violation of the syntax.
      */
-        Symbol *s;
+        /*Symbol *s;
 
         if ((s=lookup(get_lexeme(1), TRUE)) == NULL)
             ERROR("undeclared identifier `%s'", get_lexeme(1));
@@ -1964,6 +2043,18 @@ ExecNode *primary_expression(void)
             match(TOK_ID);
         } else {
             ERROR("expecting primary-expression; found typedef-name `%s'", get_lexeme(1));
+        }*/
+        Token tok;
+
+        tok = get_id_token(get_lexeme(1));
+        if (tok == TOK_ID) {
+            n = new_pri_exp_node(IdExp);
+            n->attr.str = get_lexeme(1);
+            match(TOK_ID);
+        } else if (tok == TOK_TYPEDEFNAME) {
+            ERROR("expecting primary-expression; found typedef-name `%s'", get_lexeme(1));
+        } else {
+            ERROR("undeclared identifier `%s'", get_lexeme(1));
         }
         break;
     }

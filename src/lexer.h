@@ -129,7 +129,13 @@ typedef enum {
     TOK_ADDRESS_OF,
     TOK_BW_AND,
     /* ( type-name ) */
-    TOK_CAST
+    TOK_CAST,
+    /* types composed of several tokens */
+    TOK_SIGNED_CHAR,
+    TOK_UNSIGNED_CHAR,
+    TOK_UNSIGNED_SHORT,
+    TOK_UNSIGNED_LONG,
+    TOK_CONST_VOLATILE,
 } Token;
 
 typedef struct TokenNode TokenNode;

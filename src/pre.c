@@ -19,6 +19,7 @@ typedef enum {
     SIMPLE,
     PARAMETERIZED
 } MacroKind;
+typedef struct Macro Macro;
 struct Macro {
     char *name;
     MacroKind kind;
@@ -330,7 +331,7 @@ PreToken get_token(void)
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
-                case '#':
+                case '#': /* # or ## */
                     if (*curr == '#')
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
@@ -512,7 +513,7 @@ void match(PreToken x)
     if (curr_tok->token == x)
         curr_tok = curr_tok->next;
     else
-        ERROR("expecting: `%s'; found: `%s'", str_tok[x], str_tok[curr_tok->token]);
+        ERROR("expecting: `%s'; found: `%s'", str_tok[x], curr_tok->lexeme);
 }
 
 static
@@ -522,7 +523,7 @@ void match2(PreToken x) /* same as match but mark the token as deleted */
         curr_tok->deleted = TRUE;
         curr_tok = curr_tok->next;
     } else {
-        ERROR("expecting: `%s'; found: `%s'", str_tok[x], str_tok[curr_tok->token]);
+        ERROR("expecting: `%s'; found: `%s'", str_tok[x], curr_tok->lexeme);
     }
 }
 
@@ -1281,7 +1282,7 @@ Macro *lookup(char *s)
 void install(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params)
 {
     Macro *np;
-    unsigned int hashval;
+    unsigned int hash_val;
 
     if ((np=lookup(name)) == NULL) {
         np = malloc(sizeof(Macro));
@@ -1290,9 +1291,9 @@ void install(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params
         np->rep = rep;
         np->enabled = TRUE;
         np->params = params;
-        hashval = hash(name)%MACRO_TABLE_SIZE;
-        np->next = macro_table[hashval];
-        macro_table[hashval] = np;
+        hash_val = hash(name)%MACRO_TABLE_SIZE;
+        np->next = macro_table[hash_val];
+        macro_table[hash_val] = np;
     } else {
         ERROR("macro `%s' redefined", name);
     }
@@ -1300,8 +1301,22 @@ void install(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params
 
 void uninstall(char *name)
 {
-	Macro *np;
+    /* if ((np=lookup(name)) != NULL)
+        / np->enabled = FALSE;*/
+    unsigned hash_val;
+	Macro *np, *prev;
 
-	if ((np=lookup(name)) != NULL)
-        np->enabled = FALSE;
+    hash_val = hash(name)%MACRO_TABLE_SIZE;
+
+	for(np=macro_table[hash_val], prev=NULL;
+        np!=NULL&&not_equal(name, np->name);
+        prev=np, np=np->next)
+
+	if (np == NULL)
+        return; /* not found */
+    if (prev == NULL)
+        macro_table[hash_val] = np->next;
+    else
+        prev->next = np->next;
+    free(np);
 }
