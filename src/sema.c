@@ -6,14 +6,8 @@
 #define DEBUG 1
 #include "util.h"
 #undef ERROR
-#define ERROR(tok, ...)\
-    fprintf(stderr, "%s:%d:%d: error: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),\
-    fprintf(stderr, __VA_ARGS__),\
-    fprintf(stderr, "\n"),\
-    exit(EXIT_FAILURE)
-#define WARNING(tok, ...)\
-    fprintf(stderr, "%s:%d:%d: warning: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),\
-    fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n")
+#define ERROR(tok, ...) fprintf(stderr, "%s:%d:%d: error: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__),fprintf(stderr, "\n"),exit(EXIT_FAILURE)
+#define WARNING(tok, ...) fprintf(stderr, "%s:%d:%d: warning: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n")
 
 
 #define HASH_SIZE 101
@@ -68,9 +62,10 @@ TypeTag *lookup_tag(char *id, int all)
 
 void install_tag(TypeExp *t)
 {
-    DEBUG_PRINTF("new tag `%s', scope: %d\n", t->str, curr_scope);
     TypeTag *np;
     unsigned hash_val;
+
+    DEBUG_PRINTF("new tag `%s', scope: %d\n", t->str, curr_scope);
 
     if (delayed_delete)
         delete_scope();
@@ -658,7 +653,7 @@ int compare_and_compose(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2
             dct2->attr.e = dct1->attr.e;
         /* --- */
         break;
-    case TOK_FUNCTION:;
+    case TOK_FUNCTION: {
         DeclList *p1, *p2;
 
         p1 = dct1->attr.dl;
@@ -680,8 +675,24 @@ int compare_and_compose(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2
             return FALSE;
         break;
     }
+    }
 
     return compare_and_compose(ds1, dct1->child, ds2, dct2->child, TRUE);
+}
+
+static int is_complete(char *tag)
+{
+    TypeTag *tp;
+
+    tp = lookup_tag(tag, TRUE);
+    if (tp != NULL) {
+        if (tp->type->op == TOK_ENUM)
+            return tp->type->attr.el!=NULL;
+        else
+            return tp->type->attr.dl!=NULL;
+    } else {
+        return TRUE; /* anonymous struct/union/enum */
+    }
 }
 
 static
@@ -708,7 +719,7 @@ void examine_declarator(TypeExp *decl_specs, TypeExp *declarator)
             TypeExp *ts;
 
             ts = get_type_spec(decl_specs);
-            if (is_struct_union_enum(ts->op) && lookup_tag(ts->str, TRUE)->type->attr.dl==NULL
+            if (is_struct_union_enum(ts->op) && !is_complete(ts->str)/*&& lookup_tag(ts->str, TRUE)->type->attr.dl==NULL*/
             || ts->op==TOK_VOID)
                 ERROR(declarator, "array has incomplete element type");
         }
@@ -977,7 +988,7 @@ void analyze_function_definition(FuncDef *f)
     if (f->header->child->child == NULL) {
         /* the return type is not a derived declarator type */
         spec = get_type_spec(f->decl_specs);
-        if (is_struct_union_enum(spec->op) && lookup_tag(spec->str, TRUE)->type->attr.dl==NULL)
+        if (is_struct_union_enum(spec->op) && !is_complete(spec->str)/*lookup_tag(spec->str, TRUE)->type->attr.dl==NULL*/)
             ERROR(spec, "return type is an incomplete type");
     }
 
@@ -1013,7 +1024,7 @@ void analyze_function_definition(FuncDef *f)
 
             ts = get_type_spec(p->decl->decl_specs);
             if (ts->op==TOK_VOID
-            || is_struct_union_enum(ts->op) && lookup_tag(ts->str, TRUE)->type->attr.dl==NULL)
+            || is_struct_union_enum(ts->op) && !is_complete(ts->str)/*lookup_tag(ts->str, TRUE)->type->attr.dl==NULL*/)
                 ERROR(p->decl->idl, "parameter `%s' has incomplete type", p->decl->idl->str);
         }
         printf("%s\n", stringify_type_exp(p->decl));
@@ -1051,6 +1062,22 @@ void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds
 
 void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_func_def)
 {
+// TODO:
+
+// 6.7
+// #7 If an identifier for an object is declared with no linkage, the type for the object shall be
+// complete by the end of its declarator, or by the end of its init-declarator if it has an
+// initializer; in the case of function parameters (including in prototypes), it is the adjusted
+// type (see 6.7.5.3) that is required to be complete.
+// 6.7.8
+// #2 No initializer shall attempt to provide a value for an object not contained within the entity
+// being initialized.
+// #4 All the expressions in an initializer for an object that has static storage duration shall be
+// constant expressions or string literals.
+// 6.9.2
+// #3 If the declaration of an identifier for an object is a tentative definition and has internal
+// linkage, the declared type shall not be an incomplete type.
+
     TypeExp *scs;
     ExternId *prev;
     int is_func_decl, is_initialized;
@@ -1070,11 +1097,6 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
     }
 
     if (curr_scope == FILE_SCOPE) {
-// TODO:
-// 6.9.2
-// #3 If the declaration of an identifier for an object is a tentative definition and has internal
-// linkage, the declared type shall not be an incomplete type.
-
         /* 6.9#2 */
         if (scs!=NULL && (scs->op==TOK_AUTO||scs->op==TOK_REGISTER))
             ERROR(scs, "file-scope declaration of `%s' specifies `%s'", declarator->str, token_table[scs->op*2+1]);

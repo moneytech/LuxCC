@@ -331,7 +331,6 @@ Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator)
     match(TOK_SEMICOLON);
 
     printf("%s\n", stringify_type_exp(d));
-    // stringify_type_exp(d); printf("\n");
 
     return d;
 }
@@ -749,7 +748,7 @@ TypeExp *enum_specifier(void)
                  * scope, and the declaration is of the form
                  *      enum identifier ";"
                  * or
-                 *      enum identifier "{" struct-declaration-list "}"
+                 *      enum identifier "{" enumerator-list "}"
                  */
                 install_tag(n); /* new incomplete type */
             } else {
@@ -763,7 +762,7 @@ TypeExp *enum_specifier(void)
         match(TOK_ID);
         if (lookahead(1) == TOK_LBRACE) {
             if (cur != NULL) {
-                if (cur->type->attr.dl != NULL)
+                if (cur->type->attr.el != NULL)
                     ERROR("redefinition of `enum %s'", n->str);
             }
             match(TOK_LBRACE);
@@ -1157,7 +1156,7 @@ Declaration *type_name(void)
     n->decl_specs = specifier_qualifier_list(FALSE);
     if (lookahead(1) != TOK_RPAREN) { /* FOLLOW(type_name) = { ")" } */
         n->idl = abstract_declarator();
-        stringify_type_exp(n); printf("\n");
+        // stringify_type_exp(n); printf("\n");
     }
 
     return n;
