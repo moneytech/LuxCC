@@ -962,8 +962,13 @@ void analyze_function_definition(FuncDef *f)
     TypeExp *spec;
     Declaration d;
 
+    /* 6.9.1#2 (check this before replace typedef names because it is not allowed for the
+    identifier of a function definition to inherit its 'functionness' from a typedef name) */
+    if (f->header->child==NULL || f->header->child->op!=TOK_FUNCTION)
+        ERROR(f->header, "declarator of function definition does not specify a function type");
+
     /* temporally switch to file scope */
-    --curr_scope, delayed_delete=FALSE;
+    /*--curr_scope,*/ curr_scope=0, delayed_delete=FALSE;
 
     d.decl_specs = f->decl_specs;
     d.idl =  f->header;
@@ -974,15 +979,11 @@ void analyze_function_definition(FuncDef *f)
     analyze_init_declarator(f->decl_specs, f->header, TRUE);
 
     /* switch back */
-    ++curr_scope;
+    /*++curr_scope;*/ curr_scope = 1;
 
     /* 6.9.1#4 */
     if ((spec=get_sto_class_spec(f->decl_specs))!=NULL && spec->op!=TOK_EXTERN && spec->op!=TOK_STATIC)
         ERROR(spec, "invalid storage class `%s' in function definition", token_table[spec->op*2+1]);
-
-    /* 6.9.1#2 */
-    if (f->header->child==NULL || f->header->child->op!=TOK_FUNCTION)
-        ERROR(f->header, "declarator of function definition doesn't specify a function type");
 
     /* check that the function doesn't return an incomplete type */
     if (f->header->child->child == NULL) {
@@ -1163,7 +1164,7 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
          */
 
         /* 6.7.1#5 */
-        if (is_func_decl && scs!=NULL && scs->op!=TOK_TYPEDEF)
+        if (is_func_decl && scs!=NULL && scs->op!=TOK_TYPEDEF && scs->op!=TOK_EXTERN)
             ERROR(declarator->child, "function `%s' declared in block scope cannot have `%s' storage class",
             declarator->str, token_table[scs->op*2+1]);
 
