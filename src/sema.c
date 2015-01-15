@@ -1286,7 +1286,7 @@ void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)
     }
     return; /* OK */
 incomp_error:
-    ERROR(declarator, "field `%s' has incomplete type", declarator->str);
+    ERROR(declarator, "member `%s' has incomplete type", declarator->str);
 }
 
 void check_for_dup_member(DeclList *d)

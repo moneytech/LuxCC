@@ -4,31 +4,34 @@
 #include "parser.h"
 
 typedef struct Symbol Symbol;
+typedef struct TypeTag TypeTag;
+
 struct Symbol {
     TypeExp *decl_specs;
     TypeExp *declarator;
     Symbol *next;
 };
 
-void push_scope(void);
-void pop_scope(void);
-Symbol *lookup(char *id, int all);
-// void install(char *id, Token tok);
-void install(TypeExp *decl_specs, TypeExp *declarator);
-void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_func_def);
-void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym);
-void restore_scope(void);
-void analyze_decl_specs(TypeExp *d);
-int is_typedef_name(char *id);
-Token get_id_token(char *id);
-char *stringify_type_exp(Declaration *d);
-void install_tag(TypeExp *t);
-typedef struct TypeTag TypeTag;
 struct TypeTag {
     TypeExp *type;
     TypeTag *next;
 };
+
+void push_scope(void);
+void pop_scope(void);
+void restore_scope(void);
+// Symbol *lookup(char *id, int all);
+// void install(TypeExp *decl_specs, TypeExp *declarator);
+void install_tag(TypeExp *t);
 TypeTag *lookup_tag(char *id, int all);
+
+Token get_id_token(char *id);
+int is_typedef_name(char *id);
+char *stringify_type_exp(Declaration *d);
+
+void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_func_def);
+void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym);
+void analyze_decl_specs(TypeExp *d);
 void analyze_enumerator(TypeExp *e);
 void analyze_parameter_declaration(Declaration *d);
 void analyze_function_definition(FuncDef *f);
