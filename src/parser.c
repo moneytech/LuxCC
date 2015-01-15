@@ -44,8 +44,8 @@ TypeExp *struct_or_union(void);
 DeclList *struct_declaration_list(void);
 Declaration *struct_declaration(void);
 TypeExp *specifier_qualifier_list(int type_spec_seen);
-TypeExp *struct_declarator_list(void);
-TypeExp *struct_declarator(void);
+TypeExp *struct_declarator_list(TypeExp *sql);
+TypeExp *struct_declarator(TypeExp *sql);
 TypeExp *enum_specifier(void);
 TypeExp *enumerator_list(void);
 TypeExp *enumerator(void);
@@ -402,7 +402,7 @@ TypeExp *init_declarator(TypeExp *decl_specs, TypeExp *first_declarator)
         n = first_declarator;
 
     // install(decl_specs, n);
-    analyze_declarator(decl_specs, n);
+    analyze_declarator(decl_specs, n, TRUE);
 
     if (lookahead(1) == TOK_ASSIGN) {
         match(TOK_ASSIGN);
@@ -635,6 +635,7 @@ DeclList *struct_declaration_list(void)
         temp->decl = struct_declaration();
         temp->next = NULL;
     }
+    check_for_dup_member(n);
 
     return n;
 }
@@ -650,7 +651,7 @@ Declaration *struct_declaration(void)
 
     n->decl_specs = specifier_qualifier_list(FALSE);
     analyze_decl_specs(n->decl_specs);
-    n->idl = struct_declarator_list();
+    n->idl = struct_declarator_list(n->decl_specs);
     match(TOK_SEMICOLON);
 
     return n;
@@ -679,14 +680,14 @@ TypeExp *specifier_qualifier_list(int type_spec_seen)
 /*
  * struct_declarator_list = struct_declarator { "," struct_declarator }
  */
-TypeExp *struct_declarator_list(void)
+TypeExp *struct_declarator_list(TypeExp *sql)
 {
     TypeExp *n, *temp;
 
-    n = temp = struct_declarator();
+    n = temp = struct_declarator(sql);
     while (lookahead(1) == TOK_COMMA) {
         match(TOK_COMMA);
-        temp->sibling = struct_declarator();
+        temp->sibling = struct_declarator(sql);
         temp = temp->sibling;
     }
 
@@ -697,7 +698,7 @@ TypeExp *struct_declarator_list(void)
  * struct_declarator = declarator |
  *                     [ declarator ] ":" constant_expression
  */
-TypeExp *struct_declarator(void)
+TypeExp *struct_declarator(TypeExp *sql)
 {
     TypeExp *n;
 
@@ -706,6 +707,7 @@ TypeExp *struct_declarator(void)
         constant_expression();
     } else {*/
         n = concrete_declarator(/*FALSE, 0*/);
+        analyze_struct_declarator(sql, n);
         /*if (lookahead(1) == TOK_COLON) {
             match(TOK_COLON);
             constant_expression();

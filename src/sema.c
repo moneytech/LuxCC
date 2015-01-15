@@ -899,7 +899,7 @@ nothing:
     }
 }
 
-void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator)
+void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym)
 {
     Declaration d;
 
@@ -908,7 +908,8 @@ void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator)
     replace_typedef_name(&d);
 
     examine_declarator(decl_specs, declarator);
-    install(decl_specs, declarator);
+    if (inst_sym)
+        install(decl_specs, declarator);
 }
 
 void analyze_parameter_declaration(Declaration *d)
@@ -960,7 +961,7 @@ void analyze_function_definition(FuncDef *f)
 {
     DeclList *p;
     TypeExp *spec;
-    Declaration d;
+    /*Declaration d;*/
 
     /* 6.9.1#2 (check this before replace typedef names because it is not allowed for the
     identifier of a function definition to inherit its 'functionness' from a typedef name) */
@@ -970,12 +971,13 @@ void analyze_function_definition(FuncDef *f)
     /* temporally switch to file scope */
     /*--curr_scope,*/ curr_scope=0, delayed_delete=FALSE;
 
-    d.decl_specs = f->decl_specs;
+    /*d.decl_specs = f->decl_specs;
     d.idl =  f->header;
     replace_typedef_name(&d);
 
     examine_declarator(f->decl_specs, f->header);
-    install(f->decl_specs, f->header);
+    install(f->decl_specs, f->header);*/
+    analyze_declarator(f->decl_specs, f->header, TRUE);
     analyze_init_declarator(f->decl_specs, f->header, TRUE);
 
     /* switch back */
@@ -1260,4 +1262,71 @@ char *stringify_type_exp(Declaration *d)
     strcat(s, out);
 
     return s;
+}
+
+void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)
+{
+    /* 6.7.2.1
+     * #2 A structure or union shall not contain a member with incomplete or function type (hence,
+     * a structure shall not contain an instance of itself, but may contain a pointer to an instance
+     * of itself) [we don't support flexible array members, so what follows is not important to us]
+     */
+    analyze_declarator(sql, declarator, FALSE);
+    if (declarator->child == NULL) {
+        /* not a derived declarator type */
+        TypeExp *ts;
+
+        ts = get_type_spec(sql);
+        if (is_struct_union_enum(ts->op) && !is_complete(ts->str))
+            goto incomp_error;
+    } else if (declarator->child->op == TOK_SUBSCRIPT) {
+        /* the type category is array, the size expression cannot be missing */
+        if (declarator->child->attr.e == NULL)
+            goto incomp_error;
+    }
+    return; /* OK */
+incomp_error:
+    ERROR(declarator, "field `%s' has incomplete type", declarator->str);
+}
+
+void check_for_dup_member(DeclList *d)
+{
+#define MEM_TAB_SIZE 53
+    typedef struct Member Member;
+    struct Member {
+        char *id;
+        Member *next;
+    } *members[MEM_TAB_SIZE], *np, *temp;
+    TypeExp *dct;
+    unsigned h;
+
+    memset(members, 0, sizeof(Member *)*MEM_TAB_SIZE);
+    /* traverse the struct declaration list */
+    while (d != NULL) {
+        /* traverse the struct declarator list */
+        for (dct = d->decl->idl; dct != NULL; dct = dct->sibling) {
+            /* search member */
+            h = hash(dct->str)%MEM_TAB_SIZE;
+            for (np = members[h]; np != NULL; np = np->next)
+                if (strcmp(dct->str, np->id) == 0)
+                    ERROR(dct, "duplicate member `%s'", dct->str);
+            /* not found */
+            np = malloc(sizeof(Member));
+            np->id = dct->str;
+            np->next = members[h];
+            members[h] = np;
+        }
+        d = d->next;
+    }
+
+    /* empty table */
+    for (h = 0; h < MEM_TAB_SIZE; h++) {
+        if (members[h] != NULL) {
+            for (np = members[h]; np != NULL;) {
+                temp = np;
+                np = np->next;
+                free(temp);
+            }
+        }
+    }
 }

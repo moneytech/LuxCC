@@ -5,8 +5,6 @@
 
 typedef struct Symbol Symbol;
 struct Symbol {
-    // char *id;
-    // Token tok;
     TypeExp *decl_specs;
     TypeExp *declarator;
     Symbol *next;
@@ -18,7 +16,7 @@ Symbol *lookup(char *id, int all);
 // void install(char *id, Token tok);
 void install(TypeExp *decl_specs, TypeExp *declarator);
 void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_func_def);
-void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator);
+void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym);
 void restore_scope(void);
 void analyze_decl_specs(TypeExp *d);
 int is_typedef_name(char *id);
@@ -34,5 +32,7 @@ TypeTag *lookup_tag(char *id, int all);
 void analyze_enumerator(TypeExp *e);
 void analyze_parameter_declaration(Declaration *d);
 void analyze_function_definition(FuncDef *f);
+void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator);
+void check_for_dup_member(DeclList *d);
 
 #endif
