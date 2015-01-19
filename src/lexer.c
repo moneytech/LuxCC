@@ -126,7 +126,8 @@ const char *token_table[] = {
     "UNSIGNED_CHAR", "unsigned char",
     "UNSIGNED_SHORT", "unsigned short",
     "UNSIGNED_LONG", "unsigned long",
-    "CONST_VOLATILE", "const volatile"
+    "CONST_VOLATILE", "const volatile",
+    "ENUM_CONST", "enumeration constant"
 };
 
 const struct Keyword {

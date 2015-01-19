@@ -1,5 +1,5 @@
-#ifndef SEMA_H_
-#define SEMA_H_
+#ifndef DECL_H_
+#define DECL_H_
 
 #include "parser.h"
 
@@ -20,14 +20,21 @@ struct TypeTag {
 void push_scope(void);
 void pop_scope(void);
 void restore_scope(void);
-// Symbol *lookup(char *id, int all);
+Symbol *lookup(char *id, int all);
 // void install(TypeExp *decl_specs, TypeExp *declarator);
 void install_tag(TypeExp *t);
 TypeTag *lookup_tag(char *id, int all);
 
-Token get_id_token(char *id);
+// Token get_id_token(char *id);
+TypeExp *get_sto_class_spec(TypeExp *d);
+TypeExp *get_type_spec(TypeExp *d);
+TypeExp *get_type_qual(TypeExp *d);
 int is_typedef_name(char *id);
 char *stringify_type_exp(Declaration *d);
+int is_complete(char *tag);
+int is_struct_union_enum(Token t);
+TypeExp *dup_declarator(TypeExp *d);
+void replace_typedef_name(Declaration *decl);
 
 void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_func_def);
 void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym);

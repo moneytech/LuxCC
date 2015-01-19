@@ -5,7 +5,8 @@
 #include <stdlib.h>
 #define DEBUG 0
 #include "util.h"
-#include "sema.h"
+#include "decl.h"
+#include "stmt_expr.h"
 
 #define SRC_FILE    curr_tok->src_file
 #define SRC_LINE    curr_tok->src_line
@@ -330,7 +331,7 @@ Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator)
 
     match(TOK_SEMICOLON);
 
-    printf("%s\n", stringify_type_exp(d));
+    // printf("%s\n", stringify_type_exp(d));
 
     return d;
 }
@@ -571,10 +572,8 @@ TypeExp *struct_or_union_specifier(void)
         }
         match(TOK_ID);
         if (lookahead(1) == TOK_LBRACE) {
-            if (cur != NULL) {
-                if (cur->type->attr.dl != NULL)
-                    ERROR("redefinition of `%s %s'", token_table[n->op*2+1], n->str);
-            }
+            if (cur!=NULL && cur->type->attr.dl!=NULL)
+                ERROR("redefinition of `%s %s'", token_table[n->op*2+1], n->str);
             match(TOK_LBRACE);
             n->attr.dl = struct_declaration_list();
             match(TOK_RBRACE); /* the type is complete now */
@@ -582,12 +581,12 @@ TypeExp *struct_or_union_specifier(void)
                 cur->type = n; /* update the previous incomplete declaration */
         }
     } else if (lookahead(1) == TOK_LBRACE) {
-        static int anon_counter = 0;
+        /*static int anon_counter = 0;
         char *anon_tag;
 
         anon_tag = malloc(32);
         sprintf(anon_tag, "<anonymous_%d>", anon_counter++);
-        n->str = anon_tag;
+        n->str = anon_tag;*/
 
         match(TOK_LBRACE);
         n->attr.dl = struct_declaration_list();
@@ -763,10 +762,8 @@ TypeExp *enum_specifier(void)
         }
         match(TOK_ID);
         if (lookahead(1) == TOK_LBRACE) {
-            if (cur != NULL) {
-                if (cur->type->attr.el != NULL)
-                    ERROR("redefinition of `enum %s'", n->str);
-            }
+            if (cur!=NULL && cur->type->attr.el!=NULL)
+                ERROR("redefinition of `enum %s'", n->str);
             match(TOK_LBRACE);
             n->attr.el = enumerator_list();
             match(TOK_RBRACE);
@@ -775,12 +772,12 @@ TypeExp *enum_specifier(void)
 
         }
     } else if (lookahead(1) == TOK_LBRACE) {
-        static int anon_counter = 0;
+        /*static int anon_counter = 0;
         char *anon_tag;
 
         anon_tag = malloc(32);
         sprintf(anon_tag, "<anonymous_%d>", anon_counter++);
-        n->str = anon_tag;
+        n->str = anon_tag;*/
 
         match(TOK_LBRACE);
         n->attr.el = enumerator_list();
@@ -835,6 +832,7 @@ TypeExp *enumeration_constant(void)
 
     n = new_type_exp_node();
     n->str = get_lexeme(1);
+    n->op = TOK_ENUM_CONST; // install() uses this
     // install(get_lexeme(1), TOK_ID);
 
     match(TOK_ID);
@@ -1172,7 +1170,7 @@ TypeExp *typedef_name(void)
     TypeExp *n;
 
     /*
-     * Don't check if identifier is indeed a typedef-name
+     * Don't check if the identifier is indeed a typedef-name
      * because it's assumed that this fuction is only called
      * if in_first_type_specifier() returned TRUE.
      */
@@ -1235,7 +1233,8 @@ ExecNode *new_stmt_node(StmtKind kind)
     new_node = calloc(1, sizeof(ExecNode));
     new_node->node_kind = StmtNode;
     new_node->kind.exp = kind;
-    new_node->src_line = curr_tok->src_line;
+    // new_node->src_line = curr_tok->src_line;
+    new_node->info = curr_tok;
     ++number_of_ast_nodes;
 
     return new_node;
@@ -1531,7 +1530,8 @@ ExecNode *new_op_node(Token op)
     new_node->node_kind = ExpNode;
     new_node->kind.exp = OpExp;
     new_node->attr.op = op;
-    new_node->src_line = curr_tok->src_line;
+    // new_node->src_line = curr_tok->src_line;
+    new_node->info = curr_tok;
     ++number_of_ast_nodes;
 
     return new_node;
@@ -1544,7 +1544,8 @@ ExecNode *new_pri_exp_node(ExpKind kind)
     new_node = calloc(1, sizeof(ExecNode));
     new_node->node_kind = ExpNode;
     new_node->kind.exp = kind;
-    new_node->src_line = curr_tok->src_line;
+    // new_node->src_line = curr_tok->src_line;
+    new_node->info = curr_tok;
     ++number_of_ast_nodes;
 
     return new_node;
@@ -1565,7 +1566,7 @@ ExecNode *expression(void)
 {
     ExecNode *n, *temp;
 
-    n = temp = assignment_expression();
+    n = assignment_expression();
     while (lookahead(1) == TOK_COMMA) {
         temp = new_op_node(TOK_COMMA);
         match(TOK_COMMA);
@@ -1573,6 +1574,7 @@ ExecNode *expression(void)
         temp->child[1] = assignment_expression();
         n = temp;
     }
+    analyze_expression(n);
 
     return n;
 }
@@ -1584,24 +1586,12 @@ ExecNode *expression(void)
 
 /*
  * assignment_expression = conditional_expression [ assignment_operator assignment_expression ]
- *
- * Note: the original production that appears in
- * the standard is:
- *
- *      assignment_expression = conditional_expression |
- *                              unary_expression assignment_operator assignment_expression
- *
- * To simplify the parsing, conditional_expression
- * is accepted as a left-hand operand of an assignment
- * operator. As a consequence of this, the expression
- * `1+2=3' will be detected as an error during semantic
- * analysis instead of during parsing.
  */
 ExecNode *assignment_expression(void)
 {
     ExecNode *n, *temp;
 
-    n = temp = conditional_expression();
+    n = conditional_expression();
     if (IS_ASSIGNMENT_OP(lookahead(1))) {
         temp = new_op_node(lookahead(1));
         match(lookahead(1));
@@ -1620,7 +1610,7 @@ ExecNode *conditional_expression(void)
 {
     ExecNode *n, *temp;
 
-    n = temp = logical_OR_expression();
+    n = logical_OR_expression();
     if (lookahead(1) == TOK_CONDITIONAL) {
         temp = new_op_node(TOK_CONDITIONAL);
         match(TOK_CONDITIONAL);
@@ -1641,7 +1631,7 @@ ExecNode *logical_OR_expression(void)
 {
     ExecNode *n, *temp;
 
-    n = temp = logical_AND_expression();
+    n = logical_AND_expression();
     while (lookahead(1) == TOK_OR) {
         temp = new_op_node(lookahead(1));
         match(lookahead(1));
@@ -1660,7 +1650,7 @@ ExecNode *logical_AND_expression(void)
 {
     ExecNode *n, *temp;
 
-    n = temp = inclusive_OR_expression();
+    n = inclusive_OR_expression();
     while (lookahead(1) == TOK_AND) {
         temp = new_op_node(lookahead(1));
         match(lookahead(1));
@@ -1679,7 +1669,7 @@ ExecNode *inclusive_OR_expression(void)
 {
     ExecNode *n, *temp;
 
-    n = temp = exclusive_OR_expression();
+    n = exclusive_OR_expression();
     while (lookahead(1) == TOK_BW_OR) {
         temp = new_op_node(lookahead(1));
         match(lookahead(1));
@@ -1698,7 +1688,7 @@ ExecNode *exclusive_OR_expression(void)
 {
     ExecNode *n, *temp;
 
-    n = temp = AND_expression();
+    n = AND_expression();
     while (lookahead(1) == TOK_BW_XOR) {
         temp = new_op_node(lookahead(1));
         match(lookahead(1));
@@ -1717,7 +1707,7 @@ ExecNode *AND_expression(void)
 {
     ExecNode *n, *temp;
 
-    n = temp = equality_expression();
+    n = equality_expression();
     while (lookahead(1) == TOK_AMPERSAND) {
         temp = new_op_node(TOK_BW_AND);
         match(lookahead(1));
@@ -1737,7 +1727,7 @@ ExecNode *equality_expression(void)
 {
     ExecNode *n, *temp;
 
-    n = temp = relational_expression();
+    n = relational_expression();
     while (lookahead(1)==TOK_EQ || lookahead(1)==TOK_NEQ) {
         temp = new_op_node(lookahead(1));
         match(lookahead(1));
@@ -1761,7 +1751,7 @@ ExecNode *relational_expression(void)
 {
     ExecNode *n, *temp;
 
-    n = temp = shift_expression();
+    n = shift_expression();
     while (IS_RELOP(lookahead(1))) {
         temp = new_op_node(lookahead(1));
         match(lookahead(1));
@@ -1781,7 +1771,7 @@ ExecNode *shift_expression(void)
 {
     ExecNode *n, *temp;
 
-    n = temp = additive_expression();
+    n = additive_expression();
     while (lookahead(1)==TOK_LSHIFT || lookahead(1)==TOK_RSHIFT) {
         temp = new_op_node(lookahead(1));
         match(lookahead(1));
@@ -1801,7 +1791,7 @@ ExecNode *additive_expression(void)
 {
     ExecNode *n, *temp;
 
-    n = temp = multiplicative_expression();
+    n = multiplicative_expression();
     while (lookahead(1)==TOK_PLUS || lookahead(1)==TOK_MINUS) {
         temp = new_op_node(lookahead(1));
         match(lookahead(1));
@@ -1821,7 +1811,7 @@ ExecNode *multiplicative_expression(void)
 {
     ExecNode *n, *temp;
 
-    n = temp = cast_expression();
+    n = cast_expression();
     while (lookahead(1)==TOK_STAR || lookahead(1)==TOK_DIV || lookahead(1)==TOK_MOD) {
         temp = new_op_node((lookahead(1)!=TOK_STAR)?lookahead(1):TOK_MUL);
         match(lookahead(1));
@@ -1848,9 +1838,11 @@ ExecNode *cast_expression(void)
         match(TOK_LPAREN);
         if (in_first_specifier_qualifier_list()) {
             n = new_op_node(TOK_CAST);
-            n->attr.tn = type_name();
+            // n->attr.tn = type_name();
+            n->child[1] = (ExecNode *)type_name();
             match(TOK_RPAREN);
             n->child[0] = cast_expression();
+            analyze_cast_expression(n);
         } else {
             curr_tok = temp; /* restore */
             n = unary_expression();
@@ -1899,7 +1891,8 @@ ExecNode *unary_expression(void)
             temp = curr_tok; /* save */
             match(TOK_LPAREN);
             if (in_first_specifier_qualifier_list()) {
-                n->attr.tn = type_name();
+                // n->attr.tn = type_name();
+                n->child[1] = (ExecNode *)type_name();
                 match(TOK_RPAREN);
             } else { /* sizeof applied to a parenthesized expression */
                 curr_tok = temp; /* restore */
@@ -1938,8 +1931,11 @@ ExecNode *unary_expression(void)
         break;
     default:
         n = postfix_expression();
-        break;
+        return n;
+        // break;
     }
+
+    analyze_unary_expression(n);
 
     return n;
 }
@@ -1958,8 +1954,10 @@ ExecNode *postfix_expression(void)
     while (IS_POSTFIX_OP(lookahead(1))) {
         n = postfix();
         n->child[0] = temp;
+        analyze_postfix_expression(n);
         temp = n;
     }
+    // analyze_postfix_expression(n);
 
     return n;
 }
@@ -1993,13 +1991,17 @@ ExecNode *postfix(void)
     case TOK_DOT:
         n = new_op_node(TOK_DOT);
         match(TOK_DOT);
-        n->attr.str = get_lexeme(1);
+        // n->attr.str = get_lexeme(1);
+        n->child[1] = new_pri_exp_node(IdExp);
+        n->child[1]->attr.str = get_lexeme(1);
         match(TOK_ID);
         break;
     case TOK_ARROW:
         n = new_op_node(TOK_ARROW);
         match(TOK_ARROW);
-        n->attr.str = get_lexeme(1);
+        // n->attr.str = get_lexeme(1);
+        n->child[1] = new_pri_exp_node(IdExp);
+        n->child[1]->attr.str = get_lexeme(1);
         match(TOK_ID);
         break;
     case TOK_INC:
@@ -2031,21 +2033,25 @@ ExecNode *primary_expression(void)
      * 6.5.1.2:
      * An identifier is a primary expression, provided it has been declared as designating an
      * object (in which case it is an lvalue) or a function (in which case it is a function
-     * designator).
-     * Footnote: Thus, an undeclared identifier is a violation of the syntax.
+     * designator).79)
+     * 79) Thus, an undeclared identifier is a violation of the syntax.
      */
-        /*Symbol *s;
+        Symbol *s;
+        TypeExp *scs;
 
         if ((s=lookup(get_lexeme(1), TRUE)) == NULL)
             ERROR("undeclared identifier `%s'", get_lexeme(1));
-        if (s->tok == TOK_ID) {
+        if ((scs=get_sto_class_spec(s->decl_specs))==NULL || scs->op!=TOK_TYPEDEF) {
             n = new_pri_exp_node(IdExp);
             n->attr.str = get_lexeme(1);
+            /* set type */
+            n->type.decl_specs = s->decl_specs;
+            n->type.idl = s->declarator->child;
             match(TOK_ID);
         } else {
             ERROR("expecting primary-expression; found typedef-name `%s'", get_lexeme(1));
-        }*/
-        Token tok;
+        }
+        /*Token tok;
 
         tok = get_id_token(get_lexeme(1));
         if (tok == TOK_ID) {
@@ -2056,7 +2062,7 @@ ExecNode *primary_expression(void)
             ERROR("expecting primary-expression; found typedef-name `%s'", get_lexeme(1));
         } else {
             ERROR("undeclared identifier `%s'", get_lexeme(1));
-        }
+        }*/
         break;
     }
     case TOK_ICONST:
@@ -2073,11 +2079,13 @@ ExecNode *primary_expression(void)
         match(TOK_LPAREN);
         n = expression();
         match(TOK_RPAREN);
-        break;
+        return n;
+        // break;
     default:
         ERROR("expecting primary-expression; found `%s'", get_lexeme(1));
         break;
     }
+    analyze_primary_expression(n);
 
     return n;
 }

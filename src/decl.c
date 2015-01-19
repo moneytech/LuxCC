@@ -1,4 +1,4 @@
-#include "sema.h"
+#include "decl.h"
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
@@ -111,7 +111,7 @@ int is_type_spec2(Token t)
 
 #define is_type_qualifier(t) (t==TOK_CONST || t==TOK_VOLATILE)
 
-static int is_struct_union_enum(Token t)
+int is_struct_union_enum(Token t)
 {
     return (t==TOK_STRUCT||t==TOK_UNION||t==TOK_ENUM);
 }
@@ -431,7 +431,7 @@ Symbol *lookup(char *id, int all)
         return NULL; /* not found */
     }
 }
-
+/*
 Token get_id_token(char *id)
 {
     Symbol *np;
@@ -442,13 +442,22 @@ Token get_id_token(char *id)
             return TOK_TYPEDEFNAME;
         return TOK_ID;
     } else {
-        return 0; /* undeclared */
+        return 0; // undeclared
     }
 }
-
+*/
 int is_typedef_name(char *id)
 {
-    return (get_id_token(id) == TOK_TYPEDEFNAME);
+    // return (get_id_token(id) == TOK_TYPEDEFNAME);
+    Symbol *np;
+
+    if ((np=lookup(id, TRUE)) != NULL) {
+        TypeExp *scs;
+
+        if ((scs=get_sto_class_spec(np->decl_specs))!=NULL && scs->op==TOK_TYPEDEF)
+            return TRUE;
+    }
+    return FALSE;
 }
 /*
 #undef SRC_FILE
@@ -484,14 +493,13 @@ void install(TypeExp *decl_specs, TypeExp *declarator)
         curr_scs = (scs=get_sto_class_spec(decl_specs))!=NULL ? scs->op:0;
         prev_scs = (scs=get_sto_class_spec(np->decl_specs))!=NULL ? scs->op:0;
 
-        /* diagnose depending on the situation (note: when install() is called to install
-           an enumeration constant, decl_specs is NULL) */
-        if (decl_specs==NULL || curr_scs==TOK_TYPEDEF) {
+        /* diagnose depending on the situation */
+        if (declarator->op==TOK_ENUM_CONST || curr_scs==TOK_TYPEDEF) {
             /*
              * Clash while trying to install an
              * enumeration constant or typedef name.
              */
-            if (decl_specs==NULL && np->decl_specs==NULL)
+            if (declarator->op==TOK_ENUM_CONST && np->declarator->op==TOK_ENUM_CONST)
                 /*
                  * enum { xyz };
                  * enum { xyz };
@@ -505,7 +513,7 @@ void install(TypeExp *decl_specs, TypeExp *declarator)
                 ERROR(declarator, "redefinition of typedef `%s'", declarator->str);
             else
                 goto diff_kind_of_sym;
-        } else if (np->decl_specs==NULL || prev_scs==TOK_TYPEDEF) {
+        } else if (np->declarator->op==TOK_ENUM_CONST || prev_scs==TOK_TYPEDEF) {
             /*
              * Clash with previously declared
              * enumeration constant or typedef name.
@@ -557,7 +565,11 @@ diff_kind_of_sym:
 
 void analyze_enumerator(TypeExp *e)
 {
-    install(NULL, e);
+    static TypeExp enum_ds = { TOK_INT };
+    static TypeExp enum_dct = { TOK_ENUM_CONST };
+
+    e->child = &enum_dct;
+    install(&enum_ds, e);
     /*
      * 6.7.2.2#2
      * The expression that defines the value of an enumeration constant shall be an integer
@@ -680,9 +692,12 @@ int compare_and_compose(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2
     return compare_and_compose(ds1, dct1->child, ds2, dct2->child, TRUE);
 }
 
-static int is_complete(char *tag)
+int is_complete(char *tag)
 {
     TypeTag *tp;
+
+    if (tag == NULL) /* anonymous struct/union/enum */
+        return TRUE;
 
     tp = lookup_tag(tag, TRUE);
     if (tp != NULL) {
@@ -691,7 +706,8 @@ static int is_complete(char *tag)
         else
             return tp->type->attr.dl!=NULL;
     } else {
-        return TRUE; /* anonymous struct/union/enum */
+        fprintf(stderr, "bug: is_complete()\n");
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -779,7 +795,7 @@ TypeExp *dup_declarator(TypeExp *d)
     return new_node;
 }
 
-static
+// static
 void replace_typedef_name(Declaration *decl)
 {
     /*
@@ -857,7 +873,7 @@ void replace_typedef_name(Declaration *decl)
          */
         do
             declarator = declarator->child;
-        while (declarator!=NULL && declarator->op==TOK_SUBSCRIPT);
+        while (declarator!=NULL && declarator->op==TOK_SUBSCRIPT); /* search the element type */
         if (declarator != NULL)
             /* the element type of the array is a derived type (pointer or function) */
             goto common;
@@ -1030,7 +1046,7 @@ void analyze_function_definition(FuncDef *f)
             || is_struct_union_enum(ts->op) && !is_complete(ts->str)/*lookup_tag(ts->str, TRUE)->type->attr.dl==NULL*/)
                 ERROR(p->decl->idl, "parameter `%s' has incomplete type", p->decl->idl->str);
         }
-        printf("%s\n", stringify_type_exp(p->decl));
+        // printf("%s\n", stringify_type_exp(p->decl));
         p = p->next;
     } while (p!=NULL && p->decl->idl->op!=TOK_ELLIPSIS);
 no_params:;
@@ -1234,8 +1250,8 @@ char *stringify_type_exp(Declaration *d)
             strcat(out, ")");
         } else if (e->op == TOK_SUBSCRIPT) {
             strcat(out, "[");
-            if (e->attr.e != NULL)
-                strcat(out, e->attr.e->attr.str);
+            // if (e->attr.e != NULL)
+                // strcat(out, e->attr.e->attr.str);
             strcat(out, "]");
         } else if (e->op == TOK_STAR) {
             if (e->child!=NULL && (e->child->op==TOK_SUBSCRIPT || e->child->op==TOK_FUNCTION)) {
@@ -1283,6 +1299,8 @@ void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)
         /* the type category is array, the size expression cannot be missing */
         if (declarator->child->attr.e == NULL)
             goto incomp_error;
+    } else if (declarator->child->op == TOK_FUNCTION) {
+        ERROR(declarator, "member `%s' declared as a function", declarator->str);
     }
     return; /* OK */
 incomp_error:
@@ -1293,14 +1311,14 @@ void check_for_dup_member(DeclList *d)
 {
 #define MEM_TAB_SIZE 53
     typedef struct Member Member;
-    struct Member {
+    static struct Member {
         char *id;
         Member *next;
     } *members[MEM_TAB_SIZE], *np, *temp;
     TypeExp *dct;
     unsigned h;
 
-    memset(members, 0, sizeof(Member *)*MEM_TAB_SIZE);
+    // memset(members, 0, sizeof(Member *)*MEM_TAB_SIZE);
     /* traverse the struct declaration list */
     while (d != NULL) {
         /* traverse the struct declarator list */
@@ -1327,6 +1345,7 @@ void check_for_dup_member(DeclList *d)
                 np = np->next;
                 free(temp);
             }
+            members[h] = NULL;
         }
     }
 }

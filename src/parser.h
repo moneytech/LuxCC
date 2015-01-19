@@ -14,13 +14,15 @@ typedef struct DeclList DeclList;
 typedef struct FuncDef FuncDef;
 typedef struct ExternDecl ExternDecl;
 
+/* TODO: choose better member names */
+
 struct TypeExp {
     Token op;
     char *str;        /* struct/union/enum tag or id */
     union {
         DeclList *dl; /* struct declaration list or function parameters */
         ExecNode *e;  /* array size exp or initializer */
-        TypeExp *el;  /* enumerator list */
+        TypeExp *el;  /* enumerator list or pointer qualifiers */
     } attr;
     TypeExp *child, *sibling;
     TokenNode *info;
@@ -87,9 +89,12 @@ struct ExecNode {
     union {
         Token op;
         char *str;
-        Declaration *tn;
+        // Declaration *tn; /* type name */
+        long val;
+        unsigned long uval;
     } attr;
-    int src_line;
+    Declaration type;
+    TokenNode *info;
 };
 
 void parser(TokenNode *);
