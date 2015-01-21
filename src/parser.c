@@ -1574,7 +1574,7 @@ ExecNode *expression(void)
         temp->child[1] = assignment_expression();
         n = temp;
     }
-    analyze_expression(n);
+    // analyze_expression(n);
 
     return n;
 }
@@ -1598,6 +1598,7 @@ ExecNode *assignment_expression(void)
         temp->child[0] = n;
         temp->child[1] = assignment_expression();
         n = temp;
+        analyze_assignment_expression(n);
     }
 
     return n;
@@ -1798,6 +1799,7 @@ ExecNode *additive_expression(void)
         temp->child[0] = n;
         temp->child[1] = multiplicative_expression();
         n = temp;
+        analyze_additive_expression(n);
     }
 
     return n;
@@ -1818,6 +1820,7 @@ ExecNode *multiplicative_expression(void)
         temp->child[0] = n;
         temp->child[1] = cast_expression();
         n = temp;
+        analyze_multiplicative_expression(n);
     }
 
     return n;

@@ -11,28 +11,6 @@
 #define ERROR(tok, ...) fprintf(stderr, "%s:%d:%d: error: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__),fprintf(stderr, "\n"),exit(EXIT_FAILURE)
 #define WARNING(tok, ...) fprintf(stderr, "%s:%d:%d: warning: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n")
 
-void analyze_expression(ExecNode *e)
-{
-    // switch (e->attr.op) {
-    // case TOK_COMMA:
-    // case TOK_ASSIGN: /* ... */
-    // case TOK_CONDITIONAL:
-    // case TOK_OR:
-    // case TOK_AND:
-    // case TOK_BW_OR:
-    // case TOK_BW_XOR:
-    // case TOK_BW_AND:
-    // case TOK_EQ: /* ... */
-    // case TOK_LT: /* ... */
-    // case TOK_LSHIFT: /* ... */
-    // case TOK_PLUS:
-    // case TOK_MINUS:
-    // case TOK_MUL:
-    // case TOK_DIV:
-    // case TOK_MOD:
-    // case TOK_CAST:
-    // }
-}
 
 static Token get_type_category(Declaration *d)
 {
@@ -42,9 +20,18 @@ static Token get_type_category(Declaration *d)
         return get_type_spec(d->decl_specs)->op;
 }
 
-static int is_integer(Token t)
+static int is_integer(Token ty)
 {
-    return (t==TOK_CHAR || t==TOK_INT || t==TOK_LONG/* || t==TOK_ENUM_CONST*/);
+    // return (t==TOK_CHAR || t==TOK_INT || t==TOK_LONG/* || t==TOK_ENUM_CONST*/);
+    switch (ty) {
+    case TOK_LONG: case TOK_UNSIGNED_LONG:
+    case TOK_INT: case TOK_UNSIGNED:
+    case TOK_SHORT: case TOK_UNSIGNED_SHORT:
+    case TOK_CHAR: case TOK_SIGNED_CHAR: case TOK_UNSIGNED_CHAR:
+        return TRUE;
+    default:
+        return FALSE;
+    }
 }
 
 static int is_pointer(Token op)
@@ -218,10 +205,338 @@ Token get_promoted_type(Token int_ty)
     }
 }
 
+// Every integer type has an integer conversion rank.
+// Integer conversion ranks from highest to lowest
+    // 1) long long int, unsigned long long int
+    // 2) long int, unsigned long int
+    // 3) int, unsigned int
+    // 4) short int, unsigned short int
+    // 5) char, signed char, unsigned char
+    // 6) _Bool
+int get_rank(Token ty)
+{
+    switch (ty) {
+    case TOK_LONG:
+    case TOK_UNSIGNED_LONG:
+        return 4;
+    case TOK_INT:
+    case TOK_UNSIGNED:
+        return 3;
+    case TOK_SHORT:
+    case TOK_UNSIGNED_SHORT:
+        return 2;
+    case TOK_CHAR:
+    case TOK_SIGNED_CHAR:
+    case TOK_UNSIGNED_CHAR:
+        return 1;
+    }
+}
+
+int is_signed_int(Token ty)
+{
+    switch (ty) {
+    case TOK_CHAR:
+    case TOK_SIGNED_CHAR:
+    case TOK_SHORT:
+    case TOK_INT:
+    case TOK_LONG:
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
+int is_unsigned_int(Token ty)
+{
+    switch (ty) {
+    case TOK_UNSIGNED_CHAR:
+    case TOK_UNSIGNED_SHORT:
+    case TOK_UNSIGNED:
+    case TOK_UNSIGNED_LONG:
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
+/*
+ * ty1, ty2: promoted operands.
+ */
+Token get_result_type(Token ty1, Token ty2)
+{
+// Otherwise, the integer promotions are performed on both operands. Then the
+// following rules are applied to the promoted operands:
+    int rank1, rank2;
+    int sign1, sign2;
+
+    /*
+     * If both operands have the same type, then no further conversion is needed.
+     */
+    if (ty1 == ty2)
+        return ty1;
+
+    /* fetch rank and sign */
+    rank1 = get_rank(ty1);
+    rank2 = get_rank(ty2);
+    sign1 = is_signed_int(ty1);
+    sign2 = is_signed_int(ty2);
+
+    /*
+     * Otherwise, if both operands have signed integer types or both have unsigned
+     * integer types, the operand with the type of lesser integer conversion rank is
+     * converted to the type of the operand with greater rank.
+     */
+    if (sign1 == sign2)
+        return (rank1>rank2)?ty1:ty2;
+
+    /*
+     * Otherwise, if the operand that has unsigned integer type has rank greater or
+     * equal to the rank of the type of the other operand, then the operand with
+     * signed integer type is converted to the type of the operand with unsigned
+     * integer type.
+     */
+    if (!sign1 && rank1>=rank2)
+        return ty1;
+    if (!sign2 && rank2>=rank1)
+        return ty2;
+
+// Otherwise, if the type of the operand with signed integer type can represent
+// all of the values of the type of the operand with unsigned integer type, then
+// the operand with unsigned integer type is converted to the type of the
+// operand with signed integer type.
+    /* nothing of this applies with sizeof(int)==sizeof(long) */
+
+    /*
+     * Otherwise, both operands are converted to the unsigned integer type
+     * corresponding to the type of the operand with signed integer type.
+     */
+    return TOK_UNSIGNED_LONG;
+}
+
+TypeExp *get_type_node(Token ty)
+{
+    static TypeExp ty_int = { TOK_INT };
+    static TypeExp ty_unsigned = { TOK_UNSIGNED };
+    static TypeExp ty_long = { TOK_LONG };
+    static TypeExp ty_unsigned_long = { TOK_UNSIGNED_LONG };
+
+    switch (ty) {
+    case TOK_INT: return &ty_int;
+    case TOK_UNSIGNED: return &ty_unsigned;
+    case TOK_LONG: return &ty_long;
+    case TOK_UNSIGNED_LONG: return &ty_unsigned_long;
+    }
+
+    fprintf(stderr, "get_type_node()\n");
+    exit(EXIT_FAILURE);
+}
+
+void binary_op_error(ExecNode *op)
+{
+    /*
+     * Convert arrays and functions to pointers
+     * to array and function respectively.
+     */
+    int idx;
+
+    for (idx = 0; idx < 2; idx++) {
+        if (op->child[idx]->type.idl!=NULL
+        && (op->child[idx]->type.idl->op==TOK_SUBSCRIPT||op->child[idx]->type.idl->op==TOK_FUNCTION)) {
+            TypeExp *ptr_node;
+
+            ptr_node = calloc(1, sizeof(TypeExp));
+            ptr_node->op = TOK_STAR;
+            ptr_node->child = op->child[idx]->type.idl;
+            op->child[idx]->type.idl = ptr_node;
+        }
+    }
+
+    ERROR(op, "invalid operands to binary %s (`%s' and `%s')", token_table[op->attr.op*2+1],
+    stringify_type_exp(&op->child[0]->type), stringify_type_exp(&op->child[1]->type));
+}
+
+int is_ptr2obj(Declaration *p)
+{
+    if (p->idl->child != NULL) {
+        if (p->idl->child->op == TOK_FUNCTION)
+            return FALSE; /* pointer to function */
+        if (p->idl->child->op==TOK_SUBSCRIPT && p->idl->child->attr.e==NULL)
+            return FALSE; /* pointer to incomplete type */
+    } else {
+        TypeExp *ts;
+
+        ts = get_type_spec(p->decl_specs);
+        if (is_struct_union_enum(ts->op)&&!is_complete(ts->str) || ts->op==TOK_VOID)
+            return FALSE; /* pointer to incomplete type */
+    }
+
+    return TRUE;
+}
+
+/*
+ * Similar to compare_and_compose() but
+ * type qualifiers are totally ignored.
+ */
+static int compare_types(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2)
+{
+    /* identifiers are non-significant */
+    if (dct1!=NULL && dct1->op==TOK_ID)
+        dct1 = dct1->child;
+    if (dct2!=NULL && dct2->op==TOK_ID)
+        dct2 = dct2->child;
+
+    if (dct1==NULL || dct2==NULL) {
+        if (dct1 != dct2)
+            return FALSE;
+
+        /* compare type specifiers */
+        ds1 = get_type_spec(ds1);
+        ds2 = get_type_spec(ds2);
+        if (ds1->op!=ds2->op || is_struct_union_enum(ds1->op)&&ds1->str!=ds2->str)
+            return FALSE;
+        return TRUE;
+    }
+
+    if (dct1->op != dct2->op)
+        return FALSE;
+
+    switch (dct1->op) {
+    case TOK_ELLIPSIS:
+        return TRUE;
+    case TOK_STAR:
+        break;
+    case TOK_SUBSCRIPT:
+        /* compare array sizes here */
+        break;
+    case TOK_FUNCTION: {
+        DeclList *p1, *p2;
+
+        p1 = dct1->attr.dl;
+        p2 = dct2->attr.dl;
+        while (p1!=NULL && p2!=NULL) {
+            if (!compare_types(p1->decl->decl_specs, p1->decl->idl,
+            p2->decl->decl_specs, p2->decl->idl))
+                return FALSE;
+            p1 = p1->next;
+            p2 = p2->next;
+        }
+        if (p1 != p2)
+            return FALSE;
+        break;
+    }
+    }
+
+    return compare_types(ds1, dct1->child, ds2, dct2->child);
+}
+
+void analyze_assignment_expression(ExecNode *e)
+{
+}
+
+void analyze_additive_expression(ExecNode *e)
+{
+    Token ty_l, ty_r;
+
+    ty_l = get_type_category(&e->child[0]->type);
+    ty_r = get_type_category(&e->child[1]->type);
+
+    /*
+     * 6.5.6
+     * #8 When an expression that has integer type is added to or subtracted from a pointer, the
+     * result has the type of the pointer operand.
+     */
+
+    if (e->attr.op == TOK_PLUS) {
+        /*
+         * 6.5.6
+         * #2 For addition, either both operands shall have arithmetic type, or one operand shall be a
+         * pointer to an object type and the other shall have integer type. (Incrementing is
+         * equivalent to adding 1.)
+         */
+        if (is_integer(ty_l)) {
+            if (is_integer(ty_r)) {
+                /* integer + integer */
+                e->type.decl_specs = get_type_node(get_result_type(get_promoted_type(ty_l), get_promoted_type(ty_r)));
+            } else if (is_pointer(ty_r)) {
+                /* integer + pointer */
+                if (!is_ptr2obj(&e->child[1]->type))
+                    binary_op_error(e);
+                e->type = e->child[1]->type;
+            } else {
+                binary_op_error(e);
+            }
+        } else if (is_pointer(ty_l)) {
+            if (!is_integer(ty_r) || !is_ptr2obj(&e->child[0]->type))
+                binary_op_error(e);
+            /* pointer + integer */
+            e->type = e->child[0]->type;
+        } else {
+            binary_op_error(e);
+        }
+    } else {
+        /*
+         * 6.5.6
+         * #3 For subtraction, one of the following shall hold:
+         * - both operands have arithmetic type;
+         * - both operands are pointers to qualified or unqualified versions of compatible object
+         * types; or
+         * - the left operand is a pointer to an object type and the right operand has integer type.
+         * (Decrementing is equivalent to subtracting 1.)
+         */
+        if (is_integer(ty_l)) {
+            if (is_integer(ty_r))
+                /* integer - integer */
+                e->type.decl_specs = get_type_node(get_result_type(get_promoted_type(ty_l), get_promoted_type(ty_r)));
+            else
+                binary_op_error(e);
+        } else if (is_pointer(ty_l)) {
+            if (is_integer(ty_r)) {
+                /* pointer - integer */
+                if (!is_ptr2obj(&e->child[0]->type))
+                    binary_op_error(e);
+                e->type = e->child[0]->type;
+            } else if (is_pointer(ty_r)) {
+                /* pointer - pointer */
+                if (!is_ptr2obj(&e->child[0]->type) || !is_ptr2obj(&e->child[1]->type)
+                || !compare_types(e->child[0]->type.decl_specs, e->child[0]->type.idl,
+                e->child[1]->type.decl_specs, e->child[1]->type.idl))
+                    binary_op_error(e);
+                e->type.decl_specs = get_type_node(TOK_LONG); /* ptrdiff_t */
+            } else {
+                binary_op_error(e);
+            }
+        } else {
+            binary_op_error(e);
+        }
+    }
+
+    printf("add/sub: %s\n", stringify_type_exp(&e->type));
+}
+
+void analyze_multiplicative_expression(ExecNode *e)
+{
+    Token ty1, ty2;
+
+    /*
+     * 6.5.5
+     * #2 Each of the operands shall have arithmetic type. The operands of the % operator shall
+     * have integer type.
+     */
+    ty1 = get_type_category(&e->child[0]->type);
+    ty2 = get_type_category(&e->child[1]->type);
+
+    if (!is_integer(ty1) || !is_integer(ty2))
+        binary_op_error(e);
+
+    e->type.decl_specs = get_type_node(get_result_type(get_promoted_type(ty1), get_promoted_type(ty2)));
+
+    printf("mul: %s\n", stringify_type_exp(&e->type));
+}
+
 void analyze_cast_expression(ExecNode *e)
 {
-    Token ty;
     TypeExp *ts;
+    Token ty_src, ty_tgt;
 
     /*
      * 6.5.4
@@ -229,18 +544,27 @@ void analyze_cast_expression(ExecNode *e)
      * unqualified scalar type and the operand shall have scalar type.
      */
     /* source type */
-    ty = get_type_category(&e->child[0]->type);
-    if (!is_integer(ty) && !is_pointer(ty))
+    ty_src = get_type_category(&e->child[0]->type);
+    if (!is_integer(ty_src) && !is_pointer(ty_src) && ty_src!=TOK_FUNCTION && ty_src!=TOK_VOID)
         ERROR(e, "cast operand does not have scalar type");
 
     /* target type */
     ts = get_type_spec(((Declaration *)e->child[1])->decl_specs);
     if (ts->op == TOK_TYPEDEFNAME)
         replace_typedef_name((Declaration *)e->child[1]);
-    ty = get_type_category((Declaration *)e->child[1]);
+    ty_tgt = get_type_category((Declaration *)e->child[1]);
 
-    if (!is_integer(ty) && ty!=TOK_STAR)
+    if (!is_integer(ty_tgt) && ty_tgt!=TOK_STAR && ty_tgt!=TOK_VOID)
         ERROR(e, "cast specifies conversion to non-scalar type");
+
+    /* check for void ==> non-void */
+    if (ty_src==TOK_VOID && ty_tgt!=TOK_VOID)
+        ERROR(e, "invalid use of void expression");
+
+    e->type.decl_specs = ((Declaration *)e->child[1])->decl_specs;
+    e->type.idl = ((Declaration *)e->child[1])->idl;
+
+    printf("(%s)\n", stringify_type_exp(&e->type));
 }
 
 void analyze_unary_expression(ExecNode *e)
@@ -365,8 +689,7 @@ void analyze_unary_expression(ExecNode *e)
     }
     case TOK_UNARY_PLUS:
     case TOK_UNARY_MINUS: {
-        TypeExp *ts;
-        Token prom_ty;
+        Token ty, prom_ty;
 
         /*
          * 6.5.3.3
@@ -376,14 +699,16 @@ void analyze_unary_expression(ExecNode *e)
          * #3 The result of the unary - operator is the negative of its (promoted) operand. The integer
          * promotions are performed on the operand, and the result has the promoted type.
          */
-        if (!is_integer(get_type_category(&e->child[0]->type)))
+        ty = get_type_category(&e->child[0]->type);
+        if (!is_integer(ty))
             ERROR(e, "invalid operand to %s", token_table[e->attr.op*2+1]);
 
-        ts = get_type_spec(e->child[0]->type.decl_specs);
-        if ((prom_ty=get_promoted_type(ts->op)) != ts->op) {
+        if ((prom_ty=get_promoted_type(ty)) != ty) {
+            TypeExp *ts;
+
             e->type.decl_specs = dup_decl_specs_list(e->child[0]->type.decl_specs);
             ts = get_type_spec(e->type.decl_specs);
-            ts->op = get_promoted_type(ts->op);
+            ts->op = prom_ty;
         } else {
             e->type.decl_specs = e->child[0]->type.decl_specs;
         }

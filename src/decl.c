@@ -628,6 +628,9 @@ int compare_decl_specs(TypeExp *ds1, TypeExp *ds2, int qualified)
     return TRUE;
 }
 
+/*
+ * Return TRUE if the two types are compatibles, FALSE otherwise.
+ */
 int compare_and_compose(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2, int qualified)
 {
     /* identifiers are non-significant */
