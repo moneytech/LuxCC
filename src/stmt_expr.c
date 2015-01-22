@@ -28,6 +28,7 @@ static int is_integer(Token ty)
     case TOK_INT: case TOK_UNSIGNED:
     case TOK_SHORT: case TOK_UNSIGNED_SHORT:
     case TOK_CHAR: case TOK_SIGNED_CHAR: case TOK_UNSIGNED_CHAR:
+    // case TOK_ENUM: ???
         return TRUE;
     default:
         return FALSE;
@@ -340,14 +341,18 @@ void binary_op_error(ExecNode *op)
     int idx;
 
     for (idx = 0; idx < 2; idx++) {
-        if (op->child[idx]->type.idl!=NULL
-        && (op->child[idx]->type.idl->op==TOK_SUBSCRIPT||op->child[idx]->type.idl->op==TOK_FUNCTION)) {
-            TypeExp *ptr_node;
+        if (op->child[idx]->type.idl != NULL) {
+            if (op->child[idx]->type.idl->op == TOK_FUNCTION) {
+                TypeExp *ptr_node;
 
-            ptr_node = calloc(1, sizeof(TypeExp));
-            ptr_node->op = TOK_STAR;
-            ptr_node->child = op->child[idx]->type.idl;
-            op->child[idx]->type.idl = ptr_node;
+                ptr_node = calloc(1, sizeof(TypeExp));
+                ptr_node->op = TOK_STAR;
+                ptr_node->child = op->child[idx]->type.idl;
+                op->child[idx]->type.idl = ptr_node;
+            } else if (op->child[idx]->type.idl->op == TOK_SUBSCRIPT) {
+                op->child[idx]->type.idl->op = TOK_STAR;
+                op->child[idx]->type.idl->attr.e = NULL;
+            }
         }
     }
 
@@ -374,63 +379,200 @@ int is_ptr2obj(Declaration *p)
 }
 
 /*
- * Similar to compare_and_compose() but
- * type qualifiers are totally ignored.
+ * The `e' is used only for the warnings (it contains the file/line/column information).
  */
-static int compare_types(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2)
+static
+int can_assign_to(ExecNode *e, Declaration *left_op, Declaration *right_op)
 {
-    /* identifiers are non-significant */
-    if (dct1!=NULL && dct1->op==TOK_ID)
-        dct1 = dct1->child;
-    if (dct2!=NULL && dct2->op==TOK_ID)
-        dct2 = dct2->child;
+/* 6.5.16.1 Simple assignment
+Constraints
+1
+One of the following shall hold:96)
+— the left operand has qualified or unqualified arithmetic type and the right has
+arithmetic type;
+— the left operand has a qualified or unqualified version of a structure or union type
+compatible with the type of the right;
+— both operands are pointers to qualified or unqualified versions of compatible types,
+and the type pointed to by the left has all the qualifiers of the type pointed to by the
+right;
+— one operand is a pointer to an object or incomplete type and the other is a pointer to a
+qualified or unqualified version of void, and the type pointed to by the left has all
+the qualifiers of the type pointed to by the right;
+— the left operand is a pointer and the right is a null pointer constant; */
+    Token ty_l, ty_r;
 
-    if (dct1==NULL || dct2==NULL) {
-        if (dct1 != dct2)
+    ty_l = get_type_category(left_op);
+    ty_r = get_type_category(right_op);
+
+    if (is_integer(ty_l)) {
+        if (is_integer(ty_r)) {
+            int rank_l, rank_r;
+
+            /* int and long have the same rank for assignment purposes */
+            rank_l = get_rank(ty_l);
+            rank_l = (rank_l==4)?3:rank_l;
+            rank_r = get_rank(ty_r);
+            rank_r = (rank_r==4)?3:rank_r;
+
+            /*
+             * Emit a warning when the destination type is narrower than
+             * the source type.
+             */
+            if (rank_r > rank_l)
+                WARNING(e, "implicit conversion loses integer precision: `%s' to `%s'",
+                token_table[ty_r*2+1], token_table[ty_l*2+1]);
+            /*
+             * Otherwise, emit a warning if the source and destination types
+             * do not have the same signedness.
+             */
+            else if (rank_l==rank_r && is_signed_int(ty_l)!=is_signed_int(ty_r))
+                WARNING(e, "implicit conversion changes signedness: `%s' to `%s'",
+                token_table[ty_r*2+1], token_table[ty_l*2+1]);
+        } else if (is_pointer(ty_r)) {
+            WARNING(e, "pointer to integer conversion without a cast");
+        } else {
             return FALSE;
-
-        /* compare type specifiers */
-        ds1 = get_type_spec(ds1);
-        ds2 = get_type_spec(ds2);
-        if (ds1->op!=ds2->op || is_struct_union_enum(ds1->op)&&ds1->str!=ds2->str)
-            return FALSE;
-        return TRUE;
-    }
-
-    if (dct1->op != dct2->op)
-        return FALSE;
-
-    switch (dct1->op) {
-    case TOK_ELLIPSIS:
-        return TRUE;
-    case TOK_STAR:
-        break;
-    case TOK_SUBSCRIPT:
-        /* compare array sizes here */
-        break;
-    case TOK_FUNCTION: {
-        DeclList *p1, *p2;
-
-        p1 = dct1->attr.dl;
-        p2 = dct2->attr.dl;
-        while (p1!=NULL && p2!=NULL) {
-            if (!compare_types(p1->decl->decl_specs, p1->decl->idl,
-            p2->decl->decl_specs, p2->decl->idl))
-                return FALSE;
-            p1 = p1->next;
-            p2 = p2->next;
         }
-        if (p1 != p2)
+    } else if (ty_l==TOK_STRUCT || ty_l==TOK_UNION) {
+        TypeExp *ts_l, *ts_r;
+
+        if (ty_l != ty_r)
             return FALSE;
-        break;
-    }
+
+        ts_l = get_type_spec(left_op->decl_specs);
+        ts_r = get_type_spec(right_op->decl_specs);
+        if (ts_l->str != ts_r->str)
+            return FALSE;
+    } else if (ty_l == TOK_STAR) {
+        if (is_pointer(ty_r)) {
+            /*
+             * Check if the pointers are compatible. If they are, continue
+             * and check for the additional requirement of type qualifiers;
+             * otherwise, emit a warning and return to the caller.
+             */
+            if (left_op->idl->child==NULL && get_type_spec(left_op->decl_specs)->op==TOK_VOID) {
+                if (right_op->idl->child!=NULL && right_op->idl->child->op==TOK_FUNCTION) {
+                    WARNING(e, "conversion of function pointer to void pointer");
+                    return TRUE;
+                }
+            } else if (right_op->idl->child==NULL && get_type_spec(right_op->decl_specs)->op==TOK_VOID) {
+                if (left_op->idl->child!=NULL && left_op->idl->child->op==TOK_FUNCTION) {
+                    WARNING(e, "conversion of void pointer to function pointer");
+                    return TRUE;
+                }
+            } else if (!compare_and_compose(left_op->decl_specs, left_op->idl->child,
+                right_op->decl_specs, right_op->idl->child, FALSE)) {
+                    WARNING(e, "assignment from incompatible pointer type");
+                    return TRUE;
+            }
+
+            /*
+             * Verify that the type pointed to by the left operand has
+             * all the qualifiers of the type pointed to by the right.
+             */
+            TypeExp *tq_l, *tq_r;
+
+            /* fetch the qualifiers of the type pointed
+               to by the left and right operands */
+            if (left_op->idl->child == NULL) {
+                tq_l = get_type_qual(left_op->decl_specs);
+                tq_r = get_type_qual(right_op->decl_specs);
+            } else if (left_op->idl->child->op == TOK_STAR) {
+                tq_l = left_op->idl->child->attr.el;
+                tq_r = right_op->idl->child->attr.el;
+            }
+
+            if (tq_r != NULL) {
+                char *discarded;
+
+                discarded = NULL;
+                if (tq_r->op == TOK_CONST_VOLATILE) {
+                    if (tq_l == NULL)
+                        discarded = "const volatile";
+                    else if (tq_l->op == TOK_CONST)
+                        discarded = "volatile";
+                    else if (tq_l->op == TOK_VOLATILE)
+                        discarded = "const";
+                } else if (tq_r->op == TOK_CONST) {
+                    if (tq_l==NULL || tq_l->op==TOK_VOLATILE)
+                        discarded = "const";
+                } else if (tq_r->op == TOK_VOLATILE) {
+                    if (tq_l==NULL || tq_l->op==TOK_CONST)
+                        discarded = "volatile";
+                }
+                if (discarded != NULL)
+                    WARNING(e, "assignment discards `%s' qualifier from pointer target type", discarded);
+            }
+        } else if (is_integer(ty_r)) {
+            WARNING(e, "integer to pointer conversion without a cast");
+        } else {
+            return FALSE;
+        }
     }
 
-    return compare_types(ds1, dct1->child, ds2, dct2->child);
+    return TRUE;
 }
+
+void analyze_multiplicative_expression(ExecNode *e);
 
 void analyze_assignment_expression(ExecNode *e)
 {
+// 6.5.16
+// #2 An assignment operator shall have a modifiable lvalue as its left operand.
+    if (!is_modif_lvalue(e->child[0]))
+        ERROR(e, "expression is not assignable");
+// #3 An assignment operator stores a value in the object designated by the left operand. An
+// assignment expression has the value of the left operand after the assignment, but is not an
+// lvalue. The type of an assignment expression is the type of the left operand unless the
+// left operand has qualified type, in which case it is the unqualified version of the type of
+// the left operand. The side effect of updating the stored value of the left operand shall
+// occur between the previous and the next sequence point.
+
+    if (e->attr.op == TOK_ASSIGN) {
+        if (!can_assign_to(e, &e->child[0]->type, &e->child[1]->type))
+            ERROR(e, "incompatible types when assigning to type `%s' from type `%s'",
+            stringify_type_exp(&e->child[0]->type), stringify_type_exp(&e->child[1]->type));
+    } else {
+        /* E1 op= E2 ==> E1 = E1 op (E2) ; with E1 evaluated only once */
+        ExecNode temp;
+
+        temp = *e;
+        switch (e->attr.op) {
+        case TOK_MUL_ASSIGN:
+            temp.attr.op = TOK_MUL;
+            analyze_multiplicative_expression(&temp);
+            break;
+        case TOK_DIV_ASSIGN:
+            temp.attr.op = TOK_DIV;
+            analyze_multiplicative_expression(&temp);
+            break;
+        case TOK_MOD_ASSIGN:
+            temp.attr.op = TOK_MOD;
+            analyze_multiplicative_expression(&temp);
+            break;
+        case TOK_PLUS_ASSIGN:
+            temp.attr.op = TOK_PLUS;
+            analyze_additive_expression(&temp);
+            break;
+        case TOK_MINUS_ASSIGN:
+            temp.attr.op = TOK_MINUS;
+            analyze_additive_expression(&temp);
+            break;
+        // case TOK_LSHIFT_ASSIGN:
+        // case TOK_RSHIFT_ASSIGN:
+        // case TOK_BW_AND_ASSIGN:
+        // case TOK_BW_XOR_ASSIGN:
+        // case TOK_BW_OR_ASSIGN:
+            // break;
+        }
+        if (!can_assign_to(e, &e->child[0]->type, &temp.type))
+            ERROR(e, "incompatible types when assigning to type `%s' from type `%s'",
+            stringify_type_exp(&e->child[0]->type), stringify_type_exp(&temp.type));
+    }
+
+    e->type = e->child[0]->type;
+
+    printf("assign: %s\n", stringify_type_exp(&e->type));
 }
 
 void analyze_additive_expression(ExecNode *e)
@@ -477,10 +619,10 @@ void analyze_additive_expression(ExecNode *e)
         /*
          * 6.5.6
          * #3 For subtraction, one of the following shall hold:
-         * - both operands have arithmetic type;
-         * - both operands are pointers to qualified or unqualified versions of compatible object
+         * — both operands have arithmetic type;
+         * — both operands are pointers to qualified or unqualified versions of compatible object
          * types; or
-         * - the left operand is a pointer to an object type and the right operand has integer type.
+         * — the left operand is a pointer to an object type and the right operand has integer type.
          * (Decrementing is equivalent to subtracting 1.)
          */
         if (is_integer(ty_l)) {
@@ -498,8 +640,8 @@ void analyze_additive_expression(ExecNode *e)
             } else if (is_pointer(ty_r)) {
                 /* pointer - pointer */
                 if (!is_ptr2obj(&e->child[0]->type) || !is_ptr2obj(&e->child[1]->type)
-                || !compare_types(e->child[0]->type.decl_specs, e->child[0]->type.idl,
-                e->child[1]->type.decl_specs, e->child[1]->type.idl))
+                || !compare_and_compose(e->child[0]->type.decl_specs, e->child[0]->type.idl->child,
+                e->child[1]->type.decl_specs, e->child[1]->type.idl->child, FALSE))
                     binary_op_error(e);
                 e->type.decl_specs = get_type_node(TOK_LONG); /* ptrdiff_t */
             } else {
@@ -535,7 +677,6 @@ void analyze_multiplicative_expression(ExecNode *e)
 
 void analyze_cast_expression(ExecNode *e)
 {
-    TypeExp *ts;
     Token ty_src, ty_tgt;
 
     /*
@@ -545,21 +686,18 @@ void analyze_cast_expression(ExecNode *e)
      */
     /* source type */
     ty_src = get_type_category(&e->child[0]->type);
-    if (!is_integer(ty_src) && !is_pointer(ty_src) && ty_src!=TOK_FUNCTION && ty_src!=TOK_VOID)
+    if (!is_integer(ty_src) && !is_pointer(ty_src)
+    && ty_src!=TOK_FUNCTION && ty_src!=TOK_VOID)
         ERROR(e, "cast operand does not have scalar type");
 
     /* target type */
-    ts = get_type_spec(((Declaration *)e->child[1])->decl_specs);
-    if (ts->op == TOK_TYPEDEFNAME)
-        replace_typedef_name((Declaration *)e->child[1]);
     ty_tgt = get_type_category((Declaration *)e->child[1]);
-
     if (!is_integer(ty_tgt) && ty_tgt!=TOK_STAR && ty_tgt!=TOK_VOID)
         ERROR(e, "cast specifies conversion to non-scalar type");
 
     /* check for void ==> non-void */
     if (ty_src==TOK_VOID && ty_tgt!=TOK_VOID)
-        ERROR(e, "invalid use of void expression");
+        ERROR(e, "invalid cast of void expression to non-void type");
 
     e->type.decl_specs = ((Declaration *)e->child[1])->decl_specs;
     e->type.idl = ((Declaration *)e->child[1])->idl;
@@ -578,7 +716,6 @@ void analyze_unary_expression(ExecNode *e)
     case TOK_SIZEOF: {
         Token ty;
         TypeExp *ts, *dct;
-        static TypeExp res_ty = { TOK_UNSIGNED };
 
         /*
          * 6.5.3.4
@@ -590,8 +727,6 @@ void analyze_unary_expression(ExecNode *e)
             /* "sizeof" "(" type_name ")" */
             ts = get_type_spec(((Declaration *)e->child[1])->decl_specs);
             dct = ((Declaration *)e->child[1])->idl;
-            if(ts->op == TOK_TYPEDEFNAME)
-                replace_typedef_name((Declaration *)e->child[1]);
             ty = get_type_category((Declaration *)e->child[1]);
         } else {
             /* "sizeof" unary_expression */
@@ -620,7 +755,7 @@ void analyze_unary_expression(ExecNode *e)
          */
         /* >> calculate value here << */
 
-        e->type.decl_specs = &res_ty;
+        e->type.decl_specs = get_type_node(TOK_UNSIGNED);
         break;
     }
     case TOK_ADDRESS_OF: {
@@ -1019,7 +1154,7 @@ void analyze_primary_expression(ExecNode *e)
         }
         break;
     case IConstExp: {
-        static TypeExp ty = { TOK_INT };
+        // static TypeExp ty = { TOK_INT };
 // #if 0
         char *ep, *ic;
 
@@ -1040,14 +1175,16 @@ void analyze_primary_expression(ExecNode *e)
         // printf("res=%x\n", e->attr.val);
         // printf("res=%x\n", e->attr.uval);
 // #endif
-        e->type.decl_specs = &ty;
+        // e->type.decl_specs = &ty;
+        e->type.decl_specs = get_type_node(TOK_INT);
         break;
     }
     case StrLitExp: {
-        static TypeExp lit_ds = { TOK_CHAR };
+        // static TypeExp lit_ds = { TOK_CHAR };
         static TypeExp lit_dct = { TOK_SUBSCRIPT };
 
-        e->type.decl_specs = &lit_ds;
+        // e->type.decl_specs = &lit_ds;
+        e->type.decl_specs = get_type_node(TOK_CHAR);
         e->type.idl = &lit_dct;
         break;
     }

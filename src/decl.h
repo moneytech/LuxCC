@@ -44,5 +44,7 @@ void analyze_parameter_declaration(Declaration *d);
 void analyze_function_definition(FuncDef *f);
 void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator);
 void check_for_dup_member(DeclList *d);
+void analyze_type_name(Declaration *tn);
+int compare_and_compose(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2, int qualified);
 
 #endif

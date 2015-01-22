@@ -1158,6 +1158,7 @@ Declaration *type_name(void)
         n->idl = abstract_declarator();
         // stringify_type_exp(n); printf("\n");
     }
+    analyze_type_name(n);
 
     return n;
 }

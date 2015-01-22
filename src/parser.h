@@ -89,7 +89,6 @@ struct ExecNode {
     union {
         Token op;
         char *str;
-        // Declaration *tn; /* type name */
         long val;
         unsigned long uval;
     } attr;

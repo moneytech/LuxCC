@@ -931,9 +931,18 @@ void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym)
         install(decl_specs, declarator);
 }
 
+void analyze_type_name(Declaration *tn)
+{
+    analyze_decl_specs(tn->decl_specs);
+    replace_typedef_name(tn);
+    examine_declarator(tn->decl_specs, tn->idl);
+}
+
 void analyze_parameter_declaration(Declaration *d)
 {
     TypeExp *scs;
+
+    analyze_decl_specs(d->decl_specs);
 
     /* 6.7.5.3#2 */
     if ((scs=get_sto_class_spec(d->decl_specs))!=NULL && scs->op!=TOK_REGISTER)
@@ -1216,7 +1225,7 @@ char *stringify_type_exp(Declaration *d)
             strcat(ds, token_table[e->op*2+1]);
             if (is_struct_union_enum(e->op)) {
                 strcat(ds, " ");
-                strcat(ds, e->str);
+                strcat(ds, (e->str!=NULL)?e->str:"<anonymous>");
             }
             if (e->child != NULL) {
                 strcat(ds, " ");
