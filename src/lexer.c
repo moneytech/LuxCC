@@ -370,15 +370,15 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
              * Concatenate any adjacent strings.
              */
             p = pre_tok->next;
-            while (p!=NULL && p->token==PRE_TOK_NL)
+            while (p!=NULL && p->deleted)
                 p = p->next;
             if (p!=NULL && p->token==PRE_TOK_STRLIT) {
                 int new_len;
 
                 /* get length of concatenated strings */
                 new_len = 0, p = pre_tok;
-                while (p!=NULL && (p->token==PRE_TOK_NL || p->token==PRE_TOK_STRLIT)) {
-                    if (p->token != PRE_TOK_NL) {
+                while (p!=NULL && (p->deleted || p->token==PRE_TOK_STRLIT)) {
+                    if (p->token == PRE_TOK_STRLIT) {
                         convert_string(p->lexeme);
                         new_len += strlen(p->lexeme);
                     }
@@ -393,8 +393,8 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
                 /* copy the strings to the buffer (pre_tok is
                    left pointing to the last string concatenated) */
                 new_len = 0, p = pre_tok;
-                while (p!=NULL && (p->token==PRE_TOK_NL || p->token==PRE_TOK_STRLIT)) {
-                    if (p->token != PRE_TOK_NL)
+                while (p!=NULL && (p->deleted || p->token==PRE_TOK_STRLIT)) {
+                    if (p->token == PRE_TOK_STRLIT)
                         strcat(tok->next->lexeme, p->lexeme);
                     pre_tok = p;
                     p = p->next;

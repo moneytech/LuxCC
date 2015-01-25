@@ -1557,7 +1557,12 @@ ExecNode *new_pri_exp_node(ExpKind kind)
  */
 ExecNode *constant_expression(void)
 {
-    return conditional_expression();
+    ExecNode *n;
+
+    n = conditional_expression();
+    printf("eval=%ld\n", eval_const_expr(n, FALSE));
+
+    return n;
 }
 
 /*
@@ -1621,6 +1626,7 @@ ExecNode *conditional_expression(void)
         match(TOK_COLON);
         temp->child[2] = conditional_expression();
         n = temp;
+        analyze_conditional_expression(n);
     }
 
     return n;
@@ -1640,6 +1646,7 @@ ExecNode *logical_OR_expression(void)
         temp->child[0] = n;
         temp->child[1] = logical_AND_expression();
         n = temp;
+        analyze_logical_operator(n);
     }
 
     return n;
@@ -1659,6 +1666,7 @@ ExecNode *logical_AND_expression(void)
         temp->child[0] = n;
         temp->child[1] = inclusive_OR_expression();
         n = temp;
+        analyze_logical_operator(n);
     }
 
     return n;
@@ -1678,6 +1686,7 @@ ExecNode *inclusive_OR_expression(void)
         temp->child[0] = n;
         temp->child[1] = exclusive_OR_expression();
         n = temp;
+        analyze_bitwise_operator(n);
     }
 
     return n;
@@ -1697,6 +1706,7 @@ ExecNode *exclusive_OR_expression(void)
         temp->child[0] = n;
         temp->child[1] = AND_expression();
         n = temp;
+        analyze_bitwise_operator(n);
     }
 
     return n;
@@ -1716,6 +1726,7 @@ ExecNode *AND_expression(void)
         temp->child[0] = n;
         temp->child[1] = equality_expression();
         n = temp;
+        analyze_bitwise_operator(n);
     }
 
     return n;
@@ -1736,6 +1747,7 @@ ExecNode *equality_expression(void)
         temp->child[0] = n;
         temp->child[1] = relational_expression();
         n = temp;
+        analyze_relational_equality_expression(n);
     }
 
     return n;
@@ -1760,6 +1772,7 @@ ExecNode *relational_expression(void)
         temp->child[0] = n;
         temp->child[1] = shift_expression();
         n = temp;
+        analyze_relational_equality_expression(n);
     }
 
     return n;
@@ -1780,6 +1793,7 @@ ExecNode *shift_expression(void)
         temp->child[0] = n;
         temp->child[1] = additive_expression();
         n = temp;
+        analyze_bitwise_operator(n);
     }
 
     return n;
@@ -2045,12 +2059,14 @@ ExecNode *primary_expression(void)
 
         if ((s=lookup(get_lexeme(1), TRUE)) == NULL)
             ERROR("undeclared identifier `%s'", get_lexeme(1));
+
         if ((scs=get_sto_class_spec(s->decl_specs))==NULL || scs->op!=TOK_TYPEDEF) {
             n = new_pri_exp_node(IdExp);
             n->attr.str = get_lexeme(1);
-            /* set type */
+
             n->type.decl_specs = s->decl_specs;
-            n->type.idl = s->declarator->child;
+            n->type.idl = (s->declarator->op!=TOK_ENUM_CONST)?s->declarator->child:s->declarator;
+
             match(TOK_ID);
         } else {
             ERROR("expecting primary-expression; found typedef-name `%s'", get_lexeme(1));

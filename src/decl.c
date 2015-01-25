@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #define DEBUG 1
 #include "util.h"
+#include "stmt_expr.h"
 #undef ERROR
 #define ERROR(tok, ...) fprintf(stderr, "%s:%d:%d: error: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__),fprintf(stderr, "\n"),exit(EXIT_FAILURE)
 #define WARNING(tok, ...) fprintf(stderr, "%s:%d:%d: warning: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n")
@@ -566,9 +567,9 @@ diff_kind_of_sym:
 void analyze_enumerator(TypeExp *e)
 {
     static TypeExp enum_ds = { TOK_INT };
-    static TypeExp enum_dct = { TOK_ENUM_CONST };
+    // static TypeExp enum_dct = { TOK_ENUM_CONST };
 
-    e->child = &enum_dct;
+    // e->child = &enum_dct;
     install(&enum_ds, e);
     /*
      * 6.7.2.2#2
@@ -586,6 +587,11 @@ ExternId *lookup_external_id(char *id)
         if (strcmp(id, np->declarator->str) == 0)
             return np;
     return NULL; /* not found */
+}
+
+int is_external_id(char *id)
+{
+    return lookup_external_id(id)!=NULL;
 }
 
 static void
@@ -631,7 +637,9 @@ int compare_decl_specs(TypeExp *ds1, TypeExp *ds2, int qualified)
 /*
  * Return TRUE if the two types are compatibles, FALSE otherwise.
  */
-int compare_and_compose(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2, int qualified)
+int are_compatible(TypeExp *ds1, TypeExp *dct1,
+                   TypeExp *ds2, TypeExp *dct2,
+                   int qualified, int compose)
 {
     /* identifiers are non-significant */
     if (dct1!=NULL && dct1->op==TOK_ID)
@@ -659,14 +667,16 @@ int compare_and_compose(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2
             return FALSE;
         break;
     case TOK_SUBSCRIPT:
-        /* compare array sizes here */
-
-        /* complete */
-        if (dct1->attr.e==NULL && dct2->attr.e!=NULL)
-            dct1->attr.e = dct2->attr.e;
-        else if (dct2->attr.e==NULL && dct1->attr.e!=NULL)
-            dct2->attr.e = dct1->attr.e;
-        /* --- */
+        if (dct1->attr.e!=NULL && dct2->attr.e!=NULL) {
+            if (dct1->attr.e->attr.val != dct2->attr.e->attr.val)
+                return FALSE;
+        } else if (compose) {
+            if (dct1->attr.e==NULL && dct2->attr.e!=NULL) {
+                dct1->attr.e = dct2->attr.e;
+            } else if (dct2->attr.e==NULL && dct1->attr.e!=NULL) {
+                dct2->attr.e = dct1->attr.e;
+            }
+        }
         break;
     case TOK_FUNCTION: {
         DeclList *p1, *p2;
@@ -680,8 +690,8 @@ int compare_and_compose(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2
              * parameter declared [...] with qualified type is taken as having the unqualified
              * version of its declared type.
              */
-            if (!compare_and_compose(p1->decl->decl_specs, p1->decl->idl,
-            p2->decl->decl_specs, p2->decl->idl, FALSE))
+            if (!are_compatible(p1->decl->decl_specs, p1->decl->idl,
+            p2->decl->decl_specs, p2->decl->idl, FALSE, compose))
                 return FALSE;
             p1 = p1->next;
             p2 = p2->next;
@@ -692,7 +702,7 @@ int compare_and_compose(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2
     }
     }
 
-    return compare_and_compose(ds1, dct1->child, ds2, dct2->child, TRUE);
+    return are_compatible(ds1, dct1->child, ds2, dct2->child, TRUE, compose);
 }
 
 int is_complete(char *tag)
@@ -738,12 +748,16 @@ void examine_declarator(TypeExp *decl_specs, TypeExp *declarator)
             TypeExp *ts;
 
             ts = get_type_spec(decl_specs);
-            if (is_struct_union_enum(ts->op) && !is_complete(ts->str)/*&& lookup_tag(ts->str, TRUE)->type->attr.dl==NULL*/
+            if (is_struct_union_enum(ts->op) && !is_complete(ts->str)
             || ts->op==TOK_VOID)
                 ERROR(declarator, "array has incomplete element type");
         }
+        if (declarator->attr.e != NULL)
+            analyze_array_size_expr(declarator);
         break;
-    case TOK_FUNCTION:
+    case TOK_FUNCTION: {
+        DeclList *p;
+
         /*
          * 6.5.7.3#1
          * A function declarator shall not specify a return type that is a function type
@@ -755,7 +769,31 @@ void examine_declarator(TypeExp *decl_specs, TypeExp *declarator)
             else if (declarator->child->op == TOK_SUBSCRIPT)
                 ERROR(declarator, "function returning an array");
         }
+
+        /*
+         * Make sure that, if there is a void parameter,
+         * it is the first and only one.
+         */
+        p = declarator->attr.dl;
+        while (p != NULL) {
+            if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
+                break;
+
+            if (get_type_spec(p->decl->decl_specs)->op == TOK_VOID) {
+                TypeExp *temp;
+
+                if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ID)
+                    temp = p->decl->idl->child;
+                else
+                    temp = p->decl->idl;
+
+                if (temp==NULL && (p!=declarator->attr.dl || p->next!=NULL))
+                    ERROR(declarator, "`void' must be the first and only parameter");
+            }
+            p = p->next;
+        }
         break;
+    }
     }
     examine_declarator(decl_specs, declarator->child);
 }
@@ -959,6 +997,8 @@ void analyze_parameter_declaration(Declaration *d)
          */
         if (d->idl->op == TOK_ID) {
             p = d->idl->child;
+            if (p==NULL && get_type_spec(d->decl_specs)->op==TOK_VOID)
+                ERROR(d->idl, "parameter has void type");
             install(d->decl_specs, d->idl);
         } else {
             p = d->idl;
@@ -1037,10 +1077,10 @@ void analyze_function_definition(FuncDef *f)
     if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID) {
         /* foo(void... */
         if (p->decl->idl == NULL) {
-            if (p->next != NULL)
+            // if (p->next != NULL)
                 /* foo(void, more parameters   WRONG */
-                ERROR(p->decl->decl_specs, "`void' must be the first and only parameter");
-            else
+                // ERROR(p->decl->decl_specs, "`void' must be the first and only parameter");
+            // else
                 /* foo(void)   OK */
                 goto no_params;
         }
@@ -1054,8 +1094,8 @@ void analyze_function_definition(FuncDef *f)
             TypeExp *ts;
 
             ts = get_type_spec(p->decl->decl_specs);
-            if (ts->op==TOK_VOID
-            || is_struct_union_enum(ts->op) && !is_complete(ts->str)/*lookup_tag(ts->str, TRUE)->type->attr.dl==NULL*/)
+            if (/*ts->op==TOK_VOID
+            || */is_struct_union_enum(ts->op) && !is_complete(ts->str))
                 ERROR(p->decl->idl, "parameter `%s' has incomplete type", p->decl->idl->str);
         }
         // printf("%s\n", stringify_type_exp(p->decl));
@@ -1069,7 +1109,7 @@ void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds
     char *t1, *t2;
     Declaration d1, d2;
 
-    if (compare_and_compose(prev_ds, prev_dct, ds, dct, TRUE))
+    if (are_compatible(prev_ds, prev_dct, ds, dct, TRUE, TRUE))
         return; /* OK */
 
     /*
@@ -1120,11 +1160,11 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
     /* 6.7.8#3 */
     if (is_initialized && is_func_decl)
         ERROR(declarator->child, "trying to initialize function type");
-    /* typedef names don't require any of the analysis that follows */
+    /* typedef definition? */
     if (scs!=NULL && scs->op==TOK_TYPEDEF) {
         if (is_initialized)
             ERROR(declarator, "trying to initialize typedef");
-        return;
+        return; /* OK */
     }
 
     if (curr_scope == FILE_SCOPE) {
@@ -1261,10 +1301,11 @@ char *stringify_type_exp(Declaration *d)
             }
             strcat(out, ")");
         } else if (e->op == TOK_SUBSCRIPT) {
-            strcat(out, "[");
-            // if (e->attr.e != NULL)
-                // strcat(out, e->attr.e->attr.str);
-            strcat(out, "]");
+            if (e->attr.e != NULL)
+                sprintf(temp, "%s[%ld]", out, e->attr.e->attr.val);
+            else
+                sprintf(temp, "%s[]", out);
+            strcpy(out, temp);
         } else if (e->op == TOK_STAR) {
             if (e->child!=NULL && (e->child->op==TOK_SUBSCRIPT || e->child->op==TOK_FUNCTION)) {
                 if (e->attr.el != NULL)

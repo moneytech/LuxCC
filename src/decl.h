@@ -35,6 +35,8 @@ int is_complete(char *tag);
 int is_struct_union_enum(Token t);
 TypeExp *dup_declarator(TypeExp *d);
 void replace_typedef_name(Declaration *decl);
+int is_external_id(char *id);
+int are_compatible(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2, int qualified, int compose);
 
 void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_func_def);
 void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym);
@@ -45,6 +47,5 @@ void analyze_function_definition(FuncDef *f);
 void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator);
 void check_for_dup_member(DeclList *d);
 void analyze_type_name(Declaration *tn);
-int compare_and_compose(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2, int qualified);
 
 #endif

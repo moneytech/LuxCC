@@ -123,7 +123,8 @@ PreTokenNode *tokenize(void)
     return n;
 }
 
-static char *str_tok[] = {
+// static
+char *str_tok[] = {
     "EOF",
     "punctuator",
     "preprocessor number",
@@ -1177,9 +1178,11 @@ void expand_parameterized_macro(Macro *m)
 
         for (i = 0; i < tab_size; i++) {
             if (equal(par_arg_tab[i][0]->lexeme, p->lexeme)) {
-                PreTokenNode *last;
+                // PreTokenNode *last;
 
                 if (par_arg_tab[i][1] != NULL) {
+                    PreTokenNode *last;
+
                     if (prev != NULL)
                         /* a -> <b -> x> -> c -> NULL */
                         prev->next = copy_arg2(par_arg_tab[i][1], &last);
