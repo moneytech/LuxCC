@@ -274,9 +274,7 @@ PreToken get_token(void)
                  */
 #define ADVANCE() (++curr_column, *curr++)
 #define REWIND()  (--curr_column, --curr)
-#define SAVE_AND_ADVANCE()\
-    token_string[tok_str_ind++] = (char)c,\
-    c = ADVANCE() //*curr++
+#define SAVE_AND_ADVANCE() token_string[tok_str_ind++] = (char)c, c = ADVANCE()
                 case '+': /* +, ++ or += */
                     if (*curr=='+' || *curr=='=')
                         SAVE_AND_ADVANCE();

@@ -14,6 +14,8 @@ void analyze_bitwise_operator(ExecNode *e);
 void analyze_relational_equality_expression(ExecNode *e);
 void analyze_logical_operator(ExecNode *e);
 void analyze_conditional_expression(ExecNode *e);
+void analyze_expression(ExecNode *e);
+void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr);
 
 long eval_const_expr(ExecNode *e, int is_addr);
 void analyze_array_size_expr(TypeExp *arr);

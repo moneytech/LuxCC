@@ -137,7 +137,8 @@ typedef enum {
     TOK_UNSIGNED_LONG,
     TOK_CONST_VOLATILE,
     /* --- */
-    TOK_ENUM_CONST
+    TOK_ENUM_CONST,
+    TOK_INIT_LIST
 } Token;
 
 typedef struct TokenNode TokenNode;

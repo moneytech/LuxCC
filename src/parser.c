@@ -1185,6 +1185,8 @@ TypeExp *typedef_name(void)
     return n;
 }
 
+ExecNode *new_op_node(Token op);
+
 /*
  * initializer = assignment_expression |
  *               "{" initializer_list [ "," ] "}"
@@ -1195,7 +1197,9 @@ ExecNode *initializer(void)
 
     if (lookahead(1) == TOK_LBRACE) {
         match(TOK_LBRACE);
-        n = initializer_list();
+        // n = initializer_list();
+        n = new_op_node(TOK_INIT_LIST);
+        n->child[0] = initializer_list();
         if (lookahead(1) == TOK_COMMA)
             match(TOK_COMMA);
         match(TOK_RBRACE);
@@ -1579,6 +1583,7 @@ ExecNode *expression(void)
         temp->child[0] = n;
         temp->child[1] = assignment_expression();
         n = temp;
+        analyze_expression(n);
     }
     // analyze_expression(n);
 
