@@ -59,6 +59,35 @@ void analyze_array_size_expr(TypeExp *arr)
     arr->attr.e->attr.val = size; /* maybe overwrites the operator */
 }
 
+static long en_val = -1;
+
+void reset_enum_val(void)
+{
+    en_val = -1;
+}
+
+void analyze_enumeration_expr(TypeExp *en)
+{
+    /*
+     * 6.7.2.2#2
+     * The expression that defines the value of an enumeration constant shall be an integer
+     * constant expression that has a value representable as an int.
+     */
+    if (en->attr.e != NULL) {
+        if (!is_integer(get_type_category(&en->attr.e->type)))
+            ERROR(en, "enumerator value is not an integer constant");
+        en_val = eval_const_expr(en->attr.e, FALSE);
+    } else {
+        en->attr.e = calloc(1, sizeof(ExecNode));
+        ++en_val;
+    }
+
+    /*if (en_val > 2147483647)
+        ...*/
+
+    en->attr.e->attr.val = en_val;
+}
+
 static int is_pointer(Token op)
 {
     return (op==TOK_STAR || op==TOK_SUBSCRIPT);
@@ -413,95 +442,138 @@ int is_ptr2obj(Declaration *p)
 }
 
 /*
- * The `e' is used only for the warnings (it contains the file/line/column information).
+ * See if the expression `e' can be stored in a variable of type `dest_ty'.
  */
 // static
-int can_assign_to(ExecNode *e, Declaration *left_op, Declaration *right_op)
+// int can_assign_to(ExecNode *e, Declaration *left_op, Declaration *right_op)
+int can_assign_to(Declaration *dest_ty, ExecNode *e)
 {
-/* 6.5.16.1 Simple assignment
-Constraints
-1
-One of the following shall hold:96)
-— the left operand has qualified or unqualified arithmetic type and the right has
-arithmetic type;
-— the left operand has a qualified or unqualified version of a structure or union type
-compatible with the type of the right;
-— both operands are pointers to qualified or unqualified versions of compatible types,
-and the type pointed to by the left has all the qualifiers of the type pointed to by the
-right;
-— one operand is a pointer to an object or incomplete type and the other is a pointer to a
-qualified or unqualified version of void, and the type pointed to by the left has all
-the qualifiers of the type pointed to by the right;
-— the left operand is a pointer and the right is a null pointer constant; */
-    Token ty_l, ty_r;
+    /*
+     * 6.5.16.1 Simple assignment
+     * Constraints
+     * 1# One of the following shall hold:
+     * — the left operand has qualified or unqualified arithmetic type and the right has
+     * arithmetic type;
+     * — the left operand has a qualified or unqualified version of a structure or union type
+     * compatible with the type of the right;
+     * — both operands are pointers to qualified or unqualified versions of compatible types,
+     * and the type pointed to by the left has all the qualifiers of the type pointed to by the
+     * right;
+     * — one operand is a pointer to an object or incomplete type and the other is a pointer to a
+     * qualified or unqualified version of void, and the type pointed to by the left has all
+     * the qualifiers of the type pointed to by the right;
+     * — the left operand is a pointer and the right is a null pointer constant;
+     */
+    Token cat_d, cat_s;
+    Declaration *src_ty;
 
-    ty_l = get_type_category(left_op);
-    ty_r = get_type_category(right_op);
+    src_ty = &e->type;
 
-    if (is_integer(ty_l)) {
-        if (is_integer(ty_r)) {
-            int rank_l, rank_r;
+    cat_d = get_type_category(dest_ty);
+    cat_s = get_type_category(src_ty);
 
-            /*if (e->child[1]->kind.exp == IConstExp)
-                return TRUE;*/
-
-            /* int and long have the same rank for assignment purposes */
-            rank_l = get_rank(ty_l);
-            rank_l = (rank_l==4)?3:rank_l;
-            rank_r = get_rank(ty_r);
-            rank_r = (rank_r==4)?3:rank_r;
+    if (is_integer(cat_d)) {
+        if (is_integer(cat_s)) {
+            int rank_d, rank_s;
 
             /*
-             * Emit a warning when the destination type is narrower than
-             * the source type.
+             * If the src expression is an integer constant, just see if said
+             * constant fits into the dest type, and emit a warning if it doesn't.
              */
-            if (rank_r > rank_l)
+            if (e->kind.exp == IConstExp) {
+                /*int overflow;
+
+                overflow = FALSE;
+                switch (cat_d) {
+                case TOK_UNSIGNED_LONG:
+                case TOK_UNSIGNED:
+                    break;
+                case TOK_LONG:
+                case TOK_INT:
+                    if (e->attr.uval > 2147483647)
+                        overflow = TRUE;
+                    break;
+                case TOK_SHORT:
+                    if (e->attr.uval > 32767)
+                        overflow = TRUE;
+                    break;
+                case TOK_UNSIGNED_SHORT:
+                    if (e->attr.uval > 65535)
+                        overflow = TRUE;
+                    break;
+                case TOK_CHAR:
+                case TOK_SIGNED_CHAR:
+                    if (e->attr.uval > 127)
+                        overflow = TRUE;
+                    break;
+                case TOK_UNSIGNED_CHAR:
+                    if (e->attr.uval > 255)
+                        overflow = TRUE;
+                    break;
+                }
+
+                if (overflow)
+                    WARNING(e, "integer constant too large for `%s' type", token_table[cat_d*2+1]);*/
+
+                return TRUE;
+            }
+
+            /* int and long have the same rank for assignment purposes */
+            rank_d = get_rank(cat_d);
+            rank_d = (rank_d==4)?3:rank_d;
+            rank_s = get_rank(cat_s);
+            rank_s = (rank_s==4)?3:rank_s;
+
+            /*
+             * Emit a warning when the destination type is narrower than the source type.
+             */
+            if (rank_s > rank_d)
                 WARNING(e, "implicit conversion loses integer precision: `%s' to `%s'",
-                token_table[ty_r*2+1], token_table[ty_l*2+1]);
+                token_table[cat_s*2+1], token_table[cat_d*2+1]);
             /*
              * Otherwise, emit a warning if the source and destination types
              * do not have the same signedness.
              */
-            else if (rank_l==rank_r && is_signed_int(ty_l)!=is_signed_int(ty_r))
+            else if (rank_d==rank_s && is_signed_int(cat_d)!=is_signed_int(cat_s))
                 WARNING(e, "implicit conversion changes signedness: `%s' to `%s'",
-                token_table[ty_r*2+1], token_table[ty_l*2+1]);
-        } else if (is_pointer(ty_r) || ty_r==TOK_FUNCTION) {
+                token_table[cat_s*2+1], token_table[cat_d*2+1]);
+        } else if (is_pointer(cat_s) || cat_s==TOK_FUNCTION) {
             WARNING(e, "pointer to integer conversion without a cast");
         } else {
             return FALSE;
         }
-    } else if (ty_l==TOK_STRUCT || ty_l==TOK_UNION) {
-        TypeExp *ts_l, *ts_r;
+    } else if (cat_d==TOK_STRUCT || cat_d==TOK_UNION) {
+        TypeExp *ts_d, *ts_s;
 
-        if (ty_l != ty_r)
+        if (cat_d != cat_s)
             return FALSE;
 
-        ts_l = get_type_spec(left_op->decl_specs);
-        ts_r = get_type_spec(right_op->decl_specs);
-        if (ts_l->str != ts_r->str)
+        ts_d = get_type_spec(dest_ty->decl_specs);
+        ts_s = get_type_spec(src_ty->decl_specs);
+        if (ts_d->str != ts_s->str)
             return FALSE;
-    } else if (ty_l == TOK_STAR) {
-        if (is_pointer(ty_r) || ty_r==TOK_FUNCTION) {
-            TypeExp *tq_l, *tq_r;
+    } else if (cat_d == TOK_STAR) {
+        if (is_pointer(cat_s) || cat_s==TOK_FUNCTION) {
+            TypeExp *ts_d, *ts_s;
 
             /*
              * Check if the pointers are compatible. If they are, continue
              * and check for the additional requirement of type qualifiers;
              * otherwise, emit a warning and return.
              */
-            if (left_op->idl->child==NULL && get_type_spec(left_op->decl_specs)->op==TOK_VOID) {
-                if (ty_r==TOK_FUNCTION || right_op->idl->child!=NULL&&right_op->idl->child->op==TOK_FUNCTION) {
+            if (dest_ty->idl->child==NULL && get_type_spec(dest_ty->decl_specs)->op==TOK_VOID) {
+                if (cat_s==TOK_FUNCTION || src_ty->idl->child!=NULL&&src_ty->idl->child->op==TOK_FUNCTION) {
                     WARNING(e, "function pointer implicitly converted to void pointer");
                     return TRUE;
                 }
-            } else if (ty_r!=TOK_FUNCTION && right_op->idl->child==NULL
-            && get_type_spec(right_op->decl_specs)->op==TOK_VOID) {
-                if (left_op->idl->child!=NULL && left_op->idl->child->op==TOK_FUNCTION) {
+            } else if (cat_s!=TOK_FUNCTION && src_ty->idl->child==NULL
+            && get_type_spec(src_ty->decl_specs)->op==TOK_VOID) {
+                if (dest_ty->idl->child!=NULL && dest_ty->idl->child->op==TOK_FUNCTION) {
                     WARNING(e, "void pointer implicitly converted to function pointer");
                     return TRUE;
                 }
-            } else if (!are_compatible(left_op->decl_specs, left_op->idl->child,
-                right_op->decl_specs, (ty_r!=TOK_FUNCTION)?right_op->idl->child:right_op->idl, FALSE, FALSE)) {
+            } else if (!are_compatible(dest_ty->decl_specs, dest_ty->idl->child,
+                src_ty->decl_specs, (cat_s!=TOK_FUNCTION)?src_ty->idl->child:src_ty->idl, FALSE, FALSE)) {
                     WARNING(e, "assignment from incompatible pointer type");
                     return TRUE;
             }
@@ -512,43 +584,43 @@ the qualifiers of the type pointed to by the right;
              * Verify that the type pointed to by the left operand has
              * all the qualifiers of the type pointed to by the right.
              */
-            tq_l = tq_r = NULL;
+            ts_d = ts_s = NULL;
 
             /* fetch qualifiers of left pointed to type */
-            if (left_op->idl->child == NULL)
-                tq_l = get_type_qual(left_op->decl_specs);
-            else if (left_op->idl->child->op == TOK_STAR)
-                tq_l = left_op->idl->child->attr.el;
+            if (dest_ty->idl->child == NULL)
+                ts_d = get_type_qual(dest_ty->decl_specs);
+            else if (dest_ty->idl->child->op == TOK_STAR)
+                ts_d = dest_ty->idl->child->attr.el;
             /* fetch qualifiers of right pointed to type */
-            if (right_op->idl->child == NULL)
-                tq_r = get_type_qual(right_op->decl_specs);
-            else if (right_op->idl->child->op == TOK_STAR)
-                tq_r = right_op->idl->child->attr.el;
+            if (src_ty->idl->child == NULL)
+                ts_s = get_type_qual(src_ty->decl_specs);
+            else if (src_ty->idl->child->op == TOK_STAR)
+                ts_s = src_ty->idl->child->attr.el;
 
-            if (tq_r != NULL) {
+            if (ts_s != NULL) {
                 char *discarded;
 
                 discarded = NULL;
-                if (tq_r->op == TOK_CONST_VOLATILE) {
-                    if (tq_l == NULL)
+                if (ts_s->op == TOK_CONST_VOLATILE) {
+                    if (ts_d == NULL)
                         discarded = "const volatile";
-                    else if (tq_l->op == TOK_CONST)
+                    else if (ts_d->op == TOK_CONST)
                         discarded = "volatile";
-                    else if (tq_l->op == TOK_VOLATILE)
+                    else if (ts_d->op == TOK_VOLATILE)
                         discarded = "const";
-                } else if (tq_r->op == TOK_CONST) {
-                    if (tq_l==NULL || tq_l->op==TOK_VOLATILE)
+                } else if (ts_s->op == TOK_CONST) {
+                    if (ts_d==NULL || ts_d->op==TOK_VOLATILE)
                         discarded = "const";
-                } else if (tq_r->op == TOK_VOLATILE) {
-                    if (tq_l==NULL || tq_l->op==TOK_CONST)
+                } else if (ts_s->op == TOK_VOLATILE) {
+                    if (ts_d==NULL || ts_d->op==TOK_CONST)
                         discarded = "volatile";
                 }
                 if (discarded != NULL)
                     WARNING(e, "assignment discards `%s' qualifier from pointer target type", discarded);
             }
-        } else if (is_integer(ty_r)) {
-            /* TODO: check for null pointer constant */
-            WARNING(e, "integer to pointer conversion without a cast");
+        } else if (is_integer(cat_s)) {
+            if (e->kind.exp!=IConstExp || e->attr.val!=0)
+                WARNING(e, "integer to pointer conversion without a cast");
         } else {
             return FALSE;
         }
@@ -583,7 +655,8 @@ void analyze_assignment_expression(ExecNode *e)
 // occur between the previous and the next sequence point.
 
     if (e->attr.op == TOK_ASSIGN) {
-        if (!can_assign_to(e, &e->child[0]->type, &e->child[1]->type))
+        // if (!can_assign_to(e, &e->child[0]->type, &e->child[1]->type))
+        if (!can_assign_to(&e->child[0]->type, e->child[1]))
             ERROR(e, "incompatible types when assigning to type `%s' from type `%s'",
             stringify_type_exp(&e->child[0]->type), stringify_type_exp(&e->child[1]->type));
     } else {
@@ -633,7 +706,8 @@ void analyze_assignment_expression(ExecNode *e)
             analyze_bitwise_operator(&temp);
             break;
         }
-        if (!can_assign_to(e, &e->child[0]->type, &temp.type))
+        // if (!can_assign_to(e, &e->child[0]->type, &temp.type))
+        if (!can_assign_to(&e->child[0]->type, &temp))
             ERROR(e, "incompatible types when assigning to type `%s' from type `%s'",
             stringify_type_exp(&e->child[0]->type), stringify_type_exp(&temp.type));
     }
@@ -678,11 +752,11 @@ void analyze_conditional_expression(ExecNode *e)
             e->type.decl_specs = get_type_node(get_result_type(get_promoted_type(ty2), get_promoted_type(ty3)));
         } else if (is_pointer(ty3) || ty3==TOK_FUNCTION) {
             /*
-             * Set the type of the pointer operand as the
-             * type of the result and emit a warning.
+             * Set the type of the pointer operand as the type of the result.
              */
             e->type = e->child[2]->type;
-            WARNING(e, "pointer/integer type mismatch in conditional expression");
+            if (e->child[1]->kind.exp!=IConstExp || e->child[1]->attr.val!=0)
+                WARNING(e, "pointer/integer type mismatch in conditional expression");
         } else {
             goto type_mismatch;
         }
@@ -700,7 +774,8 @@ void analyze_conditional_expression(ExecNode *e)
     } else if (is_pointer(ty2) || ty2==TOK_FUNCTION) {
         if (is_integer(ty3)) {
             e->type = e->child[1]->type;
-            WARNING(e, "pointer/integer type mismatch in conditional expression");
+            if (e->child[2]->kind.exp!=IConstExp || e->child[2]->attr.val!=0)
+                WARNING(e, "pointer/integer type mismatch in conditional expression");
         } else if (is_pointer(ty3) || ty3==TOK_FUNCTION) {
             // TODO: form the result type as indicated in 6.5.15#6
             e->type = e->child[1]->type; /* for now, just set result type==2nd op type */
@@ -765,17 +840,18 @@ void analyze_relational_equality_expression(ExecNode *e)
     ty1 = get_type_category(&e->child[0]->type);
     ty2 = get_type_category(&e->child[1]->type);
     if (is_integer(ty1)) {
-        if (is_integer(ty2))
+        if (is_integer(ty2)) {
             ; /* OK */
-        else if (is_pointer(ty2) || ty2==TOK_FUNCTION)
-            /* TODO: handle null pointer constant case (only for == and !=) */
-            WARNING(e, "comparison between pointer and integer");
-        else
+        } else if (is_pointer(ty2) || ty2==TOK_FUNCTION) {
+            if (!is_eq_op(e->attr.op) || e->child[0]->kind.exp!=IConstExp || e->child[0]->attr.val!=0)
+                WARNING(e, "comparison between pointer and integer");
+        } else {
             binary_op_error(e);
+        }
     } else if (is_pointer(ty1) || ty1==TOK_FUNCTION) {
         if (is_integer(ty2)) {
-            /* TODO: handle null pointer constant case (only for == and !=) */
-            WARNING(e, "comparison between pointer and integer");
+            if (!is_eq_op(e->attr.op) || e->child[1]->kind.exp!=IConstExp || e->child[1]->attr.val!=0)
+                WARNING(e, "comparison between pointer and integer");
         } else if (is_pointer(ty2) || ty2==TOK_FUNCTION) {
             TypeExp *p1, *p2;
 
@@ -803,9 +879,6 @@ void analyze_relational_equality_expression(ExecNode *e)
                 }
             }
 
-            /*
-             * OK, none of the operands has type `void *'.
-             */
             p1 = (ty1!=TOK_FUNCTION)?e->child[0]->type.idl->child:e->child[0]->type.idl;
             p2 = (ty2!=TOK_FUNCTION)?e->child[1]->type.idl->child:e->child[1]->type.idl;
 
@@ -995,7 +1068,6 @@ void analyze_inc_dec_operator(ExecNode *e)
     if (!is_modif_lvalue(e->child[0]))
         ERROR(e, "expression is not modifiable");
 
-    /* set the type of the ++ node */
     e->type = e->child[0]->type;
 }
 
@@ -1284,7 +1356,8 @@ subs_incomp:
         while (p!=NULL && a!=NULL) {
             if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
                 break;
-            if (!can_assign_to(a, p->decl, &a->type))
+            // if (!can_assign_to(a, p->decl, &a->type))
+            if (!can_assign_to(p->decl, a))
                 ERROR(a, "parameter/argument type mismatch (parameter #%d; expected `%s', "
                 "given `%s')", n, stringify_type_exp(p->decl),
                 stringify_type_exp(&a->type));
@@ -1473,40 +1546,46 @@ void analyze_primary_expression(ExecNode *e)
     case IdExp:
         if (e->type.idl!=NULL && e->type.idl->op==TOK_ENUM_CONST) {
             e->kind.exp = IConstExp;
+            e->attr.val = e->type.idl->attr.e->attr.val;
+            /* >>free<< */
             e->type.idl = NULL;
-            // e->attr.val = e->type.idl->attr.e;
         }
         break;
     case IConstExp: {
-        // static TypeExp ty = { TOK_INT };
-// #if 0
+        /*
+         * This code relies on the equality sizeof(int)==sizeof(long).
+         */
+        int len;
         char *ep, *ic;
 
-        errno = 0;
         ic = e->attr.str;
+
+        /* check for unsigned suffix */
+        len = strlen(ic);
+        if (len>1 && (tolower(ic[len-1])=='u'||tolower(ic[len-2])=='u'))
+            goto unsigned_ty;
+
+        /* try int/long */
+        errno = 0;
         e->attr.val = strtol(ic, &ep, 0);
-        if (errno == ERANGE) {
-            /* try with unsigned long */
-            printf("trying ul\n");
-            errno = 0;
-            e->attr.uval = strtoul(ic, &ep, 0);
-            if (errno ==  ERANGE) {
-                DEBUG_PRINTF("non-representable integer constant (saturated result)\n");
-            }
-            e->type.decl_specs = get_type_node(TOK_UNSIGNED);
-        } else {
-            e->type.decl_specs = get_type_node(TOK_INT);
-        }
-        // printf("res=%x\n", e->attr.val);
-        // printf("res=%x\n", e->attr.uval);
-// #endif
+        if (errno == ERANGE)
+            goto unsigned_ty;
+        e->type.decl_specs = get_type_node(TOK_INT);
+        break;
+
+unsigned_ty:
+        /* try unsigned/unsigned long */
+        errno = 0;
+        e->attr.uval = strtoul(ic, &ep, 0);
+        if (errno == ERANGE)
+            /* strtoul() saturates the result, that is, we end up with 0xFFFFFFFF */
+            WARNING(e, "integer constant is too large for `unsigned long' type");
+        e->type.decl_specs = get_type_node(TOK_UNSIGNED);
         break;
     }
     case StrLitExp: {
-        // static TypeExp lit_ds = { TOK_CHAR };
         static TypeExp lit_dct = { TOK_SUBSCRIPT };
 
-        // e->type.decl_specs = &lit_ds;
         e->type.decl_specs = get_type_node(TOK_CHAR);
         e->type.idl = &lit_dct;
         break;
@@ -1514,9 +1593,67 @@ void analyze_primary_expression(ExecNode *e)
     }
 }
 
-unsigned compute_sizeof(ExecNode *e)
+unsigned compute_sizeof(Declaration *ty)
 {
-    return 1;
+    Token cat;
+    unsigned size;
+    Declaration new_ty;
+
+    size = 0;
+
+    cat = get_type_category(ty);
+    switch (cat) {
+    case TOK_STRUCT:
+    case TOK_UNION: {
+        TypeExp *ts;
+        DeclList *d;
+
+        /* fetch declaration list */
+        ts = get_type_spec(ty->decl_specs);
+        if (ts->attr.dl == NULL)
+            ts = lookup_tag(ts->str, TRUE)->type;
+        d = ts->attr.dl;
+
+        for (; d != NULL; d = d->next) {
+            TypeExp *dct;
+
+            for (dct = d->decl->idl; dct != NULL; dct = dct->sibling) {
+                new_ty.decl_specs = d->decl->decl_specs;
+                new_ty.idl = dct->child;
+                if (cat == TOK_STRUCT) {
+                    size += compute_sizeof(&new_ty);
+                } else {
+                    unsigned new_size;
+
+                    new_size = compute_sizeof(&new_ty);
+                    size = (new_size>size)?new_size:size;
+                }
+            }
+        }
+        break;
+    }
+    case TOK_SUBSCRIPT:
+        new_ty.decl_specs = ty->decl_specs;
+        new_ty.idl = ty->idl->child;
+        size = ty->idl->attr.e->attr.val * compute_sizeof(&new_ty);
+        break;
+    case TOK_STAR:
+        size = 4;
+        break;
+    case TOK_ENUM:
+    case TOK_LONG: case TOK_UNSIGNED_LONG:
+    case TOK_INT: case TOK_UNSIGNED:
+        size = 4;
+        break;
+    case TOK_SHORT: case TOK_UNSIGNED_SHORT:
+        size = 2;
+        break;
+    case TOK_CHAR: case TOK_SIGNED_CHAR: case TOK_UNSIGNED_CHAR:
+        size = 1;
+        break;
+    }
+
+    return size;
 }
 
 long eval_const_expr(ExecNode *e, int is_addr)
@@ -1546,7 +1683,10 @@ long eval_const_expr(ExecNode *e, int is_addr)
             return eval_const_expr(e->child[0], is_addr);
 
         case TOK_SIZEOF:
-            return compute_sizeof(e);
+            if (e->child[1] != NULL)
+                return compute_sizeof((Declaration *)e->child[1]);
+            else
+                return compute_sizeof(&e->child[0]->type);
         case TOK_ADDRESS_OF:
             return eval_const_expr(e->child[0], TRUE);
         case TOK_ARROW:
@@ -1803,7 +1943,8 @@ scalar:
         /* the same rules as for simple assignment apply */
         dest_ty.decl_specs = ds;
         dest_ty.idl = dct;
-        if (!can_assign_to(e, &dest_ty, &e->type))
+        // if (!can_assign_to(e, &dest_ty, &e->type))
+        if (!can_assign_to(&dest_ty, e))
             ERROR(e, "initializing `%s' with an expression of incompatible type `%s'",
             stringify_type_exp(&dest_ty), stringify_type_exp(&e->type));
     }

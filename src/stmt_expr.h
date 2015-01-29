@@ -19,5 +19,7 @@ void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
 
 long eval_const_expr(ExecNode *e, int is_addr);
 void analyze_array_size_expr(TypeExp *arr);
+void analyze_enumeration_expr(TypeExp *en);
+void reset_enum_val(void);
 
 #endif

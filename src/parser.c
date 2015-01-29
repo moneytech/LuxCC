@@ -802,6 +802,7 @@ TypeExp *enumerator_list(void)
         temp->sibling = enumerator();
         temp = temp->sibling;
     }
+    reset_enum_val();
 
     return n;
 }
@@ -1564,7 +1565,7 @@ ExecNode *constant_expression(void)
     ExecNode *n;
 
     n = conditional_expression();
-    printf("eval=%ld\n", eval_const_expr(n, FALSE));
+    // printf("eval=%ld\n", eval_const_expr(n, FALSE));
 
     return n;
 }

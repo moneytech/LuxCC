@@ -14,8 +14,6 @@ typedef struct DeclList DeclList;
 typedef struct FuncDef FuncDef;
 typedef struct ExternDecl ExternDecl;
 
-/* TODO: choose better member names */
-
 struct TypeExp {
     Token op;
     char *str;        /* struct/union/enum tag or id */

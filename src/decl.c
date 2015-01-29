@@ -460,14 +460,7 @@ int is_typedef_name(char *id)
     }
     return FALSE;
 }
-/*
-#undef SRC_FILE
-#undef SRC_LINE
-#undef SRC_COLUMN
-#define SRC_FILE    declarator->info->src_file
-#define SRC_LINE    declarator->info->src_line
-#define SRC_COLUMN  declarator->info->src_column
-*/
+
 // static
 void install(TypeExp *decl_specs, TypeExp *declarator)
 {
@@ -497,8 +490,7 @@ void install(TypeExp *decl_specs, TypeExp *declarator)
         /* diagnose depending on the situation */
         if (declarator->op==TOK_ENUM_CONST || curr_scs==TOK_TYPEDEF) {
             /*
-             * Clash while trying to install an
-             * enumeration constant or typedef name.
+             * Clash while trying to install an enumeration constant or typedef name.
              */
             if (declarator->op==TOK_ENUM_CONST && np->declarator->op==TOK_ENUM_CONST)
                 ERROR(declarator, "redeclaration of enumerator `%s'", declarator->str);
@@ -508,8 +500,7 @@ void install(TypeExp *decl_specs, TypeExp *declarator)
                 goto diff_kind_of_sym;
         } else if (np->declarator->op==TOK_ENUM_CONST || prev_scs==TOK_TYPEDEF) {
             /*
-             * Clash with previously declared
-             * enumeration constant or typedef name.
+             * Clash with previously declared enumeration constant or typedef name.
              */
             goto diff_kind_of_sym;
         } else if (curr_scope != FILE_SCOPE) {
@@ -550,15 +541,10 @@ diff_kind_of_sym:
 void analyze_enumerator(TypeExp *e)
 {
     static TypeExp enum_ds = { TOK_INT };
-    // static TypeExp enum_dct = { TOK_ENUM_CONST };
 
-    // e->child = &enum_dct;
+    analyze_enumeration_expr(e);
+
     install(&enum_ds, e);
-    /*
-     * 6.7.2.2#2
-     * The expression that defines the value of an enumeration constant shall be an integer
-     * constant expression that has a value representable as an int.
-     */
 }
 
 static
