@@ -5,7 +5,8 @@
 #include <stdlib.h>
 #define DEBUG 1
 #include "util.h"
-#include "stmt_expr.h"
+#include "expr.h"
+#include "stmt.h"
 #undef ERROR
 #define ERROR(tok, ...) fprintf(stderr, "%s:%d:%d: error: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__),fprintf(stderr, "\n"),exit(EXIT_FAILURE)
 #define WARNING(tok, ...) fprintf(stderr, "%s:%d:%d: warning: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n")
@@ -157,9 +158,6 @@ TypeExp *get_type_qual(TypeExp *d)
 
 void analyze_decl_specs(TypeExp *d)
 {
-/*#define SRC_FILE    d->info->src_file
-#define SRC_LINE    d->info->src_line
-#define SRC_COLUMN  d->info->src_column*/
     enum {
         START,
         CHAR,
@@ -1070,7 +1068,9 @@ void analyze_function_definition(FuncDef *f)
         // printf("%s\n", stringify_type_exp(p->decl));
         p = p->next;
     } while (p!=NULL && p->decl->idl->op!=TOK_ELLIPSIS);
-no_params:;
+no_params:
+
+    set_return_type(f->decl_specs, f->header->child->child);
 }
 
 void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds, TypeExp *dct)

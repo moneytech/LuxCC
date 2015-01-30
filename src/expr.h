@@ -1,5 +1,5 @@
-#ifndef STMT_EXPR_H_
-#define STMT_EXPR_H_
+#ifndef EXPR_H_
+#define EXPR_H_
 
 #include "parser.h"
 
@@ -21,5 +21,8 @@ long eval_const_expr(ExecNode *e, int is_addr);
 void analyze_array_size_expr(TypeExp *arr);
 void analyze_enumeration_expr(TypeExp *en);
 void reset_enum_val(void);
+int is_integer(Token ty);
+Token get_type_category(Declaration *d);
+int can_assign_to(Declaration *dest_ty, ExecNode *e);
 
 #endif

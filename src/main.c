@@ -2,6 +2,8 @@
 #include <string.h>
 #include "parser.h"
 
+unsigned warning_count, error_count;
+
 int main(int argc, char *argv[])
 {
     PreTokenNode *pre;
@@ -31,5 +33,7 @@ int main(int argc, char *argv[])
     parser(tok);
     // extern unsigned number_of_ast_nodes;
     // printf("%u AST nodes were created (aprox)\n", number_of_ast_nodes);
+    printf("%d warning and %d error generated\n", warning_count, error_count);
+
 	return 0;
 }

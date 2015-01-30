@@ -8,3 +8,8 @@ unsigned hash(char *s)
         hash_val = (unsigned)*s + 31*hash_val;
     return hash_val;
 }
+
+unsigned long hash2(long k)
+{
+    return (unsigned long)(k*(k+3));
+}

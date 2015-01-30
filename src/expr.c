@@ -1,4 +1,4 @@
-#include "stmt_expr.h"
+#include "expr.h"
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
@@ -13,7 +13,7 @@
 #define WARNING(tok, ...) fprintf(stderr, INFO_COLOR "%s:%d:%d: " WARNING_COLOR "warning: " RESET_ATTR, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n")
 
 
-static
+// static
 Token get_type_category(Declaration *d)
 {
     if (d->idl != NULL)
@@ -22,7 +22,7 @@ Token get_type_category(Declaration *d)
         return get_type_spec(d->decl_specs)->op;
 }
 
-static int is_integer(Token ty)
+int is_integer(Token ty)
 {
     // return (t==TOK_CHAR || t==TOK_INT || t==TOK_LONG/* || t==TOK_ENUM_CONST*/);
     switch (ty) {
@@ -221,25 +221,6 @@ static int is_modif_lvalue(ExecNode *e)
     return TRUE;
 }
 
-/*
-#define QUAL_F 0x1
-#define STOR_F 0x2
-#define TYPE_F 0x4
-static TypeExp *dup_decl_specs(unsigned flags)
-{
-    TypeExp *new_ds;
-
-    new_ds = NULL;
-    if (flags & QUAL_F)
-        new_ds = calloc(1, sizeof(TypeExp));
-        new_ds
-    if (flags & STOR_F)
-        printf("s\n");
-    if (flags & TYPE_F)
-        printf("t\n");
-}
-*/
-
 TypeExp *dup_decl_specs_list(TypeExp *ds)
 {
     TypeExp *new_list, *temp;
@@ -267,14 +248,16 @@ Token get_promoted_type(Token int_ty)
     }
 }
 
-// Every integer type has an integer conversion rank.
-// Integer conversion ranks from highest to lowest
-    // 1) long long int, unsigned long long int
-    // 2) long int, unsigned long int
-    // 3) int, unsigned int
-    // 4) short int, unsigned short int
-    // 5) char, signed char, unsigned char
-    // 6) _Bool
+/*
+ * Every integer type has an integer conversion rank.
+ * Integer conversion ranks from highest to lowest
+ * 1) long long int, unsigned long long int
+ * 2) long int, unsigned long int
+ * 3) int, unsigned int
+ * 4) short int, unsigned short int
+ * 5) char, signed char, unsigned char
+ * 6) _Bool
+ */
 int get_rank(Token ty)
 {
     switch (ty) {
@@ -302,6 +285,7 @@ int is_signed_int(Token ty)
     case TOK_SHORT:
     case TOK_INT:
     case TOK_LONG:
+    // case TOK_ENUM:
         return TRUE;
     default:
         return FALSE;
@@ -326,8 +310,16 @@ int is_unsigned_int(Token ty)
  */
 Token get_result_type(Token ty1, Token ty2)
 {
-// Otherwise, the integer promotions are performed on both operands. Then the
-// following rules are applied to the promoted operands:
+    /*
+     * 6.3.1.8 Usual arithmetic conversions.
+     * [...]
+     * If both operands have the same type, then no further conversion is needed.
+     */
+
+    /*
+     * Otherwise, the integer promotions are performed on both operands. Then the
+     * following rules are applied to the promoted operands:
+     */
     int rank1, rank2;
     int sign1, sign2;
 
@@ -362,10 +354,12 @@ Token get_result_type(Token ty1, Token ty2)
     if (!sign2 && rank2>=rank1)
         return ty2;
 
-// Otherwise, if the type of the operand with signed integer type can represent
-// all of the values of the type of the operand with unsigned integer type, then
-// the operand with unsigned integer type is converted to the type of the
-// operand with signed integer type.
+    /*
+     * Otherwise, if the type of the operand with signed integer type can represent
+     * all of the values of the type of the operand with unsigned integer type, then
+     * the operand with unsigned integer type is converted to the type of the
+     * operand with signed integer type.
+     */
     /* nothing of this applies with sizeof(int)==sizeof(long) */
 
     /*
@@ -643,17 +637,21 @@ void analyze_expression(ExecNode *e)
 
 void analyze_assignment_expression(ExecNode *e)
 {
-// 6.5.16
-// #2 An assignment operator shall have a modifiable lvalue as its left operand.
+    /*
+     * 6.5.16
+     * #2 An assignment operator shall have a modifiable lvalue as its left operand.
+     */
     if (!is_modif_lvalue(e->child[0]))
         ERROR(e, "expression is not assignable");
-// #3 An assignment operator stores a value in the object designated by the left operand. An
-// assignment expression has the value of the left operand after the assignment, but is not an
-// lvalue. The type of an assignment expression is the type of the left operand unless the
-// left operand has qualified type, in which case it is the unqualified version of the type of
-// the left operand. The side effect of updating the stored value of the left operand shall
-// occur between the previous and the next sequence point.
 
+    /*
+     * #3 An assignment operator stores a value in the object designated by the left operand. An
+     * assignment expression has the value of the left operand after the assignment, but is not an
+     * lvalue. The type of an assignment expression is the type of the left operand unless the
+     * left operand has qualified type, in which case it is the unqualified version of the type of
+     * the left operand. The side effect of updating the stored value of the left operand shall
+     * occur between the previous and the next sequence point.
+     */
     if (e->attr.op == TOK_ASSIGN) {
         // if (!can_assign_to(e, &e->child[0]->type, &e->child[1]->type))
         if (!can_assign_to(&e->child[0]->type, e->child[1]))
@@ -1883,7 +1881,7 @@ void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
 
 
         /*
-         * See if the struct is being initialized with a single
+         * See if the struct is being initialized by a single
          * expression of compatible type, like
          *  struct A x = y; // valid if y has struct A type
          * or an initializer list
@@ -1892,6 +1890,7 @@ void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
         if (e->attr.op != TOK_INIT_LIST)
             goto scalar;
 
+        /* initialized by initializer list */
         e = e->child[0];
 
         if (ts->attr.dl == NULL)

@@ -6,7 +6,8 @@
 #define DEBUG 0
 #include "util.h"
 #include "decl.h"
-#include "stmt_expr.h"
+#include "expr.h"
+#include "stmt.h"
 
 #define SRC_FILE    curr_tok->src_file
 #define SRC_LINE    curr_tok->src_line
@@ -69,8 +70,16 @@ TypeExp *typedef_name(void);
 ExecNode *initializer(void);
 ExecNode *initializer_list(void);
 
+ExecNode *statement(int in_loop, int in_switch);
+ExecNode *labeled_statement(int in_loop, int in_switch);
+ExecNode *compound_statement(int new_scope, int in_loop, int in_switch);
 DeclList *declaration_list(void);
-ExecNode *compound_statement(int new_scope);
+ExecNode *statement_list(int in_loop, int in_switch);
+ExecNode *expression_statement(void);
+ExecNode *selection_statement(int in_loop, int in_switch);
+ExecNode *iteration_statement(int in_switch);
+ExecNode *jump_statement(int in_loop, int in_switch);
+
 ExecNode *conditional_expression(void);
 ExecNode *assignment_expression(void);
 ExecNode *constant_expression(void);
@@ -297,8 +306,10 @@ FuncDef *function_definition(TypeExp *decl_specs, TypeExp *header)
     analyze_function_definition(f);
     // restore_scope(); /* restore parameters' scope */  <= unnecessary
 
-    f->body = compound_statement(FALSE);
+    f->body = compound_statement(FALSE, FALSE, FALSE);
     pop_scope();
+    resolve_gotos();
+    empty_label_table();
 
     return f;
 }
@@ -1246,15 +1257,15 @@ ExecNode *new_stmt_node(StmtKind kind)
     return new_node;
 }
 
-ExecNode *statement(void);
-ExecNode *labeled_statement(void);
-ExecNode *compound_statement(int new_scope);
+ExecNode *statement(int in_loop, int in_switch);
+ExecNode *labeled_statement(int in_loop, int in_switch);
+ExecNode *compound_statement(int new_scope, int in_loop, int in_switch);
 DeclList *declaration_list(void);
-ExecNode *statement_list(void);
+ExecNode *statement_list(int in_loop, int in_switch);
 ExecNode *expression_statement(void);
-ExecNode *selection_statement(void);
-ExecNode *iteration_statement(void);
-ExecNode *jump_statement(void);
+ExecNode *selection_statement(int in_loop, int in_switch);
+ExecNode *iteration_statement(int in_switch);
+ExecNode *jump_statement(int in_loop, int in_switch);
 
 /*
  * statement = labeled_statement |
@@ -1264,29 +1275,29 @@ ExecNode *jump_statement(void);
  *             iteration_statement |
  *             jump_statement
  */
-ExecNode *statement(void)
+ExecNode *statement(int in_loop, int in_switch)
 {
     switch (lookahead(1)) {
     case TOK_LBRACE:
-        return compound_statement(TRUE);
+        return compound_statement(TRUE, in_loop, in_switch);
     case TOK_IF:
     case TOK_SWITCH:
-        return selection_statement();
+        return selection_statement(in_loop, in_switch);
     case TOK_WHILE:
     case TOK_DO:
     case TOK_FOR:
-        return iteration_statement();
+        return iteration_statement(in_switch);
     case TOK_GOTO:
     case TOK_CONTINUE:
     case TOK_BREAK:
     case TOK_RETURN:
-        return jump_statement();
+        return jump_statement(in_loop, in_switch);
     case TOK_CASE:
     case TOK_DEFAULT:
-        return labeled_statement();
+        return labeled_statement(in_loop, in_switch);
     case TOK_ID:
         if (lookahead(2) == TOK_COLON)
-            return labeled_statement();
+            return labeled_statement(in_loop, in_switch);
         /* fall through */
     default: /* expression statement or error */
         return expression_statement();
@@ -1298,7 +1309,7 @@ ExecNode *statement(void)
  *                     "case" constant_expression ":" statement |
  *                     "default" ":" statement
  */
-ExecNode *labeled_statement(void)
+ExecNode *labeled_statement(int in_loop, int in_switch)
 {
     ExecNode *n;
 
@@ -1308,22 +1319,23 @@ ExecNode *labeled_statement(void)
         n->attr.str = get_lexeme(1);
         match(TOK_ID);
         match(TOK_COLON);
-        n->child[0] = statement();
+        n->child[0] = statement(in_loop, in_switch);
         break;
     case TOK_CASE:
         n = new_stmt_node(CaseStmt);
         match(TOK_CASE);
         n->child[0] = constant_expression();
         match(TOK_COLON);
-        n->child[1] = statement();
+        n->child[1] = statement(in_loop, in_switch);
         break;
     case TOK_DEFAULT:
         n = new_stmt_node(DefaultStmt);
         match(TOK_DEFAULT);
         match(TOK_COLON);
-        n->child[0] = statement();
+        n->child[0] = statement(in_loop, in_switch);
         break;
     }
+    analyze_labeled_statement(n, in_switch);
 
     return n;
 }
@@ -1331,7 +1343,7 @@ ExecNode *labeled_statement(void)
 /*
  * compound_statement = "{" [ declaration_list ] [ statement_list ] "}"
  */
-ExecNode *compound_statement(int new_scope)
+ExecNode *compound_statement(int new_scope, int in_loop, int in_switch)
 {
     ExecNode *n;
 
@@ -1344,7 +1356,7 @@ ExecNode *compound_statement(int new_scope)
         n->locals = declaration_list();
     }
     if (lookahead(1) != TOK_RBRACE)
-        n->child[0] = statement_list();
+        n->child[0] = statement_list(in_loop, in_switch);
     match(TOK_RBRACE);
 
     if (new_scope && n->locals!=NULL)
@@ -1377,13 +1389,13 @@ DeclList *declaration_list(void)
 /*
  * statement_list = statement { statement }
  */
-ExecNode *statement_list(void)
+ExecNode *statement_list(int in_loop, int in_switch)
 {
     ExecNode *n, *temp;
 
-    n = temp = statement();
+    n = temp = statement(in_loop, in_switch);
     while (lookahead(1) != TOK_RBRACE) { /* FOLLOW(statement_list) = { "}" } */
-        temp->sibling = statement();
+        temp->sibling = statement(in_loop, in_switch);
         temp = temp->sibling;
     }
 
@@ -1409,7 +1421,7 @@ ExecNode *expression_statement(void)
  * selection_statement = "if" "(" expression ")" statement [ "else" statement ] |
  *                       "switch" "(" expression ")" statement
  */
-ExecNode *selection_statement(void)
+ExecNode *selection_statement(int in_loop, int in_switch)
 {
     ExecNode *n;
 
@@ -1420,10 +1432,10 @@ ExecNode *selection_statement(void)
         match(TOK_LPAREN);
         n->child[0] = expression();
         match(TOK_RPAREN);
-        n->child[1] = statement();
+        n->child[1] = statement(in_loop, in_switch);
         if (lookahead(1) == TOK_ELSE) {
             match(TOK_ELSE);
-            n->child[2] = statement();
+            n->child[2] = statement(in_loop, in_switch);
         }
         break;
     case TOK_SWITCH:
@@ -1432,9 +1444,12 @@ ExecNode *selection_statement(void)
         match(TOK_LPAREN);
         n->child[0] = expression();
         match(TOK_RPAREN);
-        n->child[1] = statement();
+        increase_switch_nesting_level();
+        n->child[1] = statement(in_loop, TRUE);
+        decrease_switch_nesting_level();
         break;
     }
+    analyze_selection_statement(n);
 
     return n;
 }
@@ -1444,7 +1459,7 @@ ExecNode *selection_statement(void)
  *                       "do" statement "while" "(" expression ")" ";" |
  *                       "for" "(" [ expression ] ";" [ expression ] ";" [ expression ] ")" statement
  */
-ExecNode *iteration_statement(void)
+ExecNode *iteration_statement(int in_switch)
 {
     ExecNode *n;
 
@@ -1455,15 +1470,15 @@ ExecNode *iteration_statement(void)
         match(TOK_LPAREN);
         n->child[0] = expression();
         match(TOK_RPAREN);
-        n->child[1] = statement();
+        n->child[1] = statement(TRUE, in_switch);
         break;
     case TOK_DO:
         n = new_stmt_node(DoStmt);
         match(TOK_DO);
-        n->child[0] = statement();
+        n->child[1] = statement(TRUE, in_switch);
         match(TOK_WHILE);
         match(TOK_LPAREN);
-        n->child[1] = expression();
+        n->child[0] = expression();
         match(TOK_RPAREN);
         match(TOK_SEMICOLON);
         break;
@@ -1472,17 +1487,18 @@ ExecNode *iteration_statement(void)
         match(TOK_FOR);
         match(TOK_LPAREN);
         if (lookahead(1) != TOK_SEMICOLON)
-            n->child[0] = expression();
+            n->child[1] = expression();
         match(TOK_SEMICOLON);
         if (lookahead(1) != TOK_SEMICOLON)
-            n->child[1] = expression();
+            n->child[0] = expression();
         match(TOK_SEMICOLON);
         if (lookahead(1) != TOK_RPAREN)
             n->child[2] = expression();
         match(TOK_RPAREN);
-        n->child[3] = statement();
+        n->child[3] = statement(TRUE, in_switch);
         break;
     }
+    analyze_iteration_statement(n);
 
     return n;
 }
@@ -1493,7 +1509,7 @@ ExecNode *iteration_statement(void)
  *                  "break" ";" |
  *                  "return" [ expression ] ";"
  */
-ExecNode *jump_statement(void)
+ExecNode *jump_statement(int in_loop, int in_switch)
 {
     ExecNode *n;
 
@@ -1520,6 +1536,8 @@ ExecNode *jump_statement(void)
         break;
     }
     match(TOK_SEMICOLON);
+
+    analyze_jump_statement(n, in_loop, in_switch);
 
     return n;
 }

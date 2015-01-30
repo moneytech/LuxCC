@@ -21,6 +21,7 @@
 #define DEBUG_PRINTF(...)
 #endif
 
+unsigned long hash2(long k);
 unsigned hash(char *s);
 
 #endif
