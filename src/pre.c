@@ -9,12 +9,12 @@
 #define equal(s, t)     (strcmp(s, t) == 0)
 #define not_equal(s, t) (strcmp(s, t) != 0)
 
-// #define SRC_FILE    curr_source_file
-// #define SRC_LINE    curr_line
-// #define SRC_COLUMN  src_column
+#define SRC_FILE    curr_source_file
+#define SRC_LINE    curr_line
+#define SRC_COLUMN  src_column
 
 #define ERROR(...)\
-    PRINT_ERROR(curr_source_file, curr_line, src_column, __VA_ARGS__),\
+    PRINT_ERROR(SRC_FILE, SRC_LINE, SRC_COLUMN, __VA_ARGS__),\
     exit(EXIT_FAILURE)
 
 #define MACRO_TABLE_SIZE 101

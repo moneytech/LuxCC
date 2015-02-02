@@ -133,8 +133,7 @@ static int is_lvalue(ExecNode *e)
         return FALSE;
     }
 
-    fprintf(stderr, "is_lvalue()\n");
-    exit(EXIT_FAILURE);
+    my_assert(0, "is_lvalue()");
 }
 
 static int is_modif_struct_union(TypeExp *type)
@@ -276,6 +275,8 @@ int get_rank(Token ty)
     case TOK_UNSIGNED_CHAR:
         return 1;
     }
+
+    my_assert(0, "get_rank()");
 }
 
 int is_signed_int(Token ty)
@@ -388,8 +389,7 @@ TypeExp *get_type_node(Token ty)
     case TOK_ERROR: return &ty_error;
     }
 
-    fprintf(stderr, "get_type_node()\n");
-    exit(EXIT_FAILURE);
+    my_assert(0, "get_type_node()");
 }
 
 void binary_op_error(ExecNode *op)

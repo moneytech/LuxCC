@@ -86,6 +86,9 @@ int is_sto_class_spec(Token t)
     return (t==TOK_TYPEDEF||t==TOK_EXTERN||t==TOK_STATIC||t==TOK_AUTO||t==TOK_REGISTER);
 }
 
+/*
+ * Return TRUE if `t' is a type specifier.
+ */
 int is_type_spec(Token t)
 {
     switch (t) {
@@ -98,6 +101,10 @@ int is_type_spec(Token t)
     }
 }
 
+/*
+ * Same as is_type_spec() but recognizes additional specifiers that appear
+ * after analyze_decl_specs() processes the declaration specifiers list.
+ */
 int is_type_spec2(Token t)
 {
     switch (t) {
@@ -138,10 +145,9 @@ TypeExp *get_type_spec(TypeExp *d)
     }
 
     /* a type specifier is required */
-    if (d == NULL) {
-        fprintf(stderr, "bug: get_type_spec()\n");
-        exit(1);
-    }
+    if (d == NULL)
+        my_assert(stderr, "get_type_spec()");
+
     return NULL; /* just to avoid warning */
 }
 
@@ -707,8 +713,7 @@ int is_complete(char *tag)
         else
             return tp->type->attr.dl!=NULL;
     } else {
-        fprintf(stderr, "bug: is_complete()\n");
-        exit(EXIT_FAILURE);
+        my_assert(0, "is_complete()");
     }
 }
 
@@ -1468,6 +1473,76 @@ no_link_incomp:
     ERROR(declarator, "`%s' has no linkage and incomplete type", declarator->str);
 }
 
+void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)
+{
+    /* 6.7.2.1
+     * #2 A structure or union shall not contain a member with incomplete or function type (hence,
+     * a structure shall not contain an instance of itself, but may contain a pointer to an instance
+     * of itself) [we don't support flexible array members, so what follows is not important to us]
+     */
+    analyze_declarator(sql, declarator, FALSE);
+    if (declarator->child == NULL) {
+        /* not a derived declarator type */
+        TypeExp *ts;
+
+        ts = get_type_spec(sql);
+        if (is_struct_union_enum(ts->op) && !is_complete(ts->str))
+            goto incomp_error;
+    } else if (declarator->child->op == TOK_SUBSCRIPT) {
+        /* the type category is array, the size expression cannot be missing */
+        if (declarator->child->attr.e == NULL)
+            goto incomp_error;
+    } else if (declarator->child->op == TOK_FUNCTION) {
+        ERROR(declarator, "member `%s' declared as a function", declarator->str);
+    }
+    return; /* OK */
+incomp_error:
+    ERROR(declarator, "member `%s' has incomplete type", declarator->str);
+}
+
+void check_for_dup_member(DeclList *d)
+{
+#define MEM_TAB_SIZE 53
+    typedef struct Member Member;
+    static struct Member {
+        char *id;
+        Member *next;
+    } *members[MEM_TAB_SIZE], *np, *temp;
+    TypeExp *dct;
+    unsigned h;
+
+    // memset(members, 0, sizeof(Member *)*MEM_TAB_SIZE);
+    /* traverse the struct declaration list */
+    while (d != NULL) {
+        /* traverse the struct declarator list */
+        for (dct = d->decl->idl; dct != NULL; dct = dct->sibling) {
+            /* search member */
+            h = hash(dct->str)%MEM_TAB_SIZE;
+            for (np = members[h]; np != NULL; np = np->next)
+                if (strcmp(dct->str, np->id) == 0)
+                    ERROR(dct, "duplicate member `%s'", dct->str);
+            /* not found */
+            np = malloc(sizeof(Member));
+            np->id = dct->str;
+            np->next = members[h];
+            members[h] = np;
+        }
+        d = d->next;
+    }
+
+    /* empty table */
+    for (h = 0; h < MEM_TAB_SIZE; h++) {
+        if (members[h] != NULL) {
+            for (np = members[h]; np != NULL;) {
+                temp = np;
+                np = np->next;
+                free(temp);
+            }
+            members[h] = NULL;
+        }
+    }
+}
+
 char *stringify_type_exp(Declaration *d, int show_decayed)
 {
     TypeExp *e;
@@ -1563,74 +1638,4 @@ char *stringify_type_exp(Declaration *d, int show_decayed)
     strcat(s, out);
 
     return s;
-}
-
-void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)
-{
-    /* 6.7.2.1
-     * #2 A structure or union shall not contain a member with incomplete or function type (hence,
-     * a structure shall not contain an instance of itself, but may contain a pointer to an instance
-     * of itself) [we don't support flexible array members, so what follows is not important to us]
-     */
-    analyze_declarator(sql, declarator, FALSE);
-    if (declarator->child == NULL) {
-        /* not a derived declarator type */
-        TypeExp *ts;
-
-        ts = get_type_spec(sql);
-        if (is_struct_union_enum(ts->op) && !is_complete(ts->str))
-            goto incomp_error;
-    } else if (declarator->child->op == TOK_SUBSCRIPT) {
-        /* the type category is array, the size expression cannot be missing */
-        if (declarator->child->attr.e == NULL)
-            goto incomp_error;
-    } else if (declarator->child->op == TOK_FUNCTION) {
-        ERROR(declarator, "member `%s' declared as a function", declarator->str);
-    }
-    return; /* OK */
-incomp_error:
-    ERROR(declarator, "member `%s' has incomplete type", declarator->str);
-}
-
-void check_for_dup_member(DeclList *d)
-{
-#define MEM_TAB_SIZE 53
-    typedef struct Member Member;
-    static struct Member {
-        char *id;
-        Member *next;
-    } *members[MEM_TAB_SIZE], *np, *temp;
-    TypeExp *dct;
-    unsigned h;
-
-    // memset(members, 0, sizeof(Member *)*MEM_TAB_SIZE);
-    /* traverse the struct declaration list */
-    while (d != NULL) {
-        /* traverse the struct declarator list */
-        for (dct = d->decl->idl; dct != NULL; dct = dct->sibling) {
-            /* search member */
-            h = hash(dct->str)%MEM_TAB_SIZE;
-            for (np = members[h]; np != NULL; np = np->next)
-                if (strcmp(dct->str, np->id) == 0)
-                    ERROR(dct, "duplicate member `%s'", dct->str);
-            /* not found */
-            np = malloc(sizeof(Member));
-            np->id = dct->str;
-            np->next = members[h];
-            members[h] = np;
-        }
-        d = d->next;
-    }
-
-    /* empty table */
-    for (h = 0; h < MEM_TAB_SIZE; h++) {
-        if (members[h] != NULL) {
-            for (np = members[h]; np != NULL;) {
-                temp = np;
-                np = np->next;
-                free(temp);
-            }
-            members[h] = NULL;
-        }
-    }
 }

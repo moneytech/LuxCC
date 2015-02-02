@@ -472,7 +472,7 @@ TypeExp *storage_class_specifier(void)
         match(TOK_REGISTER);
         break;
     default: /* shouldn't be reachable */
-        ERROR("parser bug: storage_class_specifier()");
+        my_assert(0, "storage_class_specifier()");
         break;
     }
 
@@ -540,7 +540,7 @@ TypeExp *type_specifier(void)
         n = typedef_name();
         break;
     default: /* shouldn't be reachable */
-        ERROR("parser bug: type_specifier()");
+        my_assert(0, "type_specifier()");
         break;
     }
 
@@ -628,7 +628,7 @@ TypeExp *struct_or_union(void)
     else if (lookahead(1) == TOK_UNION)
         match(TOK_UNION);
     else
-        ERROR("parser bug: struct_or_union()");
+        my_assert(0, "struct_or_union()");
 
     return n;
 }
@@ -871,7 +871,7 @@ TypeExp *type_qualifier(void)
     else if (lookahead(1) == TOK_VOLATILE)
         match(TOK_VOLATILE);
     else
-        ERROR("parser bug: type_qualifier()");
+        my_assert(0, "type_qualifier()");
 
     return n;
 }
@@ -1008,7 +1008,7 @@ TypeExp *direct_declarator_postfix(void)
         /*}*/
         match(TOK_RPAREN);
     } else {
-        ERROR("parser bug: direct_declarator_postfix()");
+        my_assert(0, "direct_declarator_postfix()");
     }
 
     return n;

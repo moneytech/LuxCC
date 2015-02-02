@@ -25,6 +25,13 @@
 #define DEBUG_PRINTF(...)
 #endif
 
+/*
+ * Currently stringification is not implemented, and there is no predefined
+ * macro names __LINE__, __FILE__, etc, so this is a cheap replacement for
+ * assert() until those features are implemented (if they are).
+ */
+#define my_assert(expr, msg) do { if (!(expr)) fprintf(stderr, "Assertion failed at function `%s'\n", msg), exit(1); } while (0)
+
 unsigned long hash2(long k);
 unsigned hash(char *s);
 
