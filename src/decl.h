@@ -30,7 +30,7 @@ TypeExp *get_sto_class_spec(TypeExp *d);
 TypeExp *get_type_spec(TypeExp *d);
 TypeExp *get_type_qual(TypeExp *d);
 int is_typedef_name(char *id);
-char *stringify_type_exp(Declaration *d);
+char *stringify_type_exp(Declaration *d, int show_decayed);
 int is_complete(char *tag);
 int is_struct_union_enum(Token t);
 TypeExp *dup_declarator(TypeExp *d);

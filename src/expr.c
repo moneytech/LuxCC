@@ -4,14 +4,66 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
-#define DEBUG 1
+#define DEBUG 0
 #include "util.h"
 #include "decl.h"
 #undef ERROR
 
-#define ERROR(tok, ...) fprintf(stderr, INFO_COLOR "%s:%d:%d: " ERROR_COLOR "error: " RESET_ATTR, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__),fprintf(stderr, "\n"),exit(EXIT_FAILURE)
-#define WARNING(tok, ...) fprintf(stderr, INFO_COLOR "%s:%d:%d: " WARNING_COLOR "warning: " RESET_ATTR, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n")
+extern unsigned error_count, warning_count;
 
+/*
+ * Print error, increase error count, and set to 'error'
+ * the type of the node 'tok' (tok is generally an operator
+ * node).
+ */
+#define ERROR(tok, ...)\
+    do {\
+        PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__);\
+        ++error_count;\
+        (tok)->type.decl_specs = get_type_node(TOK_ERROR);\
+        return;\
+    } while (0)
+/*
+ * Print warning and increase warning count.
+ */
+#define WARNING(tok, ...)\
+    PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
+    ++warning_count
+/*
+ * Print error and exit.
+ */
+#define FATAL_ERROR(tok, ...)\
+    PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
+    exit(EXIT_FAILURE)
+
+/*
+ * Macro used by functions that analyze binary operators. If any of the operands has
+ * type 'error', set the result type as 'error' too and return. This is helpful to
+ * avoid error cascades.
+ *  E.g. the expression `&0 + 1', with syntax tree
+ *          +
+ *         / \
+ *        &   1
+ *        |
+ *        0
+ * When + examines the operands and encounters that the left is invalid (has type 'error'
+ * derived from the invalid application of & to an integer constant) it just sets 'error'
+ * as its own type and returns (instead of printing a message like 'invalid operands to
+ * binary +'). Only the code that analyzes & will print a diagnostic.
+ */
+#define IS_ERROR_BINARY(e, ty_l, ty_r)\
+    if (ty_l==TOK_ERROR || ty_r==TOK_ERROR) {\
+        e->type.decl_specs = get_type_node(TOK_ERROR);\
+        return;\
+    }
+/*
+ * Similar to above but for unary operators.
+ */
+#define IS_ERROR_UNARY(e, ty)\
+    if (ty == TOK_ERROR) {\
+        e->type.decl_specs = get_type_node(TOK_ERROR);\
+        return;\
+    }
 
 // static
 Token get_type_category(Declaration *d)
@@ -35,57 +87,6 @@ int is_integer(Token ty)
     default:
         return FALSE;
     }
-}
-
-void analyze_array_size_expr(TypeExp *arr)
-{
-    long size;
-
-    /*
-     * 6.7.5.2#1
-     * [...] If they delimit an expression (which specifies the size of an array), the
-     * expression shall have an integer type. If the expression is a constant expression,
-     * it shall have a value greater than zero. [...] Note: VLAs are not supported, so the
-     * expression must always be constant.
-     */
-    if (!is_integer(get_type_category(&arr->attr.e->type)))
-        ERROR(arr, "size of array has non-integer type");
-
-    size = eval_const_expr(arr->attr.e, FALSE);
-    if (size <= 0)
-        ERROR(arr, "size of array not greater than zero");
-
-    /* store the computed size in the root of the expression tree */
-    arr->attr.e->attr.val = size; /* maybe overwrites the operator */
-}
-
-static long en_val = -1;
-
-void reset_enum_val(void)
-{
-    en_val = -1;
-}
-
-void analyze_enumeration_expr(TypeExp *en)
-{
-    /*
-     * 6.7.2.2#2
-     * The expression that defines the value of an enumeration constant shall be an integer
-     * constant expression that has a value representable as an int.
-     */
-    if (en->attr.e != NULL) {
-        if (!is_integer(get_type_category(&en->attr.e->type)))
-            ERROR(en, "enumerator value is not an integer constant");
-        en_val = eval_const_expr(en->attr.e, FALSE);
-    } else {
-        en->attr.e = calloc(1, sizeof(ExecNode));
-        ++en_val;
-    }
-
-    /*if (en_val > 2147483647)
-        ...*/
-
-    en->attr.e->attr.val = en_val;
 }
 
 static int is_pointer(Token op)
@@ -244,7 +245,7 @@ Token get_promoted_type(Token int_ty)
     case TOK_SHORT: case TOK_UNSIGNED_SHORT:
         return TOK_INT;
     default:
-        return int_ty;
+        return int_ty; /* promotion is not required */
     }
 }
 
@@ -376,6 +377,7 @@ TypeExp *get_type_node(Token ty)
     static TypeExp ty_unsigned = { TOK_UNSIGNED };
     static TypeExp ty_long = { TOK_LONG };
     static TypeExp ty_unsigned_long = { TOK_UNSIGNED_LONG };
+    static TypeExp ty_error = { TOK_ERROR };
 
     switch (ty) {
     case TOK_CHAR: return &ty_char;
@@ -383,6 +385,7 @@ TypeExp *get_type_node(Token ty)
     case TOK_UNSIGNED: return &ty_unsigned;
     case TOK_LONG: return &ty_long;
     case TOK_UNSIGNED_LONG: return &ty_unsigned_long;
+    case TOK_ERROR: return &ty_error;
     }
 
     fprintf(stderr, "get_type_node()\n");
@@ -391,30 +394,8 @@ TypeExp *get_type_node(Token ty)
 
 void binary_op_error(ExecNode *op)
 {
-    /*
-     * Convert arrays and functions to pointers
-     * to array and function respectively.
-     */
-    int idx;
-
-    for (idx = 0; idx < 2; idx++) {
-        if (op->child[idx]->type.idl != NULL) {
-            if (op->child[idx]->type.idl->op == TOK_FUNCTION) {
-                TypeExp *ptr_node;
-
-                ptr_node = calloc(1, sizeof(TypeExp));
-                ptr_node->op = TOK_STAR;
-                ptr_node->child = op->child[idx]->type.idl;
-                op->child[idx]->type.idl = ptr_node;
-            } else if (op->child[idx]->type.idl->op == TOK_SUBSCRIPT) {
-                op->child[idx]->type.idl->op = TOK_STAR;
-                op->child[idx]->type.idl->attr.e = NULL;
-            }
-        }
-    }
-
     ERROR(op, "invalid operands to binary %s (`%s' and `%s')", token_table[op->attr.op*2+1],
-    stringify_type_exp(&op->child[0]->type), stringify_type_exp(&op->child[1]->type));
+    stringify_type_exp(&op->child[0]->type, TRUE), stringify_type_exp(&op->child[1]->type, TRUE));
 }
 
 int is_ptr2obj(Declaration *p)
@@ -434,6 +415,9 @@ int is_ptr2obj(Declaration *p)
 
     return TRUE;
 }
+
+#define is_void_ptr(c, t) ((c)!=TOK_FUNCTION && (t).idl->child==NULL && get_type_spec((t).decl_specs)->op==TOK_VOID)
+#define is_func_ptr(c, t) ((c)==TOK_FUNCTION || (t).idl->child!=NULL && (t).idl->child->op==TOK_FUNCTION)
 
 /*
  * See if the expression `e' can be stored in a variable of type `dest_ty'.
@@ -519,7 +503,7 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
             rank_s = (rank_s==4)?3:rank_s;
 
             /*
-             * Emit a warning when the destination type is narrower than the source type.
+             * Emit a warning if the destination type is narrower than the source type.
              */
             if (rank_s > rank_d)
                 WARNING(e, "implicit conversion loses integer precision: `%s' to `%s'",
@@ -551,32 +535,41 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
             TypeExp *ts_d, *ts_s;
 
             /*
-             * Check if the pointers are compatible. If they are, continue
-             * and check for the additional requirement of type qualifiers;
-             * otherwise, emit a warning and return.
+             * Check if the pointers are assignment compatible (without having into
+             * account type qualifiers). Emit a warning an return if they are not.
              */
-            if (dest_ty->idl->child==NULL && get_type_spec(dest_ty->decl_specs)->op==TOK_VOID) {
-                if (cat_s==TOK_FUNCTION || src_ty->idl->child!=NULL&&src_ty->idl->child->op==TOK_FUNCTION) {
-                    WARNING(e, "function pointer implicitly converted to void pointer");
-                    return TRUE;
-                }
-            } else if (cat_s!=TOK_FUNCTION && src_ty->idl->child==NULL
-            && get_type_spec(src_ty->decl_specs)->op==TOK_VOID) {
-                if (dest_ty->idl->child!=NULL && dest_ty->idl->child->op==TOK_FUNCTION) {
-                    WARNING(e, "void pointer implicitly converted to function pointer");
-                    return TRUE;
-                }
-            } else if (!are_compatible(dest_ty->decl_specs, dest_ty->idl->child,
-                src_ty->decl_specs, (cat_s!=TOK_FUNCTION)?src_ty->idl->child:src_ty->idl, FALSE, FALSE)) {
+            if (!are_compatible(dest_ty->decl_specs, (cat_d!=TOK_FUNCTION)?dest_ty->idl->child:dest_ty->idl,
+            src_ty->decl_specs, (cat_s!=TOK_FUNCTION)?src_ty->idl->child:src_ty->idl, FALSE, FALSE)) {
+                /*
+                 * They do not point to the same type, see if one of them is `void *'
+                 * and the other is a pointer to an object or incomplete type
+                 */
+                if (is_void_ptr(cat_d, *dest_ty)) {
+                    /* the destination operand is `void *' */
+                    if (is_func_ptr(cat_s, *src_ty)) {
+                        /* the source operand is a function pointer */
+                        WARNING(e, "function pointer implicitly converted to void pointer");
+                        return TRUE;
+                    }
+                } else if (is_void_ptr(cat_s, *src_ty)) {
+                    /* the source operand is `void *' */
+                    if (is_func_ptr(cat_d, *dest_ty)) {
+                        /* the destination operand is a function pointer */
+                        WARNING(e, "void pointer implicitly converted to function pointer");
+                        return TRUE;
+                    }
+                } else {
+                    /* everything failed, just emit a warning and return */
                     WARNING(e, "assignment from incompatible pointer type");
                     return TRUE;
+                }
             }
-
-            /* OK, they are compatible, go on... */
+            /* fall through */
 
             /*
              * Verify that the type pointed to by the left operand has
-             * all the qualifiers of the type pointed to by the right.
+             * all the qualifiers of the type pointed to by the right,
+             * and emit a warning if this requirement is not met.
              */
             ts_d = ts_s = NULL;
 
@@ -625,6 +618,7 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
 
 void analyze_expression(ExecNode *e)
 {
+    IS_ERROR_BINARY(e, get_type_category(&e->child[0]->type), get_type_category(&e->child[1]->type));
     /*
      * 6.5.17
      * #2 The left operand of a comma operator is evaluated as a void expression; there is a
@@ -637,6 +631,7 @@ void analyze_expression(ExecNode *e)
 
 void analyze_assignment_expression(ExecNode *e)
 {
+    IS_ERROR_BINARY(e, get_type_category(&e->child[0]->type), get_type_category(&e->child[1]->type));
     /*
      * 6.5.16
      * #2 An assignment operator shall have a modifiable lvalue as its left operand.
@@ -656,7 +651,8 @@ void analyze_assignment_expression(ExecNode *e)
         // if (!can_assign_to(e, &e->child[0]->type, &e->child[1]->type))
         if (!can_assign_to(&e->child[0]->type, e->child[1]))
             ERROR(e, "incompatible types when assigning to type `%s' from type `%s'",
-            stringify_type_exp(&e->child[0]->type), stringify_type_exp(&e->child[1]->type));
+            stringify_type_exp(&e->child[0]->type, FALSE),
+            stringify_type_exp(&e->child[1]->type, TRUE));
     } else {
         /* E1 op= E2 ==> E1 = E1 op (E2) ; with E1 evaluated only once */
         ExecNode temp;
@@ -707,12 +703,13 @@ void analyze_assignment_expression(ExecNode *e)
         // if (!can_assign_to(e, &e->child[0]->type, &temp.type))
         if (!can_assign_to(&e->child[0]->type, &temp))
             ERROR(e, "incompatible types when assigning to type `%s' from type `%s'",
-            stringify_type_exp(&e->child[0]->type), stringify_type_exp(&temp.type));
+            stringify_type_exp(&e->child[0]->type, FALSE),
+            stringify_type_exp(&temp.type, TRUE));
     }
 
     e->type = e->child[0]->type;
 
-    printf("assign: %s\n", stringify_type_exp(&e->type));
+    // printf("assign: %s\n", stringify_type_exp(&e->type));
 }
 
 void analyze_conditional_expression(ExecNode *e)
@@ -736,6 +733,8 @@ void analyze_conditional_expression(ExecNode *e)
      * Check that the first operand has scalar type.
      */
     ty1 = get_type_category(&e->child[0]->type);
+    IS_ERROR_UNARY(e, ty1);
+
     if (!is_scalar(ty1) && ty1!=TOK_SUBSCRIPT && ty1!=TOK_FUNCTION)
         ERROR(e, "invalid first operand for conditional operator");
 
@@ -745,6 +744,8 @@ void analyze_conditional_expression(ExecNode *e)
      */
     ty2 = get_type_category(&e->child[1]->type);
     ty3 = get_type_category(&e->child[2]->type);
+    IS_ERROR_BINARY(e, ty2, ty3);
+
     if (is_integer(ty2)) {
         if (is_integer(ty3)) {
             e->type.decl_specs = get_type_node(get_result_type(get_promoted_type(ty2), get_promoted_type(ty3)));
@@ -753,6 +754,9 @@ void analyze_conditional_expression(ExecNode *e)
              * Set the type of the pointer operand as the type of the result.
              */
             e->type = e->child[2]->type;
+            /*
+             * Emit a warning if the integer operand is not the null pointer constant
+             */
             if (e->child[1]->kind.exp!=IConstExp || e->child[1]->attr.val!=0)
                 WARNING(e, "pointer/integer type mismatch in conditional expression");
         } else {
@@ -775,8 +779,148 @@ void analyze_conditional_expression(ExecNode *e)
             if (e->child[2]->kind.exp!=IConstExp || e->child[2]->attr.val!=0)
                 WARNING(e, "pointer/integer type mismatch in conditional expression");
         } else if (is_pointer(ty3) || ty3==TOK_FUNCTION) {
-            // TODO: form the result type as indicated in 6.5.15#6
-            e->type = e->child[1]->type; /* for now, just set result type==2nd op type */
+            /*
+             * 6.5.15#6
+             * If both the second and third operands are pointers or one is a null pointer constant and the
+             * other is a pointer, the result type is a pointer to a type qualified with all the type qualifiers
+             * of the types pointed-to by both operands. Furthermore, if both operands are pointers to
+             * compatible types or to differently qualified versions of compatible types, the result type is
+             * a pointer to an appropriately qualified version of the composite type; if one operand is a
+             * null pointer constant, the result has the type of the other operand; otherwise, one operand
+             * is a pointer to void or a qualified version of void, in which case the result type is a
+             * pointer to an appropriately qualified version of void.
+             */
+            if (!are_compatible(e->child[1]->type.decl_specs, e->child[1]->type.idl->child,
+            e->child[2]->type.decl_specs, e->child[2]->type.idl->child, FALSE, FALSE)) {
+                /*
+                 * The pointers do not point to compatible types.
+                 */
+                int iv, inv;
+                TypeExp *tq1, *tq2;
+
+                /*
+                 * See if one of the operands is a pointer to void (the other
+                 * operand cannot be a function pointer).
+                 */
+                if (is_void_ptr(ty2, e->child[1]->type)) {
+                    /* the second operand is `void *' */
+                    if (is_func_ptr(ty3, e->child[2]->type)) {
+                        /* the third operand is a function pointer */
+                        WARNING(e, "conditional expression between `void *' and function pointer");
+                        /* set `void *' as the result type */
+                        e->type = e->child[1]->type;
+                        goto done;
+                    } else {
+                        iv = 1;  /* index of the void pointer operand */
+                        inv = 2; /* index of the non-void pointer operand */
+                    }
+                } else if (is_void_ptr(ty3, e->child[2]->type)) {
+                    /* the third operand is `void *' */
+                    if (is_func_ptr(ty2, e->child[1]->type)) {
+                        /* the second operand is a function pointer */
+                        WARNING(e, "conditional expression between function pointer and `void *'");
+                        e->type = e->child[2]->type;
+                        goto done;
+                    } else {
+                        iv = 2;
+                        inv = 1;
+                    }
+                } else {
+                    WARNING(e, "pointer type mismatch in conditional expression");
+                    /* set the type of the 2nd operand as the type of the result */
+                    e->type = e->child[1]->type;
+                    goto done;
+                }
+                /* fall through */
+
+                /*
+                 * One operand is a pointer to void or a qualified version of void and
+                 * the other is a pointer to an object or incomplete type.
+                 */
+                if (e->child[inv]->type.idl->child == NULL
+                || e->child[inv]->type.idl->child->op == TOK_STAR) {
+                    /* the non-void pointer operand is a pointer to a non-derived-declarator-type
+                       or a pointer to pointer */
+                    tq1 = get_type_qual(e->child[iv]->type.decl_specs);
+                    if (e->child[inv]->type.idl->child == NULL)
+                        tq2 = get_type_qual(e->child[inv]->type.decl_specs);
+                    else
+                        tq2 = e->child[inv]->type.idl->child->attr.el;
+                    if (tq1 == NULL) {
+                        if (tq2 == NULL) {
+                            e->type = e->child[iv]->type;
+                        } else {
+                            e->type.decl_specs = calloc(1, sizeof(TypeExp));
+                            e->type.decl_specs->op = tq2->op;
+                            e->type.decl_specs->child = e->child[iv]->type.decl_specs;
+                            e->type.idl = e->child[iv]->type.idl;
+                        }
+                    } else if (tq2 == NULL) {
+                        e->type = e->child[iv]->type;
+                    } else {
+                        if (tq1->op==tq2->op || tq1->op==TOK_CONST_VOLATILE) {
+                            e->type = e->child[iv]->type;
+                        } else {
+                            e->type.decl_specs = dup_decl_specs_list(e->child[iv]->type.decl_specs);
+                            get_type_qual(e->type.decl_specs)->op = TOK_CONST_VOLATILE;
+                            e->type.idl = e->child[iv]->type.idl;
+                        }
+                    }
+                } else /* if (e->child[2]->type.idl->child->op == TOK_SUBSCRIPT) */ {
+                    /* the non-void pointer operand is a pointer to array */
+                    e->type = e->child[iv]->type;
+                }
+            } else {
+                /*
+                 * Both operands are pointers to compatible types or to
+                 * differently qualified versions of compatible types.
+                 */
+                TypeExp *tq1, *tq2;
+
+                if (e->child[1]->type.idl->child == NULL) {
+                    /* pointers to non-derived-declarator-types */
+                    tq1 = get_type_qual(e->child[1]->type.decl_specs);
+                    tq2 = get_type_qual(e->child[2]->type.decl_specs);
+                    if (tq1 == NULL) {
+                        e->type = e->child[2]->type;
+                    } else if (tq2 == NULL) {
+                        e->type = e->child[1]->type;
+                    } else {
+                        if (tq1->op==tq2->op || tq1->op==TOK_CONST_VOLATILE) {
+                            e->type = e->child[1]->type;
+                        } else if (tq2->op == TOK_CONST_VOLATILE) {
+                            e->type = e->child[2]->type;
+                        } else {
+                            e->type.decl_specs = dup_decl_specs_list(e->child[1]->type.decl_specs);
+                            get_type_qual(e->type.decl_specs)->op = TOK_CONST_VOLATILE;
+                            e->type.idl = e->child[1]->type.idl;
+                        }
+                    }
+                } else if (e->child[1]->type.idl->child->op == TOK_STAR) {
+                    /* pointers to pointer */
+                    tq1 = e->child[1]->type.idl->child->attr.el;
+                    tq2 = e->child[2]->type.idl->child->attr.el;
+                    if (tq1 == NULL) {
+                        e->type = e->child[2]->type;
+                    } else if (tq2 == NULL) {
+                        e->type = e->child[1]->type;
+                    } else {
+                        if (tq1->op==tq2->op || tq1->op==TOK_CONST_VOLATILE) {
+                            e->type = e->child[1]->type;
+                        } else if (tq2->op == TOK_CONST_VOLATILE) {
+                            e->type = e->child[2]->type;
+                        } else {
+                            e->type.idl = dup_declarator(e->child[1]->type.idl);
+                            e->type.idl->child->attr.el = calloc(1, sizeof(TypeExp));
+                            e->type.idl->child->attr.el->op = TOK_CONST_VOLATILE;
+                            e->type.decl_specs = e->child[1]->type.decl_specs;
+                        }
+                    }
+                } else {
+                    /* pointers to arrays or functions */
+                    e->type = e->child[1]->type;
+                }
+            }
         } else {
             goto type_mismatch;
         }
@@ -786,11 +930,13 @@ void analyze_conditional_expression(ExecNode *e)
         e->type = e->child[1]->type;
     }
 
-    printf("conditional: %s\n", stringify_type_exp(&e->type));
+done:
+    // printf("conditional: %s\n", stringify_type_exp(&e->type));
     return;
 type_mismatch:
     ERROR(e, "type mismatch in conditional expression (`%s' and `%s')",
-    stringify_type_exp(&e->child[1]->type), stringify_type_exp(&e->child[2]->type));
+    stringify_type_exp(&e->child[1]->type, TRUE),
+    stringify_type_exp(&e->child[2]->type, TRUE));
 }
 
 void analyze_logical_operator(ExecNode *e)
@@ -803,9 +949,13 @@ void analyze_logical_operator(ExecNode *e)
      */
     ty1 = get_type_category(&e->child[0]->type);
     ty2 = get_type_category(&e->child[1]->type);
+    IS_ERROR_BINARY(e, ty1, ty2);
+
     if (!is_scalar(ty1) && ty1!=TOK_SUBSCRIPT && ty1!=TOK_FUNCTION
-    || !is_scalar(ty2) && ty2!=TOK_SUBSCRIPT && ty2!=TOK_FUNCTION)
+    || !is_scalar(ty2) && ty2!=TOK_SUBSCRIPT && ty2!=TOK_FUNCTION) {
         binary_op_error(e);
+        return;
+    }
 
     /* the result has type int */
     e->type.decl_specs = get_type_node(TOK_INT);
@@ -837,6 +987,8 @@ void analyze_relational_equality_expression(ExecNode *e)
 
     ty1 = get_type_category(&e->child[0]->type);
     ty2 = get_type_category(&e->child[1]->type);
+    IS_ERROR_BINARY(e, ty1, ty2);
+
     if (is_integer(ty1)) {
         if (is_integer(ty2)) {
             ; /* OK */
@@ -845,6 +997,7 @@ void analyze_relational_equality_expression(ExecNode *e)
                 WARNING(e, "comparison between pointer and integer");
         } else {
             binary_op_error(e);
+            return;
         }
     } else if (is_pointer(ty1) || ty1==TOK_FUNCTION) {
         if (is_integer(ty2)) {
@@ -886,9 +1039,11 @@ void analyze_relational_equality_expression(ExecNode *e)
                 WARNING(e, "comparison of function pointers");
         } else {
             binary_op_error(e);
+            return;
         }
     } else {
         binary_op_error(e);
+        return;
     }
 
 done:
@@ -906,8 +1061,12 @@ void analyze_bitwise_operator(ExecNode *e)
 
     ty1 = get_type_category(&e->child[0]->type);
     ty2 = get_type_category(&e->child[1]->type);
-    if (!is_integer(ty1) || !is_integer(ty2))
+    IS_ERROR_BINARY(e, ty1, ty2);
+
+    if (!is_integer(ty1) || !is_integer(ty2)) {
         binary_op_error(e);
+        return;
+    }
 
     if (e->attr.op==TOK_LSHIFT || e->attr.op==TOK_RSHIFT)
         /*
@@ -918,7 +1077,7 @@ void analyze_bitwise_operator(ExecNode *e)
     else
         e->type.decl_specs = get_type_node(get_result_type(get_promoted_type(ty1), get_promoted_type(ty2)));
 
-    printf("bitwise: %s\n", stringify_type_exp(&e->type));
+    // printf("bitwise: %s\n", stringify_type_exp(&e->type));
 }
 
 void analyze_additive_expression(ExecNode *e)
@@ -927,6 +1086,7 @@ void analyze_additive_expression(ExecNode *e)
 
     ty_l = get_type_category(&e->child[0]->type);
     ty_r = get_type_category(&e->child[1]->type);
+    IS_ERROR_BINARY(e, ty_l, ty_r);
 
     /*
      * 6.5.6
@@ -947,19 +1107,25 @@ void analyze_additive_expression(ExecNode *e)
                 e->type.decl_specs = get_type_node(get_result_type(get_promoted_type(ty_l), get_promoted_type(ty_r)));
             } else if (is_pointer(ty_r)) {
                 /* integer + pointer */
-                if (!is_ptr2obj(&e->child[1]->type))
+                if (!is_ptr2obj(&e->child[1]->type)) {
                     binary_op_error(e);
+                    return;
+                }
                 e->type = e->child[1]->type;
             } else {
                 binary_op_error(e);
+                return;
             }
         } else if (is_pointer(ty_l)) {
-            if (!is_integer(ty_r) || !is_ptr2obj(&e->child[0]->type))
+            if (!is_integer(ty_r) || !is_ptr2obj(&e->child[0]->type)) {
                 binary_op_error(e);
+                return;
+            }
             /* pointer + integer */
             e->type = e->child[0]->type;
         } else {
             binary_op_error(e);
+            return;
         }
     } else {
         /*
@@ -972,33 +1138,41 @@ void analyze_additive_expression(ExecNode *e)
          * (Decrementing is equivalent to subtracting 1.)
          */
         if (is_integer(ty_l)) {
-            if (is_integer(ty_r))
+            if (is_integer(ty_r)) {
                 /* integer - integer */
                 e->type.decl_specs = get_type_node(get_result_type(get_promoted_type(ty_l), get_promoted_type(ty_r)));
-            else
+            } else {
                 binary_op_error(e);
+                return;
+            }
         } else if (is_pointer(ty_l)) {
             if (is_integer(ty_r)) {
                 /* pointer - integer */
-                if (!is_ptr2obj(&e->child[0]->type))
+                if (!is_ptr2obj(&e->child[0]->type)) {
                     binary_op_error(e);
+                    return;
+                }
                 e->type = e->child[0]->type;
             } else if (is_pointer(ty_r)) {
                 /* pointer - pointer */
                 if (!is_ptr2obj(&e->child[0]->type) || !is_ptr2obj(&e->child[1]->type)
                 || !are_compatible(e->child[0]->type.decl_specs, e->child[0]->type.idl->child,
-                e->child[1]->type.decl_specs, e->child[1]->type.idl->child, FALSE, FALSE))
+                e->child[1]->type.decl_specs, e->child[1]->type.idl->child, FALSE, FALSE)) {
                     binary_op_error(e);
+                    return;
+                }
                 e->type.decl_specs = get_type_node(TOK_LONG); /* ptrdiff_t */
             } else {
                 binary_op_error(e);
+                return;
             }
         } else {
             binary_op_error(e);
+            return;
         }
     }
 
-    printf("add/sub: %s\n", stringify_type_exp(&e->type));
+    // printf("add/sub: %s\n", stringify_type_exp(&e->type));
 }
 
 void analyze_multiplicative_expression(ExecNode *e)
@@ -1012,13 +1186,16 @@ void analyze_multiplicative_expression(ExecNode *e)
      */
     ty1 = get_type_category(&e->child[0]->type);
     ty2 = get_type_category(&e->child[1]->type);
+    IS_ERROR_BINARY(e, ty1, ty2);
 
-    if (!is_integer(ty1) || !is_integer(ty2))
+    if (!is_integer(ty1) || !is_integer(ty2)) {
         binary_op_error(e);
+        return;
+    }
 
     e->type.decl_specs = get_type_node(get_result_type(get_promoted_type(ty1), get_promoted_type(ty2)));
 
-    printf("mul: %s\n", stringify_type_exp(&e->type));
+    // printf("mul: %s\n", stringify_type_exp(&e->type));
 }
 
 void analyze_cast_expression(ExecNode *e)
@@ -1032,12 +1209,16 @@ void analyze_cast_expression(ExecNode *e)
      */
     /* source type */
     ty_src = get_type_category(&e->child[0]->type);
+    IS_ERROR_UNARY(e, ty_src);
+
     if (!is_scalar(ty_src) && ty_src!=TOK_SUBSCRIPT
     && ty_src!=TOK_FUNCTION && ty_src!=TOK_VOID)
         ERROR(e, "cast operand does not have scalar type");
 
     /* target type */
     ty_tgt = get_type_category((Declaration *)e->child[1]);
+    IS_ERROR_UNARY(e, ty_tgt);
+
     if (!is_scalar(ty_tgt) && ty_tgt!=TOK_VOID)
         ERROR(e, "cast specifies conversion to non-scalar type");
 
@@ -1047,7 +1228,7 @@ void analyze_cast_expression(ExecNode *e)
 
     e->type = *(Declaration *)e->child[1];
 
-    printf("(%s)\n", stringify_type_exp(&e->type));
+    // printf("(%s)\n", stringify_type_exp(&e->type));
 }
 
 static
@@ -1061,6 +1242,8 @@ void analyze_inc_dec_operator(ExecNode *e)
     Token ty;
 
     ty = get_type_category(&e->child[0]->type);
+    IS_ERROR_UNARY(e, ty);
+
     if (!is_integer(ty) && !is_pointer(ty))
         ERROR(e, "wrong type argument to increment");
     if (!is_modif_lvalue(e->child[0]))
@@ -1097,6 +1280,7 @@ void analyze_unary_expression(ExecNode *e)
             dct = e->child[0]->type.idl;
             ty = get_type_category(&e->child[0]->type);
         }
+        IS_ERROR_UNARY(e, ty);
 
         if (ty == TOK_FUNCTION)
             ERROR(e, "invalid application of `sizeof' to a function type");
@@ -1118,10 +1302,11 @@ void analyze_unary_expression(ExecNode *e)
          */
         /* >> calculate value here << */
 
-        e->type.decl_specs = get_type_node(TOK_UNSIGNED);
+        e->type.decl_specs = get_type_node(TOK_UNSIGNED_LONG);
         break;
     }
     case TOK_ADDRESS_OF: {
+        Token ty;
         TypeExp *temp;
 
         /*
@@ -1130,7 +1315,10 @@ void analyze_unary_expression(ExecNode *e)
          * [] or unary * operator, or an lvalue that designates an object that is not a bit-field and is
          * not declared with the register storage-class specifier.
          */
-        if (!is_lvalue(e->child[0]) && get_type_category(&e->child[0]->type)!=TOK_FUNCTION)
+        ty = get_type_category(&e->child[0]->type);
+        IS_ERROR_UNARY(e, ty);
+
+        if (!is_lvalue(e->child[0]) && ty!=TOK_FUNCTION)
             ERROR(e, "invalid operand to &");
         if ((temp=get_sto_class_spec(e->child[0]->type.decl_specs))!=NULL && temp->op==TOK_REGISTER)
             ERROR(e, "address of register variable requested");
@@ -1148,7 +1336,7 @@ void analyze_unary_expression(ExecNode *e)
         e->type.decl_specs = e->child[0]->type.decl_specs;
         e->type.idl = temp;
 
-        printf("& result type: %s\n", stringify_type_exp(&e->type));
+        // printf("& result type: %s\n", stringify_type_exp(&e->type));
         break;
     }
     case TOK_INDIRECTION: {
@@ -1159,6 +1347,8 @@ void analyze_unary_expression(ExecNode *e)
          * #2 The operand of the unary * operator shall have pointer type.
          */
         ty = get_type_category(&e->child[0]->type);
+        IS_ERROR_UNARY(e, ty);
+
         if (!is_pointer(ty) && ty!=TOK_FUNCTION)
             ERROR(e, "invalid operand to *");
 
@@ -1182,7 +1372,7 @@ void analyze_unary_expression(ExecNode *e)
         e->type.decl_specs = e->child[0]->type.decl_specs;
         e->type.idl = (ty!=TOK_FUNCTION)?e->child[0]->type.idl->child:e->child[0]->type.idl;
 
-        printf("* result type: %s\n", stringify_type_exp(&e->type));
+        // printf("* result type: %s\n", stringify_type_exp(&e->type));
         break;
     }
     case TOK_UNARY_PLUS:
@@ -1196,22 +1386,14 @@ void analyze_unary_expression(ExecNode *e)
          * of the ~ operator, integer type.
          */
         ty = get_type_category(&e->child[0]->type);
+        IS_ERROR_UNARY(e, ty);
+
         if (!is_integer(ty))
             ERROR(e, "invalid operand to %s", token_table[e->attr.op*2+1]);
 
-        /*if ((prom_ty=get_promoted_type(ty)) != ty) {
-            TypeExp *ts;
-
-            e->type.decl_specs = dup_decl_specs_list(e->child[0]->type.decl_specs);
-            ts = get_type_spec(e->type.decl_specs);
-            ts->op = prom_ty;
-        } else {
-            e->type.decl_specs = e->child[0]->type.decl_specs;
-        }
-        e->type.idl = e->child[0]->type.idl;*/
         e->type.decl_specs = get_type_node(get_promoted_type(ty));
 
-        printf("+- result type: %s\n", stringify_type_exp(&e->type));
+        // printf("+- result type: %s\n", stringify_type_exp(&e->type));
         break;
     }
     case TOK_NEGATION: {
@@ -1222,6 +1404,8 @@ void analyze_unary_expression(ExecNode *e)
          * #1 The operand of the unary ! operator shall have scalar type.
          */
         ty = get_type_category(&e->child[0]->type);
+        IS_ERROR_UNARY(e, ty);
+
         if (!is_scalar(ty) && ty!=TOK_FUNCTION && ty!=TOK_SUBSCRIPT)
             ERROR(e, "invalid operand to !");
 
@@ -1246,7 +1430,9 @@ void analyze_postfix_expression(ExecNode *e)
         TypeExp *ptr_operand;
 
         ty1 = get_type_category(&e->child[0]->type);
+        IS_ERROR_UNARY(e, ty1);
         ty2 = get_type_category(&e->child[1]->type);
+        IS_ERROR_UNARY(e, ty2);
 
         if (is_pointer(ty1)) {
             if (!is_integer(ty2))
@@ -1309,6 +1495,8 @@ subs_incomp:
         ExecNode *a;
         TypeExp *ty;
 
+        IS_ERROR_UNARY(e, get_type_category(&e->child[0]->type));
+
         ty = e->child[0]->type.idl;
 
         if (ty == NULL)
@@ -1352,13 +1540,18 @@ subs_incomp:
             p = NULL;
         a = e->child[1];
         while (p!=NULL && a!=NULL) {
+            Declaration p_ty;
+
+            IS_ERROR_UNARY(e, get_type_category(&a->type));
+
             if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
                 break;
-            // if (!can_assign_to(a, p->decl, &a->type))
-            if (!can_assign_to(p->decl, a))
-                ERROR(a, "parameter/argument type mismatch (parameter #%d; expected `%s', "
-                "given `%s')", n, stringify_type_exp(p->decl),
-                stringify_type_exp(&a->type));
+            p_ty.decl_specs = p->decl->decl_specs;
+            p_ty.idl = (p->decl->idl!=NULL&&p->decl->idl->op==TOK_ID)?p->decl->idl->child:p->decl->idl;
+            if (!can_assign_to(&p_ty, a))
+                ERROR(e, "parameter/argument type mismatch (parameter #%d; expected `%s', "
+                "given `%s')", n, stringify_type_exp(&p_ty, TRUE),
+                stringify_type_exp(&a->type, TRUE));
 
             ++n;
             p = p->next;
@@ -1383,6 +1576,8 @@ non_callable:
         char *id;
         DeclList *d;
         TypeExp *ts, *tq_l, *tq_r, *dct;
+
+        IS_ERROR_UNARY(e, get_type_category(&e->child[0]->type));
 
         /*
          * 6.5.2.3
@@ -1807,144 +2002,6 @@ long eval_const_expr(ExecNode *e, int is_addr)
     }
     }
 
-    ERROR(e, "invalid constant expression");
-}
-
-/*
- * Currently only fully bracketed initialization is handled.
- */
-void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
-{
-    TypeExp *ts;
-
-    if (dct != NULL) {
-        int i;
-
-        if (dct->op != TOK_SUBSCRIPT)
-            goto scalar; /* must be a pointer, functions cannot have initializer */
-
-        /*
-         * Array.
-         */
-        if (e->kind.exp == StrLitExp) {
-            /* see for character array initialized by string literal */
-            int size;
-            Token ty;
-
-            /* make sure the element type is a character type */
-            ty = get_type_spec(ds)->op;
-            if (dct->child!=NULL || !is_integer(ty) || get_rank(ty)!=1)
-                ERROR(e, "array of inappropriate type initialized from string literal");
-
-            size = strlen(e->attr.str);
-
-            if (dct->attr.e != NULL) {
-                /* array with specified bounds */
-                if (dct->attr.e->attr.val < size) /* '\0' optionally stored if there is room */
-                    WARNING(e, "initializer-string for char array is too long");
-            } else {
-                /* array with unspecified bounds */
-
-                /* complete the array type */
-                dct->attr.e = calloc(1, sizeof(ExecNode));
-                dct->attr.e->attr.val = size+1; /* make room for '\0' */
-            }
-        } else {
-            if (e->attr.op != TOK_INIT_LIST)
-                ERROR(e, "invalid array initializer");
-            e = e->child[0];
-
-            if (dct->attr.e != NULL) {
-                /* array with specified bounds */
-                i = dct->attr.e->attr.val;
-                for (; e!=NULL && i!=0; e=e->sibling, --i)
-                    analyze_initializer(ds, dct->child, e, const_expr);
-
-                if (e != NULL)
-                    ERROR(e, "excess elements in array initializer");
-            } else {
-                /* array with unspecified bounds */
-                i = 0;
-                for (; e != NULL; e = e->sibling, ++i)
-                    analyze_initializer(ds, dct->child, e, const_expr);
-
-                /* complete the array type */
-                dct->attr.e = calloc(1, sizeof(ExecNode));
-                dct->attr.e->attr.val = i;
-            }
-        }
-    } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
-        /*
-         * Struct.
-         */
-        DeclList *d;
-
-
-        /*
-         * See if the struct is being initialized by a single
-         * expression of compatible type, like
-         *  struct A x = y; // valid if y has struct A type
-         * or an initializer list
-         *  struct A x = { 1, 2 };
-         */
-        if (e->attr.op != TOK_INIT_LIST)
-            goto scalar;
-
-        /* initialized by initializer list */
-        e = e->child[0];
-
-        if (ts->attr.dl == NULL)
-            ts = lookup_tag(ts->str, TRUE)->type;
-        d = ts->attr.dl;
-        for (; d != NULL; d = d->next) {
-            dct = d->decl->idl;
-            for (; e!=NULL && dct!=NULL; e=e->sibling, dct=dct->sibling)
-                analyze_initializer(d->decl->decl_specs, dct->child, e, const_expr);
-
-            if (e == NULL)
-                break;
-        }
-
-        if (e != NULL)
-            ERROR(e, "excess elements in struct initializer");
-    } else if (ts->op == TOK_UNION) {
-        /*
-         * Union.
-         */
-
-        /* the same as for structs */
-        if (e->attr.op != TOK_INIT_LIST)
-            goto scalar;
-
-        e = e->child[0];
-
-        if (ts->attr.dl == NULL)
-            ts = lookup_tag(ts->str, TRUE)->type;
-        /* only the first member of the union can be initialized */
-        analyze_initializer(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e, const_expr);
-
-        if (e->sibling != NULL)
-            ERROR(e->sibling, "excess elements in union initializer");
-    } else {
-        /*
-         * Scalar.
-         */
-        Declaration dest_ty;
-scalar:
-
-        if (e->attr.op == TOK_INIT_LIST)
-            ERROR(e, "braces around scalar initializer");
-
-        if (const_expr)
-            /* make sure the initializer is computable at compile time */
-            (void)eval_const_expr(e, FALSE);
-
-        /* the same rules as for simple assignment apply */
-        dest_ty.decl_specs = ds;
-        dest_ty.idl = dct;
-        // if (!can_assign_to(e, &dest_ty, &e->type))
-        if (!can_assign_to(&dest_ty, e))
-            ERROR(e, "initializing `%s' with an expression of incompatible type `%s'",
-            stringify_type_exp(&dest_ty), stringify_type_exp(&e->type));
-    }
+    // ERROR(e, "invalid constant expression");
+    FATAL_ERROR(e, "invalid constant expression");
 }

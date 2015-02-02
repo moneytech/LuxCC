@@ -9,9 +9,13 @@
 #define equal(s, t)     (strcmp(s, t) == 0)
 #define not_equal(s, t) (strcmp(s, t) != 0)
 
-#define SRC_FILE    curr_source_file
-#define SRC_LINE    curr_line
-#define SRC_COLUMN  src_column
+// #define SRC_FILE    curr_source_file
+// #define SRC_LINE    curr_line
+// #define SRC_COLUMN  src_column
+
+#define ERROR(...)\
+    PRINT_ERROR(curr_source_file, curr_line, src_column, __VA_ARGS__),\
+    exit(EXIT_FAILURE)
 
 #define MACRO_TABLE_SIZE 101
 
@@ -1310,8 +1314,8 @@ void uninstall(char *name)
     hash_val = hash(name)%MACRO_TABLE_SIZE;
 
 	for(np=macro_table[hash_val], prev=NULL;
-        np!=NULL&&not_equal(name, np->name);
-        prev=np, np=np->next)
+        np!=NULL && not_equal(name, np->name);
+        prev=np, np=np->next);
 
 	if (np == NULL)
         return; /* not found */

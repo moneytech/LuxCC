@@ -15,14 +15,14 @@ void analyze_relational_equality_expression(ExecNode *e);
 void analyze_logical_operator(ExecNode *e);
 void analyze_conditional_expression(ExecNode *e);
 void analyze_expression(ExecNode *e);
-void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr);
+// void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr);
+int get_rank(Token ty);
 
 long eval_const_expr(ExecNode *e, int is_addr);
-void analyze_array_size_expr(TypeExp *arr);
-void analyze_enumeration_expr(TypeExp *en);
 void reset_enum_val(void);
 int is_integer(Token ty);
 Token get_type_category(Declaration *d);
 int can_assign_to(Declaration *dest_ty, ExecNode *e);
+TypeExp *get_type_node(Token ty);
 
 #endif

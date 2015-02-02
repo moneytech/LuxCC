@@ -4,7 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
-#define DEBUG 1
+#define DEBUG 0
 #include "util.h"
 #include "decl.h"
 #include "expr.h"
@@ -229,13 +229,18 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
      * expressions with values that duplicate case constant expressions in the enclosing
      * switch statement).
      */
-    case CaseStmt:
+    case CaseStmt: {
+        Token ty;
+
         if (!in_switch) {
             ERROR(s, "case label not within a switch statement");
             return;
         }
 
-        if (!is_integer(get_type_category(&s->child[0]->type))) {
+        ty = get_type_category(&s->child[0]->type);
+        if (ty == TOK_ERROR)
+            return;
+        if (!is_integer(ty)) {
             ERROR(s->child[0], "case label expression has non-integer type");
             return;
         }
@@ -244,6 +249,7 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
         if (!install_switch_label(s->child[0]->attr.val, FALSE))
             ERROR(s, "duplicate case value `%ld'", s->child[0]->attr.val);
         break;
+    }
     case DefaultStmt:
         if (!in_switch) {
             ERROR(s, "default label not within a switch statement");
@@ -258,19 +264,25 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
 
 void analyze_selection_statement(ExecNode *s)
 {
+    Token ty;
+
+    ty = get_type_category(&s->child[0]->type);
+    if (ty == TOK_ERROR)
+        return;
+
     if (s->kind.stmt == IfStmt) {
         /*
          * 6.8.4.1
          * #1 The controlling expression of an if statement shall have scalar type.
          */
-        if (!is_scalar(get_type_category(&s->child[0]->type)))
+        if (!is_scalar(ty))
             ERROR(s, "controlling expression of if statement has non-scalar type");
     } else /* if (s->kind.stmt == SwitchStmt) */ {
         /*
          * 6.8.4.2
          * #1 The controlling expression of a switch statement shall have integer type.
          */
-        if (!is_integer(get_type_category(&s->child[0]->type)))
+        if (!is_integer(ty))
             ERROR(s, "controlling expression of switch statement has non-integer type");
     }
 }
@@ -281,19 +293,19 @@ void analyze_iteration_statement(ExecNode *s)
      * 6.8.5
      * #2 The controlling expression of an iteration statement shall have scalar type.
      */
-    if (s->child[0]!=NULL /* the cotrolling expression of a for statement can be missing */
-    && !is_scalar(get_type_category(&s->child[0]->type)))
+    Token ty;
+
+    /* the cotrolling expression of a for statement can be missing */
+    if (s->child[0] == NULL)
+        return; /* OK */
+
+    ty = get_type_category(&s->child[0]->type);
+    if (ty == TOK_ERROR)
+        return;
+
+    if (!is_scalar(ty))
         ERROR(s, "controlling expression of %s statement has non-scalar type",
         (s->kind.stmt==WhileStmt)?"while":(s->kind.stmt==DoStmt)?"do":"for");
-
-    /*switch (s->kind.stmt) {
-    case WhileStmt:
-        break;
-    case DoStmt:
-        break;
-    case ForStmt:
-        break;
-    }*/
 }
 
 void analyze_jump_statement(ExecNode *s, int in_loop, int in_switch)
@@ -336,6 +348,9 @@ void analyze_jump_statement(ExecNode *s, int in_loop, int in_switch)
                 ERROR(s, "return statement with an expression in void function");
                 return;
             }
+
+            if (get_type_category(&s->child[0]->type) == TOK_ERROR)
+                return;
             /*
              * #3 If a return statement with an expression is executed, the value of the expression is
              * returned to the caller as the value of the function call expression. If the expression has a
@@ -344,7 +359,7 @@ void analyze_jump_statement(ExecNode *s, int in_loop, int in_switch)
              */
             if (!can_assign_to(&ret_ty, s->child[0]))
                 ERROR(s, "incompatible types when returning type `%s' but `%s' was expected",
-                stringify_type_exp(&s->child[0]->type), stringify_type_exp(&ret_ty));
+                stringify_type_exp(&s->child[0]->type, TRUE), stringify_type_exp(&ret_ty, FALSE));
         } else {
             /* return; */
             if (ret_ty.idl!=NULL || get_type_spec(ret_ty.decl_specs)->op!=TOK_VOID)

@@ -6,8 +6,8 @@ unsigned warning_count, error_count;
 
 int main(int argc, char *argv[])
 {
-    PreTokenNode *pre;
-    TokenNode *tok;
+    static PreTokenNode *pre;
+    static TokenNode *tok;
 
     /* only preprocess */
     pre = preprocess(argv[1]); //"src/test.c");

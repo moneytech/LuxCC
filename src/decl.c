@@ -3,11 +3,11 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
-#define DEBUG 1
+#define DEBUG 0
 #include "util.h"
 #include "expr.h"
 #include "stmt.h"
-#undef ERROR
+// #undef ERROR
 #define ERROR(tok, ...) fprintf(stderr, "%s:%d:%d: error: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__),fprintf(stderr, "\n"),exit(EXIT_FAILURE)
 #define WARNING(tok, ...) fprintf(stderr, "%s:%d:%d: warning: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n")
 
@@ -104,7 +104,7 @@ int is_type_spec2(Token t)
     case TOK_VOID: case TOK_CHAR: case TOK_SIGNED_CHAR: case TOK_UNSIGNED_CHAR:
     case TOK_SHORT: case TOK_UNSIGNED_SHORT: case TOK_INT: case TOK_UNSIGNED:
     case TOK_LONG: case TOK_UNSIGNED_LONG: case TOK_STRUCT: case TOK_UNION:
-    case TOK_ENUM: case TOK_TYPEDEFNAME:
+    case TOK_ENUM: case TOK_TYPEDEFNAME: case TOK_ERROR:
         return TRUE;
     default:
         return FALSE;
@@ -399,10 +399,6 @@ void push_scope(void)
 
 void pop_scope(void)
 {
-    /*if (delayed_delete)
-        delete_scope();
-    else
-        delayed_delete = TRUE;*/
     if (delayed_delete)
         delete_scope();
 
@@ -536,11 +532,34 @@ diff_kind_of_sym:
     }
 }
 
+static long en_val = -1;
+
+void reset_enum_val(void)
+{
+    en_val = -1;
+}
+
 void analyze_enumerator(TypeExp *e)
 {
     static TypeExp enum_ds = { TOK_INT };
 
-    analyze_enumeration_expr(e);
+    /*
+     * 6.7.2.2#2
+     * The expression that defines the value of an enumeration constant shall be an integer
+     * constant expression that has a value representable as an int.
+     */
+    if (e->attr.e != NULL) {
+        if (!is_integer(get_type_category(&e->attr.e->type)))
+            ERROR(e, "enumerator value is not an integer constant");
+        en_val = eval_const_expr(e->attr.e, FALSE);
+    } else {
+        e->attr.e = calloc(1, sizeof(ExecNode));
+        ++en_val;
+    }
+    /*if (en_val > 2147483647)
+        ...*/
+    e->attr.e->attr.val = en_val;
+    // printf("en_val=%ld\n", en_val);
 
     install(&enum_ds, e);
 }
@@ -603,6 +622,8 @@ int compare_decl_specs(TypeExp *ds1, TypeExp *ds2, int qualified)
 
 /*
  * Return TRUE if the two types are compatibles, FALSE otherwise.
+ * If 'qualified' is TRUE, type qualifiers are taken into account.
+ * If 'compose' is TRUE, array types are composed.
  */
 int are_compatible(TypeExp *ds1, TypeExp *dct1,
                    TypeExp *ds2, TypeExp *dct2,
@@ -719,8 +740,27 @@ void examine_declarator(TypeExp *decl_specs, TypeExp *declarator)
             || ts->op==TOK_VOID)
                 ERROR(declarator, "array has incomplete element type");
         }
-        if (declarator->attr.e != NULL)
-            analyze_array_size_expr(declarator);
+        if (declarator->attr.e != NULL) {
+            // analyze_array_size_expr(declarator);
+            long size;
+
+            /*
+             * 6.7.5.2#1
+             * [...] If they delimit an expression (which specifies the size of an array), the
+             * expression shall have an integer type. If the expression is a constant expression,
+             * it shall have a value greater than zero. [...] Note: VLAs are not supported, so the
+             * expression must always be constant.
+             */
+            if (!is_integer(get_type_category(&declarator->attr.e->type)))
+                ERROR(declarator, "size of array has non-integer type");
+
+            size = eval_const_expr(declarator->attr.e, FALSE);
+            if (size <= 0)
+                ERROR(declarator, "size of array not greater than zero");
+
+            /* store the computed size in the root of the expression tree */
+            declarator->attr.e->attr.val = size; /* maybe overwrites some operator */
+        }
         break;
     case TOK_FUNCTION: {
         DeclList *p;
@@ -1090,8 +1130,8 @@ void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds
     d2.decl_specs = ds;
     d2.idl = dct;
 
-    t1 = stringify_type_exp(&d1);
-    t2 = stringify_type_exp(&d2);
+    t1 = stringify_type_exp(&d1, FALSE);
+    t2 = stringify_type_exp(&d2, FALSE);
 
     fprintf(stderr, INFO_COLOR "%s:%d:%d: " ERROR_COLOR "error: " RESET_ATTR,
     dct->info->src_file, dct->info->src_line, dct->info->src_column);
@@ -1100,6 +1140,147 @@ void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds
     fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "now redeclared with type `%s'\n", t2);
     exit(EXIT_FAILURE);
 }
+
+void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
+{
+    /*
+     * Note: Currently only fully bracketed initialization is handled.
+     */
+
+    TypeExp *ts;
+
+    if (dct != NULL) {
+        int i;
+
+        if (dct->op != TOK_SUBSCRIPT)
+            goto scalar; /* must be a pointer, functions cannot have initializer */
+
+        /*
+         * Array.
+         */
+        if (e->kind.exp == StrLitExp) {
+            /* see for character array initialized by string literal */
+            int size;
+            Token ty;
+
+            /* make sure the element type is a character type */
+            ty = get_type_spec(ds)->op;
+            if (dct->child!=NULL || !is_integer(ty) || get_rank(ty)!=1)
+                ERROR(e, "non-char array initialized from string literal");
+
+            size = strlen(e->attr.str);
+
+            if (dct->attr.e != NULL) {
+                /* array with specified bounds */
+                if (dct->attr.e->attr.val < size) /* '\0' is only stored when there is room */
+                    WARNING(e, "initializer-string for char array is too long");
+            } else {
+                /* array with unspecified bounds */
+
+                /* complete the array type */
+                dct->attr.e = calloc(1, sizeof(ExecNode));
+                dct->attr.e->attr.val = size+1; /* make room for '\0' */
+            }
+        } else {
+            if (e->attr.op != TOK_INIT_LIST)
+                ERROR(e, "invalid array initializer");
+            e = e->child[0];
+
+            if (dct->attr.e != NULL) {
+                /* array with specified bounds */
+                i = dct->attr.e->attr.val;
+                for (; e!=NULL && i!=0; e=e->sibling, --i)
+                    analyze_initializer(ds, dct->child, e, const_expr);
+
+                if (e != NULL)
+                    ERROR(e, "excess elements in array initializer");
+            } else {
+                /* array with unspecified bounds */
+                i = 0;
+                for (; e != NULL; e = e->sibling, ++i)
+                    analyze_initializer(ds, dct->child, e, const_expr);
+
+                /* complete the array type */
+                dct->attr.e = calloc(1, sizeof(ExecNode));
+                dct->attr.e->attr.val = i;
+            }
+        }
+    } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
+        /*
+         * Struct.
+         */
+        DeclList *d;
+
+
+        /*
+         * See if the struct is being initialized by a single
+         * expression of compatible type, like
+         *  struct A x = y; // valid if y has struct A type
+         * or an initializer list
+         *  struct A x = { 1, 2 };
+         */
+        if (e->attr.op != TOK_INIT_LIST)
+            goto scalar;
+
+        /* initialized by initializer list */
+        e = e->child[0];
+
+        if (ts->attr.dl == NULL)
+            ts = lookup_tag(ts->str, TRUE)->type;
+        d = ts->attr.dl;
+        for (; d != NULL; d = d->next) {
+            dct = d->decl->idl;
+            for (; e!=NULL && dct!=NULL; e=e->sibling, dct=dct->sibling)
+                analyze_initializer(d->decl->decl_specs, dct->child, e, const_expr);
+
+            if (e == NULL)
+                break;
+        }
+
+        if (e != NULL)
+            ERROR(e, "excess elements in struct initializer");
+    } else if (ts->op == TOK_UNION) {
+        /*
+         * Union.
+         */
+
+        /* the same as for structs */
+        if (e->attr.op != TOK_INIT_LIST)
+            goto scalar;
+
+        e = e->child[0];
+
+        if (ts->attr.dl == NULL)
+            ts = lookup_tag(ts->str, TRUE)->type;
+        /* only the first member of the union can be initialized */
+        analyze_initializer(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e, const_expr);
+
+        if (e->sibling != NULL)
+            ERROR(e->sibling, "excess elements in union initializer");
+    } else {
+        /*
+         * Scalar.
+         */
+        Declaration dest_ty;
+scalar:
+
+        if (e->attr.op == TOK_INIT_LIST)
+            ERROR(e, "braces around scalar initializer");
+
+        if (const_expr)
+            /* make sure the initializer is computable at compile time */
+            (void)eval_const_expr(e, FALSE);
+
+        /* the same rules as for simple assignment apply */
+        dest_ty.decl_specs = ds;
+        dest_ty.idl = dct;
+        // if (!can_assign_to(e, &dest_ty, &e->type))
+        if (!can_assign_to(&dest_ty, e))
+            ERROR(e, "initializing `%s' with an expression of incompatible type `%s'",
+            stringify_type_exp(&dest_ty, FALSE), stringify_type_exp(&e->type, FALSE));
+    }
+}
+
 /*
 int is_incomplete(TypeExp *decl_specs, TypeExp *declarator)
 {
@@ -1287,7 +1468,7 @@ no_link_incomp:
     ERROR(declarator, "`%s' has no linkage and incomplete type", declarator->str);
 }
 
-char *stringify_type_exp(Declaration *d)
+char *stringify_type_exp(Declaration *d, int show_decayed)
 {
     TypeExp *e;
     char out[256], temp[256], ds[128], *s;
@@ -1321,12 +1502,15 @@ char *stringify_type_exp(Declaration *d)
         if (e->op == TOK_FUNCTION) {
             DeclList *p;
 
-            strcat(out, "(");
+            if (show_decayed)
+                strcat(out, "(*)(");
+            else
+                strcat(out, "(");
             p = e->attr.dl;
             while (p != NULL) {
                 char *param;
 
-                param = stringify_type_exp(p->decl);
+                param = stringify_type_exp(p->decl, FALSE);
                 strcat(out, param);
                 free(param);
 
@@ -1336,11 +1520,23 @@ char *stringify_type_exp(Declaration *d)
             }
             strcat(out, ")");
         } else if (e->op == TOK_SUBSCRIPT) {
-            if (e->attr.e != NULL)
+            /*if (e->attr.e != NULL)
                 sprintf(temp, "%s[%ld]", out, e->attr.e->attr.val);
             else
                 sprintf(temp, "%s[]", out);
-            strcpy(out, temp);
+            strcpy(out, temp);*/
+            if (show_decayed) {
+                if (e->child!=NULL && (e->child->op==TOK_SUBSCRIPT || e->child->op==TOK_FUNCTION))
+                    strcpy(temp, "(*)");
+                else
+                    strcpy(temp, "*");
+            } else {
+                if (e->attr.e != NULL)
+                    sprintf(temp, "[%ld]", e->attr.e->attr.val);
+                else
+                    strcpy(temp, "[]");
+            }
+            strcat(out, temp);
         } else if (e->op == TOK_STAR) {
             if (e->child!=NULL && (e->child->op==TOK_SUBSCRIPT || e->child->op==TOK_FUNCTION)) {
                 if (e->attr.el != NULL)
@@ -1360,6 +1556,7 @@ char *stringify_type_exp(Declaration *d)
             strcpy(out, "...");
         }
         e = e->child;
+        show_decayed = FALSE;
     }
     s = malloc(strlen(ds)+strlen(out)+1);
     strcpy(s, ds);

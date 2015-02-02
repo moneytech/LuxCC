@@ -9,9 +9,13 @@
 #include "expr.h"
 #include "stmt.h"
 
-#define SRC_FILE    curr_tok->src_file
-#define SRC_LINE    curr_tok->src_line
-#define SRC_COLUMN  curr_tok->src_column
+// #define SRC_FILE    curr_tok->src_file
+// #define SRC_LINE    curr_tok->src_line
+// #define SRC_COLUMN  curr_tok->src_column
+
+#define ERROR(...)\
+    PRINT_ERROR(curr_tok->src_file, curr_tok->src_line, curr_tok->src_column, __VA_ARGS__),\
+    exit(EXIT_FAILURE)
 
 static TokenNode *curr_tok;
 unsigned number_of_ast_nodes;
@@ -337,7 +341,7 @@ Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator)
     if (first_declarator!=NULL || lookahead(1)!=TOK_SEMICOLON)
         d->idl = init_declarator_list(d->decl_specs, first_declarator);
     /* else
-        check for empty declaration
+        >>TODO: check for empty declaration here<<
     */
 
     match(TOK_SEMICOLON);
@@ -2078,7 +2082,7 @@ ExecNode *primary_expression(void)
      * designator).79)
      * 79) Thus, an undeclared identifier is a violation of the syntax.
      */
-        Symbol *s;
+        /*Symbol *s;
         TypeExp *scs;
 
         if ((s=lookup(get_lexeme(1), TRUE)) == NULL)
@@ -2094,19 +2098,29 @@ ExecNode *primary_expression(void)
             match(TOK_ID);
         } else {
             ERROR("expecting primary-expression; found typedef-name `%s'", get_lexeme(1));
-        }
-        /*Token tok;
-
-        tok = get_id_token(get_lexeme(1));
-        if (tok == TOK_ID) {
-            n = new_pri_exp_node(IdExp);
-            n->attr.str = get_lexeme(1);
-            match(TOK_ID);
-        } else if (tok == TOK_TYPEDEFNAME) {
-            ERROR("expecting primary-expression; found typedef-name `%s'", get_lexeme(1));
-        } else {
-            ERROR("undeclared identifier `%s'", get_lexeme(1));
         }*/
+        Symbol *s;
+
+        n = new_pri_exp_node(IdExp);
+        n->attr.str = get_lexeme(1);
+        match(TOK_ID);
+
+        if ((s=lookup(n->attr.str, TRUE)) != NULL) {
+            TypeExp *scs;
+
+            if ((scs=get_sto_class_spec(s->decl_specs))==NULL || scs->op!=TOK_TYPEDEF) {
+                n->type.decl_specs = s->decl_specs;
+                n->type.idl = (s->declarator->op!=TOK_ENUM_CONST)?s->declarator->child:s->declarator;
+            } else {
+                PRINT_ERROR(curr_tok->src_file, curr_tok->src_line, curr_tok->src_column,
+                "expecting primary-expression; found typedef-name `%s'", n->attr.str);
+                n->type.decl_specs = get_type_node(TOK_ERROR);
+            }
+        } else {
+            PRINT_ERROR(curr_tok->src_file, curr_tok->src_line, curr_tok->src_column,
+            "undeclared identifier `%s'", n->attr.str);
+            n->type.decl_specs = get_type_node(TOK_ERROR);
+        }
         break;
     }
     case TOK_ICONST:

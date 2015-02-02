@@ -96,12 +96,12 @@ typedef enum {
     TOK_VOLATILE,
     TOK_WHILE,
     /*
-     * User defined.
+     * Others
      */
     TOK_ID,
     TOK_STRLIT,
     TOK_ICONST,
-    // TOK_ERROR,
+    TOK_ERROR,
     TOK_EOF,
     TOK_TYPEDEFNAME,
     /*
