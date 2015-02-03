@@ -8,9 +8,33 @@
 #include "expr.h"
 #include "stmt.h"
 // #undef ERROR
-#define ERROR(tok, ...) fprintf(stderr, "%s:%d:%d: error: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__),fprintf(stderr, "\n"),exit(EXIT_FAILURE)
-#define WARNING(tok, ...) fprintf(stderr, "%s:%d:%d: warning: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n")
+// #define ERROR(tok, ...) fprintf(stderr, "%s:%d:%d: error: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__),fprintf(stderr, "\n"),exit(EXIT_FAILURE)
+// #define WARNING(tok, ...) fprintf(stderr, "%s:%d:%d: warning: ", (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column),fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n")
 
+extern unsigned error_count, warning_count;
+
+#define ERROR(tok, ...)\
+    PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
+    exit(EXIT_FAILURE)
+
+#define WARNING(tok, ...)\
+    PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
+    ++warning_count
+
+/*#define ERROR(tok, ...)\
+    do {\
+        PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__);\
+        ++error_count;\
+        return;\
+    } while (0)
+
+#define WARNING(tok, ...)\
+    PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
+    ++warning_count*/
+
+/*#define FATAL_ERROR(tok, ...)\
+    PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
+    exit(EXIT_FAILURE)*/
 
 #define HASH_SIZE 101
 #define MAX_NEST  16
@@ -215,10 +239,12 @@ void analyze_decl_specs(TypeExp *d)
         }
 
         if (d == NULL) {
-            if (state==START)
-                d = temp, ERROR(d, "missing type specifier");
-            else
+            if (state==START) {
+                d = temp;
+                ERROR(d, "missing type specifier");
+            } else {
                 return;
+            }
         }
 
         switch (state) {
@@ -1143,7 +1169,7 @@ void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds
     fprintf(stderr, "conflicting types for `%s'\n", dct->str);
     fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "previously declared with type `%s'\n", t1);
     fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "now redeclared with type `%s'\n", t2);
-    exit(EXIT_FAILURE);
+    // exit(EXIT_FAILURE);
 }
 
 void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)

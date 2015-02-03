@@ -331,7 +331,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
             res = bsearch(&key, punctuators_table, number_of_punctuators, sizeof(struct Punctuator), cmp_punct);
             if (res == NULL) {
                 fprintf(stderr, "lexer bug: bsearch returned NULL in PRE_TOK_PUNCTUATOR case\n");
-                exit(1);
+                exit(EXIT_FAILURE);
             }
             tok->next = new_token(res->tok, pre_tok);
             break;

@@ -186,14 +186,9 @@ int in_first_type_specifier(void)
     case TOK_UNION:
     case TOK_ENUM:
         return TRUE;
-    case TOK_ID: /*{
-        Symbol *s;
-
-        if ((s=lookup(get_lexeme(1), TRUE)) != NULL)
-            if (s->tok == TOK_TYPEDEFNAME)
-                return TRUE;
-        return FALSE;
-    }*/
+    case TOK_ID:
+        if (lookahead(2) == TOK_COLON)
+            return FALSE; /* label definition */
         return is_typedef_name(get_lexeme(1));
     default:
         return FALSE;
