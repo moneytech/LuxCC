@@ -39,7 +39,7 @@ int is_external_id(char *id);
 int are_compatible(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2, int qualified, int compose);
 
 void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_func_def);
-void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym);
+int analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym);
 void analyze_decl_specs(TypeExp *d);
 void analyze_enumerator(TypeExp *e);
 void analyze_parameter_declaration(Declaration *d);

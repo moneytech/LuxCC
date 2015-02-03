@@ -405,6 +405,7 @@ TypeExp *init_declarator_list(TypeExp *decl_specs, TypeExp *first_declarator)
  */
 TypeExp *init_declarator(TypeExp *decl_specs, TypeExp *first_declarator)
 {
+    int good;
     TypeExp *n;
 
     if (first_declarator == NULL)
@@ -413,14 +414,15 @@ TypeExp *init_declarator(TypeExp *decl_specs, TypeExp *first_declarator)
         n = first_declarator;
 
     // install(decl_specs, n);
-    analyze_declarator(decl_specs, n, TRUE);
+    good = analyze_declarator(decl_specs, n, TRUE);
 
     if (lookahead(1) == TOK_ASSIGN) {
         match(TOK_ASSIGN);
         n->attr.e = initializer();
     }
 
-    analyze_init_declarator(decl_specs, n, FALSE);
+    if (good)
+        analyze_init_declarator(decl_specs, n, FALSE);
 
     return n;
 }

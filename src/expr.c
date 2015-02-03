@@ -68,6 +68,9 @@ extern unsigned error_count, warning_count;
 // static
 Token get_type_category(Declaration *d)
 {
+    if (d->decl_specs->op == TOK_ERROR)
+        return TOK_ERROR;
+
     if (d->idl != NULL)
         return d->idl->op;
     else
@@ -266,6 +269,7 @@ int get_rank(Token ty)
         return 4;
     case TOK_INT:
     case TOK_UNSIGNED:
+    case TOK_ENUM:
         return 3;
     case TOK_SHORT:
     case TOK_UNSIGNED_SHORT:
@@ -287,7 +291,7 @@ int is_signed_int(Token ty)
     case TOK_SHORT:
     case TOK_INT:
     case TOK_LONG:
-    // case TOK_ENUM:
+    case TOK_ENUM:
         return TRUE;
     default:
         return FALSE;
@@ -1843,6 +1847,9 @@ unsigned compute_sizeof(Declaration *ty)
         break;
     case TOK_CHAR: case TOK_SIGNED_CHAR: case TOK_UNSIGNED_CHAR:
         size = 1;
+        break;
+    case TOK_ERROR:
+        size = 0;
         break;
     }
 
