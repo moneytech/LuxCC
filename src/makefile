@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-c -g -Wall -Wconversion -Wextra -Wno-switch -Wno-parentheses -Wno-missing-field-initializers #-Wno-sign-conversion -Wno-enum-compare
+CFLAGS=-c -g -Wall -Wconversion -Wextra -Wno-switch -Wno-parentheses -Wno-missing-field-initializers -fwrapv #-Wno-sign-conversion -Wno-enum-compare
 PROG = main
 OBJS = main.o pre.o lexer.o parser.o util.o decl.o expr.o stmt.o
 SRCS = main.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c

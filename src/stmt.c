@@ -4,30 +4,27 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
-#define DEBUG 0
 #include "util.h"
 #include "decl.h"
 #include "expr.h"
-#undef ERROR
 
 extern unsigned warning_count, error_count;
 
 #define ERROR(tok, ...)\
-    fprintf(stderr, INFO_COLOR "%s:%d:%d: " ERROR_COLOR "error: " RESET_ATTR,\
-    (tok)->info->src_file,\
-    (tok)->info->src_line,\
-    (tok)->info->src_column),\
-    fprintf(stderr, __VA_ARGS__),\
-    fprintf(stderr, "\n"),\
-    /*exit(EXIT_FAILURE)*/\
-    ++error_count
+    do {\
+        PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__);\
+        ++error_count;\
+    } while (0)
+
+#define ERROR_R(tok, ...)\
+    do {\
+        ERROR(tok, __VA_ARGS__);\
+        return;\
+    } while (0)
+
 #define WARNING(tok, ...)\
-    fprintf(stderr, INFO_COLOR "%s:%d:%d: " WARNING_COLOR "warning: " RESET_ATTR,\
-     (tok)->info->src_file, (tok)->info->src_line,\
-     (tok)->info->src_column),\
-     fprintf(stderr, __VA_ARGS__),\
-     fprintf(stderr, "\n"),\
-     ++warning_count
+    PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
+    ++warning_count
 
 #define HASH_SIZE       101
 #define MAX_SWITCH_NEST 16
@@ -232,18 +229,14 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
     case CaseStmt: {
         Token ty;
 
-        if (!in_switch) {
+        if (!in_switch)
             ERROR(s, "case label not within a switch statement");
-            return;
-        }
 
         ty = get_type_category(&s->child[0]->type);
         if (ty == TOK_ERROR)
             return;
-        if (!is_integer(ty)) {
-            ERROR(s->child[0], "case label expression has non-integer type");
-            return;
-        }
+        if (!is_integer(ty))
+            ERROR_R(s->child[0], "case label expression has non-integer type");
         s->child[0]->attr.val = eval_const_expr(s->child[0], FALSE);
 
         if (!install_switch_label(s->child[0]->attr.val, FALSE))
@@ -251,10 +244,8 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
         break;
     }
     case DefaultStmt:
-        if (!in_switch) {
-            ERROR(s, "default label not within a switch statement");
-            return;
-        }
+        if (!in_switch)
+            ERROR_R(s, "default label not within a switch statement");
 
         if (!install_switch_label(0, TRUE))
             ERROR(s, "multiple default labels in one switch");
@@ -344,10 +335,8 @@ void analyze_jump_statement(ExecNode *s, int in_loop, int in_switch)
          */
         if (s->child[0] != NULL) {
             /* return <expression>; */
-            if (ret_ty.idl==NULL && get_type_spec(ret_ty.decl_specs)->op==TOK_VOID) {
-                ERROR(s, "return statement with an expression in void function");
-                return;
-            }
+            if (ret_ty.idl==NULL && get_type_spec(ret_ty.decl_specs)->op==TOK_VOID)
+                ERROR_R(s, "return statement with an expression in void function");
 
             if (get_type_category(&s->child[0]->type) == TOK_ERROR)
                 return;

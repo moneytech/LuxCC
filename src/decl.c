@@ -3,7 +3,6 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
-#define DEBUG 0
 #include "util.h"
 #include "expr.h"
 #include "stmt.h"
@@ -41,14 +40,11 @@ extern unsigned error_count, warning_count;
 
 #define FILE_SCOPE 0
 
-static void delete_scope(void);
-
 typedef enum {
     DEFINED,            /* int x = 0; or void foo(void){...} */
     REFERENCED,         /* extern int x; or void foo(void); */
     TENTATIVELY_DEFINED /* int x; */
 } ExtIdStatus;
-
 typedef struct ExternId ExternId;
 struct ExternId {
     TypeExp *decl_specs;
@@ -58,52 +54,19 @@ struct ExternId {
 };
 static ExternId *external_declarations[HASH_SIZE];
 
+/*
+ * Hash tables that implement ordinary identifiers and tags names spaces.
+ * The hash tabla that implements label names is in 'stmt.c'.
+ * The hash table that implements structure and union members is a local
+ * table to check_for_dup_member().
+ */
 static Symbol *ordinary_identifiers[HASH_SIZE][MAX_NEST];
+static TypeTag *tags[HASH_SIZE][MAX_NEST];
+
 static int curr_scope = 0;
 static int delayed_delete = FALSE;
 
-static TypeTag *tags[HASH_SIZE][MAX_NEST];
 
-TypeTag *lookup_tag(char *id, int all)
-{
-    TypeTag *np;
-    int n = curr_scope;
-
-    if (delayed_delete)
-        delete_scope();
-
-    if (all == TRUE) {
-        for (; n >= 0; n--)
-            for (np = tags[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
-                if (strcmp(id, np->type->str) == 0)
-                    return np;
-        return NULL; /* not found */
-    } else {
-        for (np = tags[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
-            if (strcmp(id, np->type->str) == 0)
-                return np;
-        return NULL; /* not found */
-    }
-}
-
-void install_tag(TypeExp *t)
-{
-    TypeTag *np;
-    unsigned hash_val;
-
-    DEBUG_PRINTF("new tag `%s', scope: %d\n", t->str, curr_scope);
-
-    if (delayed_delete)
-        delete_scope();
-
-    /*if ((np=lookup_tag(t->str, FALSE)) == NULL) {*/ /* not found in the current scope */
-        np = malloc(sizeof(TypeTag));
-        np->type = t;
-        hash_val = hash(t->str)%HASH_SIZE;
-        np->next = tags[hash_val][curr_scope];
-        tags[hash_val][curr_scope] = np;
-    /*}*/
-}
 
 int is_sto_class_spec(Token t)
 {
@@ -186,6 +149,259 @@ TypeExp *get_type_qual(TypeExp *d)
     return NULL;
 }
 
+
+static
+void delete_scope(void)
+{
+    int i;
+    Symbol *np, *temp;
+    TypeTag *np2, *temp2;
+
+    if (curr_scope < 0) {
+        fprintf(stderr, "Underflow in delete_scope()\n");
+        exit(EXIT_FAILURE);
+    }
+
+    for (i = 0; i < HASH_SIZE; i++) {
+        if (ordinary_identifiers[i][curr_scope] != NULL) {
+            for (np = ordinary_identifiers[i][curr_scope]; np != NULL;) {
+                temp = np;
+                np = np->next;
+                free(temp);
+            }
+            ordinary_identifiers[i][curr_scope] = NULL;
+        }
+        if (tags[i][curr_scope] != NULL) {
+            for (np2 = tags[i][curr_scope]; np2 != NULL;) {
+                temp2 = np2;
+                np2 = np2->next;
+                free(temp2);
+            }
+            tags[i][curr_scope] = NULL;
+        }
+    }
+    --curr_scope;
+    delayed_delete = FALSE;
+}
+
+void restore_scope(void)
+{
+    delayed_delete = FALSE;
+}
+
+void push_scope(void)
+{
+    if (delayed_delete)
+        delete_scope();
+
+    if (++curr_scope == MAX_NEST) {
+        fprintf(stderr, "Overflow in push_scope()\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void pop_scope(void)
+{
+    if (delayed_delete)
+        delete_scope();
+
+    delayed_delete = TRUE;
+}
+
+
+TypeTag *lookup_tag(char *id, int all)
+{
+    TypeTag *np;
+    int n = curr_scope;
+
+    if (delayed_delete)
+        delete_scope();
+
+    if (all == TRUE) {
+        for (; n >= 0; n--)
+            for (np = tags[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
+                if (strcmp(id, np->type->str) == 0)
+                    return np;
+        return NULL; /* not found */
+    } else {
+        for (np = tags[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
+            if (strcmp(id, np->type->str) == 0)
+                return np;
+        return NULL; /* not found */
+    }
+}
+
+void install_tag(TypeExp *t)
+{
+    TypeTag *np;
+    unsigned hash_val;
+
+    DEBUG_PRINTF("new tag `%s', scope: %d\n", t->str, curr_scope);
+
+    if (delayed_delete)
+        delete_scope();
+
+    np = malloc(sizeof(TypeTag));
+    np->type = t;
+    hash_val = hash(t->str)%HASH_SIZE;
+    np->next = tags[hash_val][curr_scope];
+    tags[hash_val][curr_scope] = np;
+}
+
+
+Symbol *lookup(char *id, int all)
+{
+    Symbol *np;
+    int n = curr_scope;
+
+    if (delayed_delete)
+        delete_scope();
+
+    if (all == TRUE) {
+        for (; n >= 0; n--)
+            for (np = ordinary_identifiers[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
+                if (strcmp(id, np->declarator->str) == 0)
+                    return np;
+        return NULL; /* not found */
+    } else {
+        for (np = ordinary_identifiers[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
+            if (strcmp(id, np->declarator->str) == 0)
+                return np;
+        return NULL; /* not found */
+    }
+}
+
+static
+void install(TypeExp *decl_specs, TypeExp *declarator)
+{
+    Symbol *np;
+    unsigned hash_val;
+    TypeExp *scs;
+    Token curr_scs, prev_scs;
+
+    if (delayed_delete)
+        delete_scope();
+
+    if ((np=lookup(declarator->str, FALSE)) == NULL) {
+        /* not found */
+        np = malloc(sizeof(Symbol));
+        np->decl_specs = decl_specs;
+        np->declarator = declarator;
+        hash_val = hash(declarator->str)%HASH_SIZE;
+        np->next = ordinary_identifiers[hash_val][curr_scope];
+        ordinary_identifiers[hash_val][curr_scope] = np;
+        return;
+    }
+
+    /*
+     * Already in this scope.
+     * Just check for errors.
+     * Do not replace the previous declaration.
+     */
+
+    if (decl_specs->op == TOK_ERROR)
+        /* the type of the new declaration is faulty */
+        return;
+
+    curr_scs = (scs=get_sto_class_spec(decl_specs))!=NULL ? scs->op:0;
+    prev_scs = (scs=get_sto_class_spec(np->decl_specs))!=NULL ? scs->op:0;
+
+    if (declarator->op==TOK_ENUM_CONST || curr_scs==TOK_TYPEDEF) {
+        /*
+         * Clash while trying to install an enumeration constant or typedef name.
+         */
+        if (declarator->op==TOK_ENUM_CONST && np->declarator->op==TOK_ENUM_CONST)
+            ERROR_R(declarator, "redeclaration of enumerator `%s'", declarator->str);
+        else if (curr_scs==TOK_TYPEDEF && prev_scs==TOK_TYPEDEF)
+            ERROR_R(declarator, "redefinition of typedef `%s'", declarator->str);
+        else
+            goto redecl_as_diff_kind;
+    } else if (np->declarator->op==TOK_ENUM_CONST || prev_scs==TOK_TYPEDEF) {
+        /*
+         * Clash with previously declared enumeration constant or typedef name.
+         */
+        goto redecl_as_diff_kind;
+    } else if (curr_scope != FILE_SCOPE) {
+        int curr_is_func, prev_is_func;
+
+        /*
+         * If one of the declarations declares a function, just make sure the
+         * other one declares a function too and return. analyze_init_declarator()
+         * will check for linkage and type agreement.
+         */
+        curr_is_func = declarator->child!=NULL && declarator->child->op==TOK_FUNCTION;
+        prev_is_func = np->declarator->child!=NULL && np->declarator->child->op==TOK_FUNCTION;
+        if (curr_is_func || prev_is_func) {
+            if (curr_is_func != prev_is_func)
+                goto redecl_as_diff_kind;
+            else
+                return; /* OK by now */
+        }
+
+        /*
+         * Check linkage of objects.
+         */
+        if (!curr_scs || curr_scs!=TOK_EXTERN) {
+            if (!prev_scs || prev_scs!=TOK_EXTERN)
+                /* e.g. int x; ==> int x; */
+                ERROR_R(declarator, "redeclaration of `%s' with no linkage", declarator->str);
+            else /* if (prev_scs == TOK_EXTERN) */
+                /* e.g. extern int x; ==> int x; */
+                ERROR_R(declarator, "declaration of `%s' with no linkage follows extern declaration",
+                declarator->str);
+        } else if (!prev_scs || prev_scs!=TOK_EXTERN) {
+            /* e.g. int x; ==> extern int x; */
+            ERROR_R(declarator, "extern declaration of `%s' follows declaration with no linkage",
+            declarator->str);
+        }
+    }
+    return;
+redecl_as_diff_kind:
+    /*
+     * This is the diagnostic given by gcc and clang when an ordinary
+     * identifier that denotes
+     * - A function,
+     * - An enumeration constant,
+     * - A typedef name, or
+     * - An object/variable
+     * is redeclared as denoting a different kind.
+     */
+    ERROR_R(declarator, "`%s' redeclared as different kind of symbol", declarator->str);
+}
+
+
+static
+ExternId *lookup_external_id(char *id)
+{
+    ExternId *np;
+
+    for (np = external_declarations[hash(id)%HASH_SIZE]; np != NULL; np = np->next)
+        if (strcmp(id, np->declarator->str) == 0)
+            return np;
+    return NULL; /* not found */
+}
+
+int is_external_id(char *id)
+{
+    return lookup_external_id(id)!=NULL;
+}
+
+static void
+install_external_id(TypeExp *decl_specs, TypeExp *declarator, ExtIdStatus status)
+{
+    ExternId *np;
+    unsigned hash_val;
+
+    np = malloc(sizeof(ExternId));
+    np->decl_specs = decl_specs;
+    np->declarator = declarator;
+    np->status = status;
+    hash_val = hash(declarator->str)%HASH_SIZE;
+    np->next = external_declarations[hash_val];
+    external_declarations[hash_val] = np;
+}
+
+
 void analyze_decl_specs(TypeExp *d)
 {
     /*
@@ -195,7 +411,6 @@ void analyze_decl_specs(TypeExp *d)
      * - Something similar occurs with type specifiers.
      * - Total lack of type specifiers is a fatal error.
      */
-
     enum {
         START,
         CHAR,
@@ -386,104 +601,8 @@ void analyze_decl_specs(TypeExp *d)
     } /* while (TRUE) */
 }
 
-static void delete_scope(void)
-{
-    int i;
-    Symbol *np, *temp;
-    TypeTag *np2, *temp2;
-
-    if (curr_scope < 0) {
-        fprintf(stderr, "Underflow in delete_scope().\n");
-        exit(EXIT_FAILURE);
-    }
-
-    for (i = 0; i < HASH_SIZE; i++) {
-        if (ordinary_identifiers[i][curr_scope] != NULL) {
-            for (np = ordinary_identifiers[i][curr_scope]; np != NULL;) { /* delete chain */
-                temp = np;
-                np = np->next;
-                free(temp);
-            }
-            ordinary_identifiers[i][curr_scope] = NULL;
-        }
-        if (tags[i][curr_scope] != NULL) {
-            for (np2 = tags[i][curr_scope]; np2 != NULL;) { /* delete chain */
-                temp2 = np2;
-                np2 = np2->next;
-                free(temp2);
-            }
-            tags[i][curr_scope] = NULL;
-        }
-    }
-    --curr_scope;
-    // DEBUG_PRINTF("Popping scope, nest_level=%d\n", nest_level);
-    delayed_delete = FALSE;
-}
-
-void restore_scope(void)
-{
-    delayed_delete = FALSE;
-}
-
-void push_scope(void)
-{
-    if (delayed_delete)
-        delete_scope();
-
-    if (++curr_scope == MAX_NEST) {
-        fprintf(stderr, "Too many nested scopes.\n");
-        exit(EXIT_FAILURE);
-    }
-    // DEBUG_PRINTF("Pushing scope, nest_level=%d\n", nest_level);
-}
-
-void pop_scope(void)
-{
-    if (delayed_delete)
-        delete_scope();
-
-    delayed_delete = TRUE;
-}
-
-Symbol *lookup(char *id, int all)
-{
-    Symbol *np;
-    int n = curr_scope;
-
-    if (delayed_delete)
-        delete_scope();
-
-    if (all == TRUE) {
-        for (; n >= 0; n--)
-            for (np = ordinary_identifiers[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
-                if (strcmp(id, np->declarator->str) == 0)
-                    return np;
-        return NULL; /* not found */
-    } else {
-        for (np = ordinary_identifiers[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
-            if (strcmp(id, np->declarator->str) == 0)
-                return np;
-        return NULL; /* not found */
-    }
-}
-/*
-Token get_id_token(char *id)
-{
-    Symbol *np;
-
-    if ((np=lookup(id, TRUE)) != NULL) {
-        TypeExp *scs;
-        if ((scs=get_sto_class_spec(np->decl_specs))!=NULL && scs->op==TOK_TYPEDEF)
-            return TOK_TYPEDEFNAME;
-        return TOK_ID;
-    } else {
-        return 0; // undeclared
-    }
-}
-*/
 int is_typedef_name(char *id)
 {
-    // return (get_id_token(id) == TOK_TYPEDEFNAME);
     Symbol *np;
 
     if ((np=lookup(id, TRUE)) != NULL) {
@@ -493,86 +612,6 @@ int is_typedef_name(char *id)
             return TRUE;
     }
     return FALSE;
-}
-
-// static
-void install(TypeExp *decl_specs, TypeExp *declarator)
-{
-    Symbol *np;
-    unsigned hash_val;
-
-    if (delayed_delete)
-        delete_scope();
-
-    if ((np=lookup(declarator->str, FALSE)) == NULL) { /* not found */
-        np = malloc(sizeof(Symbol));
-        // np->id = id;
-        // np->tok = tok;
-        np->decl_specs = decl_specs;
-        np->declarator = declarator;
-        hash_val = hash(declarator->str)%HASH_SIZE;
-        np->next = ordinary_identifiers[hash_val][curr_scope];
-        ordinary_identifiers[hash_val][curr_scope] = np;
-    } else { /* already in this scope */
-        TypeExp *scs;
-        Token curr_scs, prev_scs;
-
-        if (decl_specs->op == TOK_ERROR)
-            return;
-
-        /* get the storage class specifier of the current and previous declaration */
-        curr_scs = (scs=get_sto_class_spec(decl_specs))!=NULL ? scs->op:0;
-        prev_scs = (scs=get_sto_class_spec(np->decl_specs))!=NULL ? scs->op:0;
-
-        /* diagnose depending on the situation */
-        if (declarator->op==TOK_ENUM_CONST || curr_scs==TOK_TYPEDEF) {
-            /*
-             * Clash while trying to install an enumeration constant or typedef name.
-             */
-            if (declarator->op==TOK_ENUM_CONST && np->declarator->op==TOK_ENUM_CONST)
-                ERROR_R(declarator, "redeclaration of enumerator `%s'", declarator->str);
-            else if (curr_scs==TOK_TYPEDEF && prev_scs==TOK_TYPEDEF)
-                ERROR_R(declarator, "redefinition of typedef `%s'", declarator->str);
-            else
-                goto diff_kind_of_sym;
-        } else if (np->declarator->op==TOK_ENUM_CONST || prev_scs==TOK_TYPEDEF) {
-            /*
-             * Clash with previously declared enumeration constant or typedef name.
-             */
-            goto diff_kind_of_sym;
-        } else if (curr_scope != FILE_SCOPE) {
-            int is_curr_func, is_prev_func;
-
-            is_curr_func = declarator->child!=NULL && declarator->child->op==TOK_FUNCTION;
-            is_prev_func = np->declarator->child!=NULL && np->declarator->child->op==TOK_FUNCTION;
-
-            if (is_curr_func || is_prev_func) {
-                if (is_curr_func != is_prev_func)
-                    goto diff_kind_of_sym;
-                else
-                    return; /* OK by now */
-            }
-
-            /*
-             * Check linkage.
-             */
-            if (!curr_scs || curr_scs!=TOK_EXTERN) {
-                if (!prev_scs || prev_scs!=TOK_EXTERN)
-                    /* e.g. int x; ==> int x; */
-                    ERROR_R(declarator, "redeclaration of `%s' with no linkage", declarator->str);
-                else /* if (prev_scs == TOK_EXTERN) */
-                    /* e.g. extern int x; ==> int x; */
-                    ERROR_R(declarator, "declaration of `%s' with no linkage follows extern declaration", declarator->str);
-            } else {
-                if (!prev_scs || prev_scs!=TOK_EXTERN)
-                    /* e.g. int x; ==> extern int x; */
-                    ERROR_R(declarator, "extern declaration of `%s' follows declaration with no linkage", declarator->str);
-            }
-        }
-        return;
-diff_kind_of_sym:
-        ERROR_R(declarator, "`%s' redeclared as different kind of symbol", declarator->str);
-    }
 }
 
 static long en_val = -1;
@@ -599,6 +638,8 @@ void analyze_enumerator(TypeExp *e)
         en_val = eval_const_expr(e->attr.e, FALSE);
     } else {
         e->attr.e = calloc(1, sizeof(ExecNode));
+        // if (en_val+1 < en_val)
+            // WARNING(e, "overflow in enumeration value");
         ++en_val;
     }
     /*if (en_val > 2147483647)
@@ -607,37 +648,6 @@ void analyze_enumerator(TypeExp *e)
     // printf("en_val=%ld\n", en_val);
 error:
     install(&enum_ds, e);
-}
-
-static
-ExternId *lookup_external_id(char *id)
-{
-    ExternId *np;
-
-    for (np = external_declarations[hash(id)%HASH_SIZE]; np != NULL; np = np->next)
-        if (strcmp(id, np->declarator->str) == 0)
-            return np;
-    return NULL; /* not found */
-}
-
-int is_external_id(char *id)
-{
-    return lookup_external_id(id)!=NULL;
-}
-
-static void
-install_external_id(TypeExp *decl_specs, TypeExp *declarator, ExtIdStatus status)
-{
-    ExternId *np;
-    unsigned hash_val;
-
-    np = malloc(sizeof(ExternId));
-    np->decl_specs = decl_specs;
-    np->declarator = declarator;
-    np->status = status;
-    hash_val = hash(declarator->str)%HASH_SIZE;
-    np->next = external_declarations[hash_val];
-    external_declarations[hash_val] = np;
 }
 
 int compare_decl_specs(TypeExp *ds1, TypeExp *ds2, int qualified)
@@ -756,6 +766,21 @@ int is_complete(char *tag)
     }
 }
 
+/*
+int is_incomplete(TypeExp *decl_specs, TypeExp *declarator)
+{
+    if (declarator->child == NULL) {
+        TypeExp *ts;
+
+        ts = get_type_spec(decl_specs);
+        if (ts->op==TOK_VOID || is_struct_union_enum(ts->op)&&!is_complete(ts->str))
+            return TRUE;
+    } else if (declarator->child->op==TOK_SUBSCRIPT && declarator->child->attr.e==NULL) {
+        return TRUE;
+    }
+}
+*/
+
 static
 int examine_declarator(TypeExp *decl_specs, TypeExp *declarator)
 {
@@ -849,6 +874,7 @@ int examine_declarator(TypeExp *decl_specs, TypeExp *declarator)
     return examine_declarator(decl_specs, declarator->child);
 }
 
+static
 DeclList *new_param_decl(TypeExp *decl_specs, TypeExp *declarator)
 {
     DeclList *new_node;
@@ -887,7 +913,7 @@ TypeExp *dup_declarator(TypeExp *d)
     return new_node;
 }
 
-// static
+static
 void replace_typedef_name(Declaration *decl)
 {
     /*
@@ -1116,31 +1142,41 @@ void analyze_parameter_declaration(Declaration *d)
 
 void analyze_function_definition(FuncDef *f)
 {
+    int good;
     DeclList *p;
     TypeExp *spec;
-    /*Declaration d;*/
 
-    /* 6.9.1#2 (check this before replace typedef names because it is not allowed for the
-    identifier of a function definition to inherit its 'functionness' from a typedef name) */
-    if (f->header->child==NULL || f->header->child->op!=TOK_FUNCTION)
-        ERROR(f->header, "declarator of function definition does not specify a function type");
+    /*
+     * 6.9.1#2
+     * The identifier declared in a function definition (which is the name of the function) shall
+     * have a function type, as specified by the declarator portion of the function definition.
+     *
+     * Note: check this before replace typedef names because it is not allowed for the identifier
+     * of a function definition to inherit its 'functionness' from a typedef name.
+     */
+    if (f->header->child==NULL || f->header->child->op!=TOK_FUNCTION) {
+        set_return_type(get_type_node(TOK_ERROR), NULL);
+        ERROR_R(f->header, "declarator of function definition does not specify a function type");
+    }
 
     /* temporally switch to file scope */
-    /*--curr_scope,*/ curr_scope=0, delayed_delete=FALSE;
+    curr_scope=FILE_SCOPE, delayed_delete=FALSE;
 
-    /*d.decl_specs = f->decl_specs;
-    d.idl =  f->header;
-    replace_typedef_name(&d);
-
-    examine_declarator(f->decl_specs, f->header);
-    install(f->decl_specs, f->header);*/
-    analyze_declarator(f->decl_specs, f->header, TRUE);
-    analyze_init_declarator(f->decl_specs, f->header, TRUE);
+    good = analyze_declarator(f->decl_specs, f->header, TRUE);
+    if (good)
+        analyze_init_declarator(f->decl_specs, f->header, TRUE);
 
     /* switch back */
-    /*++curr_scope;*/ curr_scope = 1;
+    curr_scope = FILE_SCOPE+1;
 
-    /* 6.9.1#4 */
+    if (!good)
+        return;
+
+    /*
+     * 6.9.1#4
+     * The storage-class specifier, if any, in the declaration specifiers shall be either
+     * extern or static.
+     */
     if ((spec=get_sto_class_spec(f->decl_specs))!=NULL && spec->op!=TOK_EXTERN && spec->op!=TOK_STATIC)
         ERROR(spec, "invalid storage class `%s' in function definition", token_table[spec->op*2+1]);
 
@@ -1148,8 +1184,10 @@ void analyze_function_definition(FuncDef *f)
     if (f->header->child->child == NULL) {
         /* the return type is not a derived declarator type */
         spec = get_type_spec(f->decl_specs);
-        if (is_struct_union_enum(spec->op) && !is_complete(spec->str))
+        if (is_struct_union_enum(spec->op) && !is_complete(spec->str)) {
             ERROR(spec, "return type is an incomplete type");
+            good = FALSE;
+        }
     }
 
     /*
@@ -1163,17 +1201,12 @@ void analyze_function_definition(FuncDef *f)
      * part of a definition of that function shall not have incomplete type.
      */
     p = f->header->child->attr.dl;
-    if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID) {
-        /* foo(void... */
-        if (p->decl->idl == NULL) {
-            // if (p->next != NULL)
-                /* foo(void, more parameters   WRONG */
-                // ERROR(p->decl->decl_specs, "`void' must be the first and only parameter");
-            // else
-                /* foo(void)   OK */
-                goto no_params;
-        }
-    }
+    if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID)
+        if (p->decl->idl == NULL)
+            goto no_params;
+    /*
+     * The function has parameters, enforce the above constraints.
+     */
     do {
         if (p->decl->idl==NULL || p->decl->idl->op!=TOK_ID)
             ERROR(p->decl->decl_specs, "missing parameter name in function definition");
@@ -1183,15 +1216,12 @@ void analyze_function_definition(FuncDef *f)
             TypeExp *ts;
 
             ts = get_type_spec(p->decl->decl_specs);
-            if (/*ts->op==TOK_VOID
-            || */is_struct_union_enum(ts->op) && !is_complete(ts->str))
+            if (is_struct_union_enum(ts->op) && !is_complete(ts->str))
                 ERROR(p->decl->idl, "parameter `%s' has incomplete type", p->decl->idl->str);
         }
-        // printf("%s\n", stringify_type_exp(p->decl));
         p = p->next;
     } while (p!=NULL && p->decl->idl->op!=TOK_ELLIPSIS);
 no_params:
-
     set_return_type(f->decl_specs, f->header->child->child);
 }
 
@@ -1363,20 +1393,6 @@ scalar:
     }
 }
 
-/*
-int is_incomplete(TypeExp *decl_specs, TypeExp *declarator)
-{
-    if (declarator->child == NULL) {
-        TypeExp *ts;
-
-        ts = get_type_spec(decl_specs);
-        if (ts->op==TOK_VOID || is_struct_union_enum(ts->op)&&!is_complete(ts->str))
-            return TRUE;
-    } else if (declarator->child->op==TOK_SUBSCRIPT && declarator->child->attr.e==NULL) {
-        return TRUE;
-    }
-}
-*/
 void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_func_def)
 {
     TypeExp *scs;
@@ -1589,7 +1605,6 @@ void check_for_dup_member(DeclList *d)
     TypeExp *dct;
     unsigned h;
 
-    // memset(members, 0, sizeof(Member *)*MEM_TAB_SIZE);
     /* traverse the struct declaration list */
     while (d != NULL) {
         /* traverse the struct declarator list */

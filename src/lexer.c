@@ -5,15 +5,9 @@
 #include <stdlib.h>
 #include "util.h"
 
-
-// #define SRC_FILE    pre_tok->src_file
-// #define SRC_LINE    pre_tok->src_line
-// #define SRC_COLUMN  pre_tok->src_column
-
 #define ERROR(...)\
     PRINT_ERROR(pre_tok->src_file, pre_tok->src_line, pre_tok->src_column, __VA_ARGS__),\
     exit(EXIT_FAILURE)
-
 
 #define equal(s, t)     (strcmp(s, t) == 0)
 #define not_equal(s, t) (strcmp(s, t) != 0)

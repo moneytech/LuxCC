@@ -4,10 +4,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
-#define DEBUG 0
 #include "util.h"
 #include "decl.h"
-#undef ERROR
 
 extern unsigned error_count, warning_count;
 
@@ -23,15 +21,11 @@ extern unsigned error_count, warning_count;
         (tok)->type.decl_specs = get_type_node(TOK_ERROR);\
         return;\
     } while (0)
-/*
- * Print warning and increase warning count.
- */
+
 #define WARNING(tok, ...)\
     PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
     ++warning_count
-/*
- * Print error and exit.
- */
+
 #define FATAL_ERROR(tok, ...)\
     PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
     exit(EXIT_FAILURE)
@@ -65,7 +59,6 @@ extern unsigned error_count, warning_count;
         return;\
     }
 
-// static
 Token get_type_category(Declaration *d)
 {
     if (d->decl_specs->op == TOK_ERROR)
@@ -79,7 +72,6 @@ Token get_type_category(Declaration *d)
 
 int is_integer(Token ty)
 {
-    // return (t==TOK_CHAR || t==TOK_INT || t==TOK_LONG/* || t==TOK_ENUM_CONST*/);
     switch (ty) {
     case TOK_LONG: case TOK_UNSIGNED_LONG:
     case TOK_INT: case TOK_UNSIGNED:
@@ -116,7 +108,7 @@ static int is_scalar(Token op)
 static int is_lvalue(ExecNode *e)
 {
     if (e->kind.exp == IdExp) {
-        if (e->type.idl!=NULL && (/*e->type.idl->op==TOK_ENUM_CONST||*/e->type.idl->op==TOK_FUNCTION))
+        if (e->type.idl!=NULL && e->type.idl->op==TOK_FUNCTION)
             return FALSE;
         return TRUE;
     } else if (e->kind.exp == OpExp) {
@@ -163,6 +155,7 @@ static int is_modif_struct_union(TypeExp *type)
 
             p = dct->child;
             if (p!=NULL && p->op==TOK_SUBSCRIPT)
+                /* search the element type */
                 for (; p!=NULL && p->op==TOK_SUBSCRIPT; p = p->child);
 
             if (p == NULL) {
@@ -171,7 +164,7 @@ static int is_modif_struct_union(TypeExp *type)
                 || !modifiable)
                     return FALSE;
             } else if (p->op == TOK_STAR) {
-                if (p->attr.el != NULL
+                if (p->attr.el!=NULL
                 && (p->attr.el->op==TOK_CONST||p->attr.el->op==TOK_CONST_VOLATILE))
                     return FALSE;
             }
@@ -199,7 +192,7 @@ static int is_modif_lvalue(ExecNode *e)
     if (ty == TOK_SUBSCRIPT) {
         return FALSE;
     } else if (ty == TOK_STAR) {
-        if (e->type.idl->attr.el != NULL
+        if (e->type.idl->attr.el!=NULL
         && (e->type.idl->attr.el->op==TOK_CONST||e->type.idl->attr.el->op==TOK_CONST_VOLATILE))
             return FALSE;
     } else if (ty == TOK_VOID) {
@@ -224,22 +217,6 @@ static int is_modif_lvalue(ExecNode *e)
     return TRUE;
 }
 
-TypeExp *dup_decl_specs_list(TypeExp *ds)
-{
-    TypeExp *new_list, *temp;
-
-    new_list = temp = malloc(sizeof(TypeExp));
-    *new_list = *ds;
-    ds = ds->child;
-    while (ds != NULL) {
-        temp->child = malloc(sizeof(TypeExp));
-        *temp->child = *ds;
-        temp=temp->child, ds=ds->child;
-    }
-
-    return new_list;
-}
-
 Token get_promoted_type(Token int_ty)
 {
     switch (int_ty) {
@@ -254,12 +231,13 @@ Token get_promoted_type(Token int_ty)
 /*
  * Every integer type has an integer conversion rank.
  * Integer conversion ranks from highest to lowest
- * 1) long long int, unsigned long long int
+ * 1) long long int, unsigned long long int *
  * 2) long int, unsigned long int
  * 3) int, unsigned int
  * 4) short int, unsigned short int
  * 5) char, signed char, unsigned char
- * 6) _Bool
+ * 6) _Bool *
+ * (*) not supported
  */
 int get_rank(Token ty)
 {
@@ -269,7 +247,7 @@ int get_rank(Token ty)
         return 4;
     case TOK_INT:
     case TOK_UNSIGNED:
-    case TOK_ENUM:
+    case TOK_ENUM: /* the standard does not require this (see 6.7.2.2#4) */
         return 3;
     case TOK_SHORT:
     case TOK_UNSIGNED_SHORT:
@@ -398,8 +376,12 @@ TypeExp *get_type_node(Token ty)
 
 void binary_op_error(ExecNode *op)
 {
-    ERROR(op, "invalid operands to binary %s (`%s' and `%s')", token_table[op->attr.op*2+1],
-    stringify_type_exp(&op->child[0]->type, TRUE), stringify_type_exp(&op->child[1]->type, TRUE));
+    char *ty1, *ty2;
+
+    ty1 = stringify_type_exp(&op->child[0]->type, TRUE);
+    ty2 = stringify_type_exp(&op->child[1]->type, TRUE);
+
+    ERROR(op, "invalid operands to binary %s (`%s' and `%s')", token_table[op->attr.op*2+1], ty1, ty2);
 }
 
 int is_ptr2obj(Declaration *p)
@@ -426,8 +408,6 @@ int is_ptr2obj(Declaration *p)
 /*
  * See if the expression `e' can be stored in a variable of type `dest_ty'.
  */
-// static
-// int can_assign_to(ExecNode *e, Declaration *left_op, Declaration *right_op)
 int can_assign_to(Declaration *dest_ty, ExecNode *e)
 {
     /*
@@ -652,7 +632,6 @@ void analyze_assignment_expression(ExecNode *e)
      * occur between the previous and the next sequence point.
      */
     if (e->attr.op == TOK_ASSIGN) {
-        // if (!can_assign_to(e, &e->child[0]->type, &e->child[1]->type))
         if (!can_assign_to(&e->child[0]->type, e->child[1]))
             ERROR(e, "incompatible types when assigning to type `%s' from type `%s'",
             stringify_type_exp(&e->child[0]->type, FALSE),
@@ -704,7 +683,6 @@ void analyze_assignment_expression(ExecNode *e)
             analyze_bitwise_operator(&temp);
             break;
         }
-        // if (!can_assign_to(e, &e->child[0]->type, &temp.type))
         if (!can_assign_to(&e->child[0]->type, &temp))
             ERROR(e, "incompatible types when assigning to type `%s' from type `%s'",
             stringify_type_exp(&e->child[0]->type, FALSE),
@@ -712,8 +690,23 @@ void analyze_assignment_expression(ExecNode *e)
     }
 
     e->type = e->child[0]->type;
+}
 
-    // printf("assign: %s\n", stringify_type_exp(&e->type));
+/* analyze_conditional_expression()'s helper function */
+static TypeExp *dup_decl_specs_list(TypeExp *ds)
+{
+    TypeExp *new_list, *temp;
+
+    new_list = temp = malloc(sizeof(TypeExp));
+    *new_list = *ds;
+    ds = ds->child;
+    while (ds != NULL) {
+        temp->child = malloc(sizeof(TypeExp));
+        *temp->child = *ds;
+        temp=temp->child, ds=ds->child;
+    }
+
+    return new_list;
 }
 
 void analyze_conditional_expression(ExecNode *e)
@@ -935,7 +928,6 @@ void analyze_conditional_expression(ExecNode *e)
     }
 
 done:
-    // printf("conditional: %s\n", stringify_type_exp(&e->type));
     return;
 type_mismatch:
     ERROR(e, "type mismatch in conditional expression (`%s' and `%s')",
@@ -1080,8 +1072,6 @@ void analyze_bitwise_operator(ExecNode *e)
         e->type.decl_specs = get_type_node(get_promoted_type(ty1));
     else
         e->type.decl_specs = get_type_node(get_result_type(get_promoted_type(ty1), get_promoted_type(ty2)));
-
-    // printf("bitwise: %s\n", stringify_type_exp(&e->type));
 }
 
 void analyze_additive_expression(ExecNode *e)
@@ -1175,8 +1165,6 @@ void analyze_additive_expression(ExecNode *e)
             return;
         }
     }
-
-    // printf("add/sub: %s\n", stringify_type_exp(&e->type));
 }
 
 void analyze_multiplicative_expression(ExecNode *e)
@@ -1198,8 +1186,6 @@ void analyze_multiplicative_expression(ExecNode *e)
     }
 
     e->type.decl_specs = get_type_node(get_result_type(get_promoted_type(ty1), get_promoted_type(ty2)));
-
-    // printf("mul: %s\n", stringify_type_exp(&e->type));
 }
 
 void analyze_cast_expression(ExecNode *e)
@@ -1231,8 +1217,6 @@ void analyze_cast_expression(ExecNode *e)
         ERROR(e, "invalid cast of void expression to non-void type");
 
     e->type = *(Declaration *)e->child[1];
-
-    // printf("(%s)\n", stringify_type_exp(&e->type));
 }
 
 static
@@ -1339,8 +1323,6 @@ void analyze_unary_expression(ExecNode *e)
         /* set the type of the & node */
         e->type.decl_specs = e->child[0]->type.decl_specs;
         e->type.idl = temp;
-
-        // printf("& result type: %s\n", stringify_type_exp(&e->type));
         break;
     }
     case TOK_INDIRECTION: {
@@ -1375,8 +1357,6 @@ void analyze_unary_expression(ExecNode *e)
          */
         e->type.decl_specs = e->child[0]->type.decl_specs;
         e->type.idl = (ty!=TOK_FUNCTION)?e->child[0]->type.idl->child:e->child[0]->type.idl;
-
-        // printf("* result type: %s\n", stringify_type_exp(&e->type));
         break;
     }
     case TOK_UNARY_PLUS:
@@ -1396,8 +1376,6 @@ void analyze_unary_expression(ExecNode *e)
             ERROR(e, "invalid operand to %s", token_table[e->attr.op*2+1]);
 
         e->type.decl_specs = get_type_node(get_promoted_type(ty));
-
-        // printf("+- result type: %s\n", stringify_type_exp(&e->type));
         break;
     }
     case TOK_NEGATION: {
@@ -1726,7 +1704,6 @@ decl_specs_qualif:
             e->type.decl_specs = d->decl->decl_specs;
             e->type.idl = dct->child;
         }
-        // printf("%s: %s\n", id, stringify_type_exp(&e->type));
         break;
     }
     case TOK_POS_INC:
@@ -1790,7 +1767,7 @@ unsigned_ty:
     }
 }
 
-unsigned compute_sizeof(Declaration *ty)
+static unsigned compute_sizeof(Declaration *ty)
 {
     Token cat;
     unsigned size;

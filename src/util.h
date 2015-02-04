@@ -28,7 +28,8 @@
 /*
  * Currently stringification is not implemented, and there is no predefined
  * macro names __LINE__, __FILE__, etc, so this is a cheap replacement for
- * assert() until those features are implemented (if they are).
+ * assert() until those features are available. The caller is expected to provide
+ * the function name.
  */
 #define my_assert(expr, msg) do { if (!(expr)) fprintf(stderr, "Assertion failed at function `%s'\n", msg), exit(1); } while (0)
 

@@ -3,15 +3,10 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
-#define DEBUG 0
 #include "util.h"
 #include "decl.h"
 #include "expr.h"
 #include "stmt.h"
-
-// #define SRC_FILE    curr_tok->src_file
-// #define SRC_LINE    curr_tok->src_line
-// #define SRC_COLUMN  curr_tok->src_column
 
 #define ERROR(...)\
     PRINT_ERROR(curr_tok->src_file, curr_tok->src_line, curr_tok->src_column, __VA_ARGS__),\
@@ -19,75 +14,68 @@
 
 static TokenNode *curr_tok;
 unsigned number_of_ast_nodes;
+extern unsigned warning_count, error_count;
 
+/*
+ * Recursive parsing functions.
+ */
+static ExternDecl *translation_unit(void);
+static ExternDecl *external_declaration(void);
+static FuncDef *function_definition(TypeExp *decl_specs, TypeExp *header);
+static Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator);
+static TypeExp *declaration_specifiers(int type_spec_seen);
+static TypeExp *init_declarator_list(TypeExp *decl_specs, TypeExp *first_declarator);
+static TypeExp *init_declarator(TypeExp *decl_specs, TypeExp *first_declarator);
+static TypeExp *storage_class_specifier(void);
+static TypeExp *type_specifier(void);
+static TypeExp *struct_or_union_specifier(void);
+static TypeExp *struct_or_union(void);
+static DeclList *struct_declaration_list(void);
+static Declaration *struct_declaration(void);
+static TypeExp *specifier_qualifier_list(int type_spec_seen);
+static TypeExp *struct_declarator_list(TypeExp *sql);
+static TypeExp *struct_declarator(TypeExp *sql);
+static TypeExp *enum_specifier(void);
+static TypeExp *enumerator_list(void);
+static TypeExp *enumerator(void);
+static TypeExp *enumeration_constant(void);
+static TypeExp *type_qualifier(void);
+static TypeExp *direct_declarator_postfix(void);
+static TypeExp *pointer(void);
+static TypeExp *type_qualifier_list(void);
+static DeclList *parameter_type_list(void);
+static DeclList *parameter_list(void);
+static Declaration *parameter_declaration(void);
+// void identifier_list(void);
+static Declaration *type_name(void);
+static TypeExp *typedef_name(void);
+static ExecNode *initializer(void);
+static ExecNode *initializer_list(void);
 
 typedef enum {
     ABSTRACT_DECLARATOR,
     CONCRETE_DECLARATOR,
     EITHER_DECLARATOR
 } DeclaratorCategory;
+static TypeExp *concrete_declarator(void);
+static TypeExp *abstract_declarator(void);
+static TypeExp *declarator(DeclaratorCategory dc);
+static TypeExp *direct_declarator(DeclaratorCategory dc);
 
-TypeExp *concrete_declarator(void/*int install_id, TypeExp *decl_specs*/);
-// TypeExp *abstract_declarator(void);
-TypeExp *declarator(DeclaratorCategory dc/*, int install_id, TypeExp *decl_specs*/);
-TypeExp *direct_declarator(DeclaratorCategory dc/*, int install_id, TypeExp *decl_specs*/);
+static ExecNode *statement(int in_loop, int in_switch);
+static ExecNode *labeled_statement(int in_loop, int in_switch);
+static ExecNode *compound_statement(int new_scope, int in_loop, int in_switch);
+static DeclList *declaration_list(void);
+static ExecNode *statement_list(int in_loop, int in_switch);
+static ExecNode *expression_statement(void);
+static ExecNode *selection_statement(int in_loop, int in_switch);
+static ExecNode *iteration_statement(int in_switch);
+static ExecNode *jump_statement(int in_loop, int in_switch);
 
-
-/*
- * Recursive parsing functions.
- */
-ExternDecl *translation_unit(void);
-ExternDecl *external_declaration(void);
-FuncDef *function_definition(TypeExp *decl_specs, TypeExp *header);
-Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator);
-TypeExp *declaration_specifiers(int type_spec_seen);
-TypeExp *init_declarator_list(TypeExp *decl_specs, TypeExp *first_declarator);
-TypeExp *init_declarator(TypeExp *decl_specs, TypeExp *first_declarator);
-TypeExp *storage_class_specifier(void);
-TypeExp *type_specifier(void);
-TypeExp *struct_or_union_specifier(void);
-TypeExp *struct_or_union(void);
-DeclList *struct_declaration_list(void);
-Declaration *struct_declaration(void);
-TypeExp *specifier_qualifier_list(int type_spec_seen);
-TypeExp *struct_declarator_list(TypeExp *sql);
-TypeExp *struct_declarator(TypeExp *sql);
-TypeExp *enum_specifier(void);
-TypeExp *enumerator_list(void);
-TypeExp *enumerator(void);
-TypeExp *enumeration_constant(void);
-TypeExp *type_qualifier(void);
-// TypeExp *declarator(int install_id, Token tok);
-// TypeExp *direct_declarator(int install_id, Token tok);
-TypeExp *direct_declarator_postfix(void);
-TypeExp *pointer(void);
-TypeExp *type_qualifier_list(void);
-DeclList *parameter_type_list(void);
-DeclList *parameter_list(void);
-Declaration *parameter_declaration(void);
-// void identifier_list(void);
-Declaration *type_name(void);
-TypeExp *abstract_declarator(void);
-TypeExp *direct_abstract_declarator(void);
-TypeExp *direct_abstract_declarator_postfix(void);
-TypeExp *typedef_name(void);
-ExecNode *initializer(void);
-ExecNode *initializer_list(void);
-
-ExecNode *statement(int in_loop, int in_switch);
-ExecNode *labeled_statement(int in_loop, int in_switch);
-ExecNode *compound_statement(int new_scope, int in_loop, int in_switch);
-DeclList *declaration_list(void);
-ExecNode *statement_list(int in_loop, int in_switch);
-ExecNode *expression_statement(void);
-ExecNode *selection_statement(int in_loop, int in_switch);
-ExecNode *iteration_statement(int in_switch);
-ExecNode *jump_statement(int in_loop, int in_switch);
-
-ExecNode *conditional_expression(void);
-ExecNode *assignment_expression(void);
-ExecNode *constant_expression(void);
-ExecNode *expression(void);
+static ExecNode *conditional_expression(void);
+static ExecNode *assignment_expression(void);
+static ExecNode *constant_expression(void);
+static ExecNode *expression(void);
 static ExecNode *logical_OR_expression(void);
 static ExecNode *logical_AND_expression(void);
 static ExecNode *inclusive_OR_expression(void);
@@ -98,24 +86,18 @@ static ExecNode *relational_expression(void);
 static ExecNode *shift_expression(void);
 static ExecNode *additive_expression(void);
 static ExecNode *multiplicative_expression(void);
-ExecNode *cast_expression(void);
-ExecNode *unary_expression(void);
-ExecNode *postfix_expression(void);
-ExecNode *argument_expression_list(void);
-ExecNode *primary_expression(void);
-ExecNode *postfix(void);
+static ExecNode *cast_expression(void);
+static ExecNode *unary_expression(void);
+static ExecNode *postfix_expression(void);
+static ExecNode *argument_expression_list(void);
+static ExecNode *primary_expression(void);
+static ExecNode *postfix(void);
+
 
 /*
- * Functions that test lookahead(1).
+ * Helper functions.
  */
-int in_first_declaration_specifiers(void);
-int in_first_storage_class_specifier(void);
-int in_first_type_specifier(void);
-int in_first_specifier_qualifier_list(void);
-int in_first_type_qualifier(void);
-
-
-Token lookahead(int i)
+static Token lookahead(int i)
 {
     TokenNode *p;
 
@@ -125,7 +107,7 @@ Token lookahead(int i)
     return p->token;
 }
 
-char *get_lexeme(int i)
+static char *get_lexeme(int i)
 {
     TokenNode *p;
 
@@ -135,7 +117,7 @@ char *get_lexeme(int i)
     return p->lexeme;
 }
 
-void match(Token token)
+static void match(Token token)
 {
     if (curr_tok->token == token)
         curr_tok = curr_tok->next;
@@ -143,19 +125,19 @@ void match(Token token)
         ERROR("expecting `%s'; found `%s'", token_table[token*2+1], curr_tok->lexeme);
 }
 
-void parser(TokenNode *tokens)
-{
-    curr_tok = tokens;
-    translation_unit();
-}
+
+/*
+ * Functions that test lookahead(1).
+ */
+static int in_first_declaration_specifiers(void);
+static int in_first_storage_class_specifier(void);
+static int in_first_type_specifier(void);
+static int in_first_specifier_qualifier_list(void);
+static int in_first_type_qualifier(void);
 
 int in_first_declaration_specifiers(void)
 {
-    if (in_first_storage_class_specifier()
-    ||  in_first_type_specifier()
-    ||  in_first_type_qualifier())
-        return TRUE;
-    return FALSE;
+    return (in_first_storage_class_specifier()||in_first_type_specifier()||in_first_type_qualifier());
 }
 
 int in_first_storage_class_specifier(void)
@@ -197,16 +179,22 @@ int in_first_type_specifier(void)
 
 int in_first_specifier_qualifier_list(void)
 {
-    if (in_first_type_specifier() || in_first_type_qualifier())
-        return TRUE;
-    return FALSE;
+    return (in_first_type_specifier()||in_first_type_qualifier());
 }
 
 int in_first_type_qualifier(void)
 {
-    if (lookahead(1)==TOK_CONST || lookahead(1)==TOK_VOLATILE)
-        return TRUE;
-    return FALSE;
+    return (lookahead(1)==TOK_CONST||lookahead(1)==TOK_VOLATILE);
+}
+
+
+/*
+ * Main function of the parser.
+ */
+void parser(TokenNode *tokens)
+{
+    curr_tok = tokens;
+    translation_unit();
 }
 
 // =============================================================================
@@ -231,44 +219,11 @@ ExternDecl *translation_unit(void)
 }
 
 /*
- * Search `typedef' between
- * the declaration specifiers.
- */
-int search_typedef(TypeExp *t)
-{
-    for (; t != NULL; t = t->child)
-        if (t->op == TOK_TYPEDEF)
-            return TRUE;
-    return FALSE;
-}
-
-/*
  * external_declaration = function_definition |
  *                        declaration
  */
 ExternDecl *external_declaration(void)
 {
-    /*
-    if (?)
-        function_definition();
-    else if (?)
-        declaration();
-    else
-        // error
-    */
-    // TokenNode *temp;
-
-    // temp = curr_tok; /* save */
-    // declaration_specifiers();
-    // if (lookahead(1) != TOK_SEMICOLON)
-        // declarator();
-    // if (lookahead(1) == TOK_LBRACE) {
-        // curr_tok = temp; /* restore */
-        // function_definition();
-    // } else {
-        // curr_tok = temp; /* restore */
-        // declaration();
-    // }
     ExternDecl *e;
     TypeExp *p, *q;
 
@@ -279,7 +234,7 @@ ExternDecl *external_declaration(void)
     p = declaration_specifiers(FALSE);
     analyze_decl_specs(p);
     if (lookahead(1) != TOK_SEMICOLON)
-        q = concrete_declarator(/*TRUE, p*/);
+        q = concrete_declarator();
 
     if (lookahead(1) == TOK_LBRACE) {
         e->kind = FUNCTION_DEFINITION;
@@ -341,8 +296,6 @@ Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator)
 
     match(TOK_SEMICOLON);
 
-    // printf("%s\n", stringify_type_exp(d));
-
     return d;
 }
 
@@ -373,9 +326,8 @@ TypeExp *declaration_specifiers(int type_spec_seen)
      *                    ^
      *                identifier
      *
-     *   If a typedef name is used as a declarator, the
-     * declaration-specifiers of the declaration must contain
-     * a type-specifier.
+     * If a typedef name is redeclared the declaration-specifiers
+     * of the declaration must contain a type-specifier.
      */
     if (in_first_declaration_specifiers() && (lookahead(1)!=TOK_ID || !type_spec_seen))
         n->child = declaration_specifiers(type_spec_seen);
@@ -409,11 +361,10 @@ TypeExp *init_declarator(TypeExp *decl_specs, TypeExp *first_declarator)
     TypeExp *n;
 
     if (first_declarator == NULL)
-        n = concrete_declarator(/*TRUE, decl_specs*/);
+        n = concrete_declarator();
     else
         n = first_declarator;
 
-    // install(decl_specs, n);
     good = analyze_declarator(decl_specs, n, TRUE);
 
     if (lookahead(1) == TOK_ASSIGN) {
@@ -427,7 +378,7 @@ TypeExp *init_declarator(TypeExp *decl_specs, TypeExp *first_declarator)
     return n;
 }
 
-TypeExp *new_type_exp_node(void)
+static TypeExp *new_type_exp_node(void)
 {
     TypeExp *new_node;
 
@@ -468,7 +419,7 @@ TypeExp *storage_class_specifier(void)
     case TOK_REGISTER:
         match(TOK_REGISTER);
         break;
-    default: /* shouldn't be reachable */
+    default:
         my_assert(0, "storage_class_specifier()");
         break;
     }
@@ -536,7 +487,7 @@ TypeExp *type_specifier(void)
         free(n);
         n = typedef_name();
         break;
-    default: /* shouldn't be reachable */
+    default:
         my_assert(0, "type_specifier()");
         break;
     }
@@ -593,13 +544,6 @@ TypeExp *struct_or_union_specifier(void)
                 cur->type = n; /* update the previous incomplete declaration */
         }
     } else if (lookahead(1) == TOK_LBRACE) {
-        /*static int anon_counter = 0;
-        char *anon_tag;
-
-        anon_tag = malloc(32);
-        sprintf(anon_tag, "<anonymous_%d>", anon_counter++);
-        n->str = anon_tag;*/
-
         match(TOK_LBRACE);
         n->attr.dl = struct_declaration_list();
         match(TOK_RBRACE);
@@ -717,7 +661,7 @@ TypeExp *struct_declarator(TypeExp *sql)
         match(TOK_COLON);
         constant_expression();
     } else {*/
-        n = concrete_declarator(/*FALSE, 0*/);
+        n = concrete_declarator();
         analyze_struct_declarator(sql, n);
         /*if (lookahead(1) == TOK_COLON) {
             match(TOK_COLON);
@@ -784,13 +728,6 @@ TypeExp *enum_specifier(void)
 
         }
     } else if (lookahead(1) == TOK_LBRACE) {
-        /*static int anon_counter = 0;
-        char *anon_tag;
-
-        anon_tag = malloc(32);
-        sprintf(anon_tag, "<anonymous_%d>", anon_counter++);
-        n->str = anon_tag;*/
-
         match(TOK_LBRACE);
         n->attr.el = enumerator_list();
         match(TOK_RBRACE);
@@ -845,8 +782,7 @@ TypeExp *enumeration_constant(void)
 
     n = new_type_exp_node();
     n->str = get_lexeme(1);
-    n->op = TOK_ENUM_CONST; // install() uses this
-    // install(get_lexeme(1), TOK_ID);
+    n->op = TOK_ENUM_CONST;
 
     match(TOK_ID);
 
@@ -873,20 +809,20 @@ TypeExp *type_qualifier(void)
     return n;
 }
 
-TypeExp *concrete_declarator(void/*int install_id, TypeExp *decl_specs*/)
+TypeExp *concrete_declarator(void)
 {
-    return declarator(CONCRETE_DECLARATOR/*, install_id, decl_specs*/);
+    return declarator(CONCRETE_DECLARATOR);
 }
 
 TypeExp *abstract_declarator(void)
 {
-    return declarator(ABSTRACT_DECLARATOR/*, 0, 0*/);
+    return declarator(ABSTRACT_DECLARATOR);
 }
 
 /*
  * declarator = [ pointer ] direct_declarator
  */
-TypeExp *declarator(DeclaratorCategory dc/*, int install_id, TypeExp *decl_specs*/)
+TypeExp *declarator(DeclaratorCategory dc)
 {
     /*TypeExp *n, *temp;
 
@@ -905,7 +841,7 @@ TypeExp *declarator(DeclaratorCategory dc/*, int install_id, TypeExp *decl_specs
 
         p = pointer();
 
-        n = temp = direct_declarator(dc/*, install_id, decl_specs*/);
+        n = temp = direct_declarator(dc);
         if (temp != NULL) {
             while (temp->child != NULL)
                 temp = temp->child;
@@ -914,7 +850,7 @@ TypeExp *declarator(DeclaratorCategory dc/*, int install_id, TypeExp *decl_specs
             n = p;
         }
     } else {
-        n = direct_declarator(dc/*, install_id, decl_specs*/);
+        n = direct_declarator(dc);
     }
 
     return n;
@@ -923,7 +859,7 @@ TypeExp *declarator(DeclaratorCategory dc/*, int install_id, TypeExp *decl_specs
 /*
  * direct_declarator = [ identifier | "(" declarator ")" ] { direct_declarator_postfix }
  */
-TypeExp *direct_declarator(DeclaratorCategory dc/*, int install_id, TypeExp *decl_specs*/)
+TypeExp *direct_declarator(DeclaratorCategory dc)
 {
     TypeExp *n, *temp;
 
@@ -944,12 +880,12 @@ TypeExp *direct_declarator(DeclaratorCategory dc/*, int install_id, TypeExp *dec
     || lookahead(2)==TOK_STAR
     || lookahead(2)==TOK_ID && (dc==CONCRETE_DECLARATOR||/*dc==ABSTRACT_DECLARATOR&&*/!is_typedef_name(get_lexeme(2))))) {
         match(TOK_LPAREN);
-        n = temp = declarator(dc/*, install_id, decl_specs*/);
+        n = temp = declarator(dc);
         match(TOK_RPAREN);
     }
 
     if (n==NULL && dc==CONCRETE_DECLARATOR)
-        ERROR("missing identifier in concrete-declarator");
+        ERROR("missing identifier in non-abstract-declarator");
 
     /*while (lookahead(1)==TOK_LBRACKET || lookahead(1)==TOK_LPAREN) {
         n = direct_declarator_postfix();
@@ -986,7 +922,6 @@ TypeExp *direct_declarator_postfix(void)
     TypeExp *n;
 
     n = new_type_exp_node();
-    // n->op = lookahead(1);
 
     if (lookahead(1) == TOK_LBRACKET) {
         n->op = TOK_SUBSCRIPT;
@@ -1030,6 +965,20 @@ TypeExp *pointer(void)
             temp = temp->child;
         temp->child = pointer();
     }*/
+
+    /*
+     * Example: the declaration
+     *      int *const*volatile*z;
+     * has the following syntax tree
+     * TOK_ID (z)
+     *    |
+     * TOK_STAR
+     *    |
+     * TOK_STAR (volatile)
+     *    |
+     * TOK_STAR (const)
+     */
+
     TypeExp *n;
 
     n = new_type_exp_node();
@@ -1059,11 +1008,9 @@ TypeExp *type_qualifier_list(void)
 {
     TypeExp *n, *temp;
 
-    // n = temp = type_qualifier();
     n = type_qualifier();
     while (in_first_type_qualifier()) {
-        // temp->child = type_qualifier();
-        // temp = temp->child;
+        /* condense all qualifiers in a single node */
         temp = type_qualifier();
         if (temp->op != n->op)
             n->op = TOK_CONST_VOLATILE;
@@ -1137,8 +1084,8 @@ Declaration *parameter_declaration(void)
     n->idl = NULL;
 
     n->decl_specs = declaration_specifiers(FALSE);
-    if (lookahead(1)!=TOK_COMMA && lookahead(1)!=TOK_RPAREN) /* FOLLOW(parameter_declaration) */
-        n->idl = declarator(EITHER_DECLARATOR/*, TRUE, n->decl_specs*/);
+    if (lookahead(1)!=TOK_COMMA && lookahead(1)!=TOK_RPAREN) /* FOLLOW(parameter_declaration) = { ",", ")" } */
+        n->idl = declarator(EITHER_DECLARATOR);
     analyze_parameter_declaration(n);
 
     return n;
@@ -1167,10 +1114,8 @@ Declaration *type_name(void)
     n->idl = NULL;
 
     n->decl_specs = specifier_qualifier_list(FALSE);
-    if (lookahead(1) != TOK_RPAREN) { /* FOLLOW(type_name) = { ")" } */
+    if (lookahead(1) != TOK_RPAREN) /* FOLLOW(type_name) = { ")" } */
         n->idl = abstract_declarator();
-        // stringify_type_exp(n); printf("\n");
-    }
     analyze_type_name(n);
 
     return n;
@@ -1198,7 +1143,7 @@ TypeExp *typedef_name(void)
     return n;
 }
 
-ExecNode *new_op_node(Token op);
+static ExecNode *new_op_node(Token op);
 
 /*
  * initializer = assignment_expression |
@@ -1244,29 +1189,18 @@ ExecNode *initializer_list(void)
 // Statements
 // =============================================================================
 
-ExecNode *new_stmt_node(StmtKind kind)
+static ExecNode *new_stmt_node(StmtKind kind)
 {
     ExecNode *new_node;
 
     new_node = calloc(1, sizeof(ExecNode));
     new_node->node_kind = StmtNode;
     new_node->kind.exp = kind;
-    // new_node->src_line = curr_tok->src_line;
     new_node->info = curr_tok;
     ++number_of_ast_nodes;
 
     return new_node;
 }
-
-ExecNode *statement(int in_loop, int in_switch);
-ExecNode *labeled_statement(int in_loop, int in_switch);
-ExecNode *compound_statement(int new_scope, int in_loop, int in_switch);
-DeclList *declaration_list(void);
-ExecNode *statement_list(int in_loop, int in_switch);
-ExecNode *expression_statement(void);
-ExecNode *selection_statement(int in_loop, int in_switch);
-ExecNode *iteration_statement(int in_switch);
-ExecNode *jump_statement(int in_loop, int in_switch);
 
 /*
  * statement = labeled_statement |
@@ -1547,7 +1481,7 @@ ExecNode *jump_statement(int in_loop, int in_switch)
 // Expressions
 // =============================================================================
 
-ExecNode *new_op_node(Token op)
+static ExecNode *new_op_node(Token op)
 {
     ExecNode *new_node;
 
@@ -1555,21 +1489,19 @@ ExecNode *new_op_node(Token op)
     new_node->node_kind = ExpNode;
     new_node->kind.exp = OpExp;
     new_node->attr.op = op;
-    // new_node->src_line = curr_tok->src_line;
     new_node->info = curr_tok;
     ++number_of_ast_nodes;
 
     return new_node;
 }
 
-ExecNode *new_pri_exp_node(ExpKind kind)
+static ExecNode *new_pri_exp_node(ExpKind kind)
 {
     ExecNode *new_node;
 
     new_node = calloc(1, sizeof(ExecNode));
     new_node->node_kind = ExpNode;
     new_node->kind.exp = kind;
-    // new_node->src_line = curr_tok->src_line;
     new_node->info = curr_tok;
     ++number_of_ast_nodes;
 
@@ -1581,12 +1513,12 @@ ExecNode *new_pri_exp_node(ExpKind kind)
  */
 ExecNode *constant_expression(void)
 {
-    ExecNode *n;
+    /*ExecNode *n;
 
     n = conditional_expression();
-    // printf("eval=%ld\n", eval_const_expr(n, FALSE));
 
-    return n;
+    return n;*/
+    return conditional_expression();
 }
 
 /*
@@ -1605,7 +1537,6 @@ ExecNode *expression(void)
         n = temp;
         analyze_expression(n);
     }
-    // analyze_expression(n);
 
     return n;
 }
@@ -1881,7 +1812,6 @@ ExecNode *cast_expression(void)
         match(TOK_LPAREN);
         if (in_first_specifier_qualifier_list()) {
             n = new_op_node(TOK_CAST);
-            // n->attr.tn = type_name();
             n->child[1] = (ExecNode *)type_name();
             match(TOK_RPAREN);
             n->child[0] = cast_expression();
@@ -1934,7 +1864,6 @@ ExecNode *unary_expression(void)
             temp = curr_tok; /* save */
             match(TOK_LPAREN);
             if (in_first_specifier_qualifier_list()) {
-                // n->attr.tn = type_name();
                 n->child[1] = (ExecNode *)type_name();
                 match(TOK_RPAREN);
             } else { /* sizeof applied to a parenthesized expression */
@@ -1975,7 +1904,6 @@ ExecNode *unary_expression(void)
     default:
         n = postfix_expression();
         return n;
-        // break;
     }
 
     analyze_unary_expression(n);
@@ -1983,8 +1911,7 @@ ExecNode *unary_expression(void)
     return n;
 }
 
-#define IS_POSTFIX_OP(t) (t==TOK_LBRACKET || t==TOK_LPAREN || t==TOK_DOT || t==TOK_ARROW\
-|| t==TOK_INC || t==TOK_DEC)
+#define IS_POSTFIX_OP(t) (t==TOK_LBRACKET||t==TOK_LPAREN||t==TOK_DOT||t==TOK_ARROW||t==TOK_INC||t==TOK_DEC)
 
 /*
  * postfix_expression = primary_expression { postfix }
@@ -2000,7 +1927,6 @@ ExecNode *postfix_expression(void)
         analyze_postfix_expression(n);
         temp = n;
     }
-    // analyze_postfix_expression(n);
 
     return n;
 }
@@ -2034,7 +1960,6 @@ ExecNode *postfix(void)
     case TOK_DOT:
         n = new_op_node(TOK_DOT);
         match(TOK_DOT);
-        // n->attr.str = get_lexeme(1);
         n->child[1] = new_pri_exp_node(IdExp);
         n->child[1]->attr.str = get_lexeme(1);
         match(TOK_ID);
@@ -2042,7 +1967,6 @@ ExecNode *postfix(void)
     case TOK_ARROW:
         n = new_op_node(TOK_ARROW);
         match(TOK_ARROW);
-        // n->attr.str = get_lexeme(1);
         n->child[1] = new_pri_exp_node(IdExp);
         n->child[1]->attr.str = get_lexeme(1);
         match(TOK_ID);
@@ -2112,11 +2036,13 @@ ExecNode *primary_expression(void)
                 PRINT_ERROR(curr_tok->src_file, curr_tok->src_line, curr_tok->src_column,
                 "expecting primary-expression; found typedef-name `%s'", n->attr.str);
                 n->type.decl_specs = get_type_node(TOK_ERROR);
+                ++error_count;
             }
         } else {
             PRINT_ERROR(curr_tok->src_file, curr_tok->src_line, curr_tok->src_column,
             "undeclared identifier `%s'", n->attr.str);
             n->type.decl_specs = get_type_node(TOK_ERROR);
+            ++error_count;
         }
         break;
     }
@@ -2135,7 +2061,6 @@ ExecNode *primary_expression(void)
         n = expression();
         match(TOK_RPAREN);
         return n;
-        // break;
     default:
         ERROR("expecting primary-expression; found `%s'", get_lexeme(1));
         break;
