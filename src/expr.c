@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <limits.h>
 #include "util.h"
 #include "decl.h"
 
@@ -439,43 +440,56 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
             int rank_d, rank_s;
 
             /*
-             * If the src expression is an integer constant, just see if said
-             * constant fits into the dest type, and emit a warning if it doesn't.
+             * If the src expression is an integer constant,
+             * try to check if the constant fits into the dest type.
+             * Emit a warning if it doesn't.
              */
             if (e->kind.exp == IConstExp) {
-                /*int overflow;
+                long stored_val;
 
-                overflow = FALSE;
                 switch (cat_d) {
                 case TOK_UNSIGNED_LONG:
                 case TOK_UNSIGNED:
-                    break;
+                    return TRUE;
                 case TOK_LONG:
                 case TOK_INT:
-                    if (e->attr.uval > 2147483647)
-                        overflow = TRUE;
-                    break;
+                case TOK_ENUM:
+                    if (e->attr.uval > LONG_MAX) {
+                        stored_val = (long)e->attr.uval;
+                        break;
+                    }
+                    return TRUE;
                 case TOK_SHORT:
-                    if (e->attr.uval > 32767)
-                        overflow = TRUE;
-                    break;
+                    if (e->attr.uval > SHRT_MAX) {
+                        stored_val = (short)e->attr.uval;
+                        break;
+                    }
+                    return TRUE;
                 case TOK_UNSIGNED_SHORT:
-                    if (e->attr.uval > 65535)
-                        overflow = TRUE;
-                    break;
+                    if (e->attr.uval > USHRT_MAX) {
+                        stored_val = (unsigned short)e->attr.uval;
+                        break;
+                    }
+                    return TRUE;
                 case TOK_CHAR:
                 case TOK_SIGNED_CHAR:
-                    if (e->attr.uval > 127)
-                        overflow = TRUE;
-                    break;
+                    if (e->attr.uval > CHAR_MAX) {
+                        stored_val = (signed char)e->attr.uval;
+                        break;
+                    }
+                    return TRUE;
                 case TOK_UNSIGNED_CHAR:
-                    if (e->attr.uval > 255)
-                        overflow = TRUE;
-                    break;
+                    if (e->attr.uval > UCHAR_MAX) {
+                        stored_val = (unsigned char)e->attr.uval;
+                        break;
+                    }
+                    return TRUE;
+                default:
+                    my_assert(0, "can_assign_to()");
                 }
 
-                if (overflow)
-                    WARNING(e, "integer constant too large for `%s' type", token_table[cat_d*2+1]);*/
+                WARNING(e, "implicit conversion from '%s' to '%s' changes value from %lu to %ld",
+                token_table[cat_s*2+1], token_table[cat_d*2+1], e->attr.uval, stored_val);
 
                 return TRUE;
             }

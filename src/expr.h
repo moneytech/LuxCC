@@ -21,6 +21,7 @@ long eval_const_expr(ExecNode *e, int is_addr);
 Token get_type_category(Declaration *d);
 TypeExp *get_type_node(Token ty);
 void reset_enum_val(void);
+int is_unsigned_int(Token ty);
 int is_integer(Token ty);
 int get_rank(Token ty);
 

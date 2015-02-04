@@ -631,21 +631,23 @@ void analyze_enumerator(TypeExp *e)
      * constant expression that has a value representable as an int.
      */
     if (e->attr.e != NULL) {
-        if (!is_integer(get_type_category(&e->attr.e->type))) {
+        Token ty;
+
+        ty = get_type_category(&e->attr.e->type);
+        if (!is_integer(ty)) {
             ERROR(e, "enumerator value is not an integer constant");
             goto error;
         }
         en_val = eval_const_expr(e->attr.e, FALSE);
     } else {
         e->attr.e = calloc(1, sizeof(ExecNode));
-        // if (en_val+1 < en_val)
-            // WARNING(e, "overflow in enumeration value");
+        if (en_val+1 < en_val)
+            WARNING(e, "overflow in enumeration value");
         ++en_val;
     }
-    /*if (en_val > 2147483647)
-        ...*/
+
     e->attr.e->attr.val = en_val;
-    // printf("en_val=%ld\n", en_val);
+    printf("en_val=%ld\n", en_val);
 error:
     install(&enum_ds, e);
 }
