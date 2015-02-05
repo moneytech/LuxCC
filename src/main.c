@@ -34,7 +34,7 @@ int main(int argc, char *argv[])
     tree = parser(tok);
     // extern unsigned number_of_ast_nodes;
     // printf("%u AST nodes were created (aprox)\n", number_of_ast_nodes);
-    // printf("%d warning and %d error generated\n", warning_count, error_count);
+    printf("%d warning and %d error generated\n", warning_count, error_count);
 
 	return 0;
 }

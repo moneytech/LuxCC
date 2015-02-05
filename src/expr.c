@@ -1920,19 +1920,59 @@ long eval_const_expr(ExecNode *e, int is_addr)
             return L / R;
         case TOK_MOD:
             return L % R;
-        case TOK_PLUS:
-            // escalate
-            /*if (is_pointer(get_type_category(&e->child[0]->type)))
-                return ;
-            else if (is_pointer(get_type_category(&e->child[0]->type)))
-                return ;
-            else
-                return L + R;*/
-            return L + R;
+        case TOK_PLUS: {
+            int ptr_child;
+
+            ptr_child = -1;
+            if (is_pointer(get_type_category(&e->child[0]->type)))
+                ptr_child = 0;
+            else if (is_pointer(get_type_category(&e->child[1]->type)))
+                ptr_child = 1;
+
+            if (ptr_child != -1) {
+                /*
+                 * One of the operands has pointer type.
+                 * Escalate the non-pointer operand before add.
+                 * For example:
+                 *  (int *)0 + 1 == 0 + 1*sizeof(int)
+                 */
+                Declaration pointed_to_ty;
+
+                pointed_to_ty.decl_specs = e->child[ptr_child]->type.decl_specs;
+                pointed_to_ty.idl = e->child[ptr_child]->type.idl->child;
+                if (ptr_child == 0)
+                    return L + R*compute_sizeof(&pointed_to_ty);
+                else
+                    return L*compute_sizeof(&pointed_to_ty) + R;
+            } else {
+                return L + R;
+            }
+        }
         case TOK_MINUS:
-            if (!is_integer(get_type_category(&e->child[1]->type)))
-                break;
-            return L - R;
+            if (is_pointer(get_type_category(&e->child[0]->type))) {
+                Declaration pointed_to_ty;
+
+                pointed_to_ty.decl_specs = e->child[0]->type.decl_specs;
+                pointed_to_ty.idl = e->child[0]->type.idl->child;
+                if (is_pointer(get_type_category(&e->child[1]->type)))
+                    /*
+                     * pointer - pointer.
+                     * Make the subtraction and divide the result by sizeof(pointed_to_type).
+                     * For example:
+                     *  (int *)12 - (int *)1 == (12-1)/sizeof(int)
+                     */
+                    return (L-R)/compute_sizeof(&pointed_to_ty);
+                else /* if (is_integer(get_type_category(&e->child[1]->type))) */
+                    /*
+                     * pointer - integer.
+                     * Escalate the non-pointer operand before subtract.
+                     * For example:
+                     *  (int *12) - 1 == 12 - 1*sizeof(int)
+                     */
+                    return L - R*compute_sizeof(&pointed_to_ty);
+            } else {
+                return L - R;
+            }
         case TOK_LSHIFT:
             return L << R;
         case TOK_RSHIFT:
