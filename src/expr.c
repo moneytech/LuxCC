@@ -2005,3 +2005,22 @@ long eval_const_expr(ExecNode *e, int is_addr)
     // ERROR(e, "invalid constant expression");
     FATAL_ERROR(e, "invalid constant expression");
 }
+
+void free_expression_tree(ExecNode *e)
+{
+    if (e == NULL)
+        return;
+
+    /*
+     * TODO: handle operator nodes.
+     */
+    switch (e->kind.exp) {
+    case OpExp:
+        break;
+    case IConstExp:
+    case StrLitExp:
+    case IdExp:
+        free(e);
+        break;
+    }
+}

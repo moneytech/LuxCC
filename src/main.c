@@ -8,6 +8,7 @@ int main(int argc, char *argv[])
 {
     static PreTokenNode *pre;
     static TokenNode *tok;
+    static ExternDecl *tree;
 
     /* only preprocess */
     pre = preprocess(argv[1]); //"src/test.c");
@@ -20,7 +21,7 @@ int main(int argc, char *argv[])
     // printf("%u preprocessing tokens were created (aprox)\n", number_of_pre_tokens);
 
     /* only tokenize */
-    // tok = lexer(pre);
+    tok = lexer(pre);
     // while (tok != NULL) {
         // printf("%s:%d:%-3d =>   token: %-15s lexeme: `%s'\n", tok->src_file, tok->src_line,
         // tok->src_column, token_table[tok->token*2], tok->lexeme);
@@ -30,7 +31,7 @@ int main(int argc, char *argv[])
     // printf("%u C tokens were created (aprox)\n", number_of_c_tokens);
 
     /* only parse */
-    // parser(tok);
+    tree = parser(tok);
     // extern unsigned number_of_ast_nodes;
     // printf("%u AST nodes were created (aprox)\n", number_of_ast_nodes);
     // printf("%d warning and %d error generated\n", warning_count, error_count);

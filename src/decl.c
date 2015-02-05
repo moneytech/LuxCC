@@ -56,7 +56,7 @@ static ExternId *external_declarations[HASH_SIZE];
 
 /*
  * Hash tables that implement ordinary identifiers and tags names spaces.
- * The hash tabla that implements label names is in 'stmt.c'.
+ * The hash tabla that implements label names is in stmt.c.
  * The hash table that implements structure and union members is a local
  * table to check_for_dup_member().
  */
@@ -1125,7 +1125,7 @@ void analyze_parameter_declaration(Declaration *d)
                 /* 6.7.5.3#7 */
                 p->op = TOK_STAR;
                 if (p->attr.e != NULL) {
-                    /* >>free the expression corresponding to the size here<< */
+                    free_expression_tree(p->attr.e);
                     p->attr.e = NULL;
                 }
             } else if (p->op == TOK_FUNCTION) {

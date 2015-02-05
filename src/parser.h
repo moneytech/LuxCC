@@ -94,6 +94,7 @@ struct ExecNode {
     TokenNode *info;
 };
 
-void parser(TokenNode *);
+// void parser(TokenNode *);
+ExternDecl *parser(TokenNode *tokens);
 
 #endif

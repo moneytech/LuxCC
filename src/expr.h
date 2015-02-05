@@ -16,6 +16,7 @@ void analyze_logical_operator(ExecNode *e);
 void analyze_conditional_expression(ExecNode *e);
 void analyze_expression(ExecNode *e);
 
+void free_expression_tree(ExecNode *e);
 int can_assign_to(Declaration *dest_ty, ExecNode *e);
 long eval_const_expr(ExecNode *e, int is_addr);
 Token get_type_category(Declaration *d);

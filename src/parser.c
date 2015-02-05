@@ -191,10 +191,10 @@ int in_first_type_qualifier(void)
 /*
  * Main function of the parser.
  */
-void parser(TokenNode *tokens)
+ExternDecl *parser(TokenNode *tokens)
 {
     curr_tok = tokens;
-    translation_unit();
+    return translation_unit();
 }
 
 // =============================================================================
