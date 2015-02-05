@@ -124,6 +124,11 @@ PreTokenNode *tokenize(void)
         p = p->next;
     }
 
+    /*
+     * The file buffer is not needed anymore, free it.
+     */
+    free(buf);
+
     return n;
 }
 
@@ -1224,6 +1229,11 @@ void expand_parameterized_macro(Macro *m)
      */
     for (i = 0; i < tab_size; i++) {
         PreTokenNode *temp;
+
+        if (equal(par_arg_tab[i][0]->lexeme, "__VA_ARGS__")) {
+            free(par_arg_tab[i][0]->lexeme);
+            free(par_arg_tab[i][0]);
+        }
 
         while (par_arg_tab[i][1] != NULL) {
             temp = par_arg_tab[i][1];

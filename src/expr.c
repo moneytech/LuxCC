@@ -1732,10 +1732,12 @@ void analyze_primary_expression(ExecNode *e)
 {
     switch (e->kind.exp) {
     case IdExp:
+        /*
+         * Transform enumeration constants into simple integer constants.
+         */
         if (e->type.idl!=NULL && e->type.idl->op==TOK_ENUM_CONST) {
             e->kind.exp = IConstExp;
             e->attr.val = e->type.idl->attr.e->attr.val;
-            /* >>free<< */
             e->type.idl = NULL;
         }
         break;

@@ -647,7 +647,7 @@ void analyze_enumerator(TypeExp *e)
     }
 
     e->attr.e->attr.val = en_val;
-    printf("en_val=%ld\n", en_val);
+    // printf("en_val=%ld\n", en_val);
 error:
     install(&enum_ds, e);
 }
