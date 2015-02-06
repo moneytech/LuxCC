@@ -647,7 +647,7 @@ void analyze_enumerator(TypeExp *e)
     }
 
     e->attr.e->attr.val = en_val;
-    printf("en_val=%ld\n", en_val);
+    // printf("en_val=%ld\n", en_val);
 error:
     install(&enum_ds, e);
 }
@@ -1229,7 +1229,7 @@ no_params:
 
 void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds, TypeExp *dct)
 {
-    char *t1, *t2;
+    char *ty1, *ty2;
     Declaration d1, d2;
 
     if (are_compatible(prev_ds, prev_dct, ds, dct, TRUE, TRUE))
@@ -1244,15 +1244,15 @@ void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds
     d2.decl_specs = ds;
     d2.idl = dct;
 
-    t1 = stringify_type_exp(&d1, FALSE);
-    t2 = stringify_type_exp(&d2, FALSE);
+    ty1 = stringify_type_exp(&d1, FALSE);
+    ty2 = stringify_type_exp(&d2, FALSE);
 
     fprintf(stderr, INFO_COLOR "%s:%d:%d: " ERROR_COLOR "error: " RESET_ATTR,
     dct->info->src_file, dct->info->src_line, dct->info->src_column);
     fprintf(stderr, "conflicting types for `%s'\n", dct->str);
-    fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "previously declared with type `%s'\n", t1);
-    fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "now redeclared with type `%s'\n", t2);
-    // exit(EXIT_FAILURE);
+    fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "previously declared with type `%s'\n", ty1);
+    fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "now redeclared with type `%s'\n", ty2);
+    free(ty1), free(ty2);
 }
 
 void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
@@ -1389,9 +1389,15 @@ scalar:
         dest_ty.decl_specs = ds;
         dest_ty.idl = dct;
         // if (!can_assign_to(e, &dest_ty, &e->type))
-        if (!can_assign_to(&dest_ty, e))
-            ERROR_R(e, "initializing `%s' with an expression of incompatible type `%s'",
-            stringify_type_exp(&dest_ty, FALSE), stringify_type_exp(&e->type, FALSE));
+        if (!can_assign_to(&dest_ty, e)) {
+            char *ty1, *ty2;
+
+            ty1 = stringify_type_exp(&dest_ty, FALSE);
+            ty2 = stringify_type_exp(&e->type, FALSE);
+            ERROR(e, "initializing `%s' with an expression of incompatible type `%s'", ty1, ty2);
+            free(ty1), free(ty2);
+            return;
+        }
     }
 }
 

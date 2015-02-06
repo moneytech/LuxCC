@@ -9,8 +9,6 @@
     PRINT_ERROR(pre_tok->src_file, pre_tok->src_line, pre_tok->src_column, __VA_ARGS__),\
     exit(EXIT_FAILURE)
 
-#define equal(s, t)     (strcmp(s, t) == 0)
-#define not_equal(s, t) (strcmp(s, t) != 0)
 int get_esc_seq_val(char **c);
 void check_integer_constant(char *ic);
 static PreTokenNode *pre_tok; /* declared global so ERROR can access it */

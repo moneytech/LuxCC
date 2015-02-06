@@ -20,6 +20,11 @@ extern unsigned error_count, warning_count;
         PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__);\
         ++error_count;\
         (tok)->type.decl_specs = get_type_node(TOK_ERROR);\
+    } while (0)
+
+#define ERROR_R(tok, ...)\
+    do {\
+        ERROR(tok, __VA_ARGS__);\
         return;\
     } while (0)
 
@@ -62,6 +67,12 @@ extern unsigned error_count, warning_count;
 
 Token get_type_category(Declaration *d)
 {
+    /*
+     * If the type 'error' is between the declaration specifiers,
+     * ignore any declarator and just return that type. This only handles
+     * those identifiers that were installed in the symbol table as having
+     * erroneous type.
+     */
     if (d->decl_specs->op == TOK_ERROR)
         return TOK_ERROR;
 
@@ -87,11 +98,17 @@ int is_integer(Token ty)
 
 static int is_pointer(Token op)
 {
+    /*
+     * Note: function designators are checked for explicitly by the code.
+     */
     return (op==TOK_STAR || op==TOK_SUBSCRIPT);
 }
 
 static int is_scalar(Token op)
 {
+    /*
+     * Note: again, function designators and arrays are checked for explicitly.
+     */
     return (is_integer(op) || op==TOK_STAR);
 }
 
@@ -381,8 +398,8 @@ void binary_op_error(ExecNode *op)
 
     ty1 = stringify_type_exp(&op->child[0]->type, TRUE);
     ty2 = stringify_type_exp(&op->child[1]->type, TRUE);
-
     ERROR(op, "invalid operands to binary %s (`%s' and `%s')", token_table[op->attr.op*2+1], ty1, ty2);
+    free(ty1), free(ty2);
 }
 
 int is_ptr2obj(Declaration *p)
@@ -635,7 +652,7 @@ void analyze_assignment_expression(ExecNode *e)
      * #2 An assignment operator shall have a modifiable lvalue as its left operand.
      */
     if (!is_modif_lvalue(e->child[0]))
-        ERROR(e, "expression is not assignable");
+        ERROR_R(e, "expression is not assignable");
 
     /*
      * #3 An assignment operator stores a value in the object designated by the left operand. An
@@ -646,10 +663,16 @@ void analyze_assignment_expression(ExecNode *e)
      * occur between the previous and the next sequence point.
      */
     if (e->attr.op == TOK_ASSIGN) {
-        if (!can_assign_to(&e->child[0]->type, e->child[1]))
-            ERROR(e, "incompatible types when assigning to type `%s' from type `%s'",
-            stringify_type_exp(&e->child[0]->type, FALSE),
-            stringify_type_exp(&e->child[1]->type, TRUE));
+        if (!can_assign_to(&e->child[0]->type, e->child[1])) {
+            char *ty1, *ty2;
+
+            ty1 = stringify_type_exp(&e->child[0]->type, FALSE);
+            ty2 = stringify_type_exp(&e->child[1]->type, TRUE);
+            ERROR(e, "incompatible types when assigning to type `%s' from type `%s'", ty1, ty2);
+            free(ty1), free(ty2);
+
+            return;
+        }
     } else {
         /* E1 op= E2 ==> E1 = E1 op (E2) ; with E1 evaluated only once */
         ExecNode temp;
@@ -697,10 +720,16 @@ void analyze_assignment_expression(ExecNode *e)
             analyze_bitwise_operator(&temp);
             break;
         }
-        if (!can_assign_to(&e->child[0]->type, &temp))
-            ERROR(e, "incompatible types when assigning to type `%s' from type `%s'",
-            stringify_type_exp(&e->child[0]->type, FALSE),
-            stringify_type_exp(&temp.type, TRUE));
+        if (!can_assign_to(&e->child[0]->type, &temp)) {
+            char *ty1, *ty2;
+
+            ty1 = stringify_type_exp(&e->child[0]->type, FALSE);
+            ty2 = stringify_type_exp(&temp.type, TRUE);
+            ERROR(e, "incompatible types when assigning to type `%s' from type `%s'", ty1, ty2);
+            free(ty1), free(ty2);
+
+            return;
+        }
     }
 
     e->type = e->child[0]->type;
@@ -747,7 +776,7 @@ void analyze_conditional_expression(ExecNode *e)
     IS_ERROR_UNARY(e, ty1);
 
     if (!is_scalar(ty1) && ty1!=TOK_SUBSCRIPT && ty1!=TOK_FUNCTION)
-        ERROR(e, "invalid first operand for conditional operator");
+        ERROR_R(e, "invalid first operand for conditional operator");
 
     /*
      * Check that the second and third operands can
@@ -943,10 +972,14 @@ void analyze_conditional_expression(ExecNode *e)
 
 done:
     return;
-type_mismatch:
-    ERROR(e, "type mismatch in conditional expression (`%s' and `%s')",
-    stringify_type_exp(&e->child[1]->type, TRUE),
-    stringify_type_exp(&e->child[2]->type, TRUE));
+type_mismatch: {
+    char *ty1, *ty2;
+
+    ty1 = stringify_type_exp(&e->child[1]->type, TRUE);
+    ty2 = stringify_type_exp(&e->child[2]->type, TRUE);
+    ERROR(e, "type mismatch in conditional expression (`%s' and `%s')", ty1, ty2);
+    free(ty1), free(ty2);
+    }
 }
 
 void analyze_logical_operator(ExecNode *e)
@@ -1217,18 +1250,18 @@ void analyze_cast_expression(ExecNode *e)
 
     if (!is_scalar(ty_src) && ty_src!=TOK_SUBSCRIPT
     && ty_src!=TOK_FUNCTION && ty_src!=TOK_VOID)
-        ERROR(e, "cast operand does not have scalar type");
+        ERROR_R(e, "cast operand does not have scalar type");
 
     /* target type */
     ty_tgt = get_type_category((Declaration *)e->child[1]);
     IS_ERROR_UNARY(e, ty_tgt);
 
     if (!is_scalar(ty_tgt) && ty_tgt!=TOK_VOID)
-        ERROR(e, "cast specifies conversion to non-scalar type");
+        ERROR_R(e, "cast specifies conversion to non-scalar type");
 
     /* check for void ==> non-void */
     if (ty_src==TOK_VOID && ty_tgt!=TOK_VOID)
-        ERROR(e, "invalid cast of void expression to non-void type");
+        ERROR_R(e, "invalid cast of void expression to non-void type");
 
     e->type = *(Declaration *)e->child[1];
 }
@@ -1247,9 +1280,9 @@ void analyze_inc_dec_operator(ExecNode *e)
     IS_ERROR_UNARY(e, ty);
 
     if (!is_integer(ty) && !is_pointer(ty))
-        ERROR(e, "wrong type argument to increment");
+        ERROR_R(e, "wrong type argument to increment");
     if (!is_modif_lvalue(e->child[0]))
-        ERROR(e, "expression is not modifiable");
+        ERROR_R(e, "expression is not modifiable");
 
     e->type = e->child[0]->type;
 }
@@ -1285,10 +1318,10 @@ void analyze_unary_expression(ExecNode *e)
         IS_ERROR_UNARY(e, ty);
 
         if (ty == TOK_FUNCTION)
-            ERROR(e, "invalid application of `sizeof' to a function type");
+            ERROR_R(e, "invalid application of `sizeof' to a function type");
         else if (ty==TOK_SUBSCRIPT && dct->attr.e==NULL
         || is_struct_union_enum(ty) && !is_complete(ts->str))
-            ERROR(e, "invalid application of `sizeof' to incomplete type");
+            ERROR_R(e, "invalid application of `sizeof' to incomplete type");
 
         /*
          * #2 The sizeof operator yields the size (in bytes) of its operand, which may be an
@@ -1321,9 +1354,9 @@ void analyze_unary_expression(ExecNode *e)
         IS_ERROR_UNARY(e, ty);
 
         if (!is_lvalue(e->child[0]) && ty!=TOK_FUNCTION)
-            ERROR(e, "invalid operand to &");
+            ERROR_R(e, "invalid operand to &");
         if ((temp=get_sto_class_spec(e->child[0]->type.decl_specs))!=NULL && temp->op==TOK_REGISTER)
-            ERROR(e, "address of register variable requested");
+            ERROR_R(e, "address of register variable requested");
 
         /*
          * 6.5.3.2
@@ -1350,7 +1383,7 @@ void analyze_unary_expression(ExecNode *e)
         IS_ERROR_UNARY(e, ty);
 
         if (!is_pointer(ty) && ty!=TOK_FUNCTION)
-            ERROR(e, "invalid operand to *");
+            ERROR_R(e, "invalid operand to *");
 
         /* make sure that the pointer does not point to an incomplete struct/union/enum */
         if (ty != TOK_FUNCTION) {
@@ -1358,7 +1391,7 @@ void analyze_unary_expression(ExecNode *e)
 
             ts = get_type_spec(e->child[0]->type.decl_specs);
             if (is_struct_union_enum(ts->op) && !is_complete(ts->str))
-                ERROR(e, "dereferencing pointer to incomplete type");
+                ERROR_R(e, "dereferencing pointer to incomplete type");
         }
 
         /*
@@ -1387,7 +1420,7 @@ void analyze_unary_expression(ExecNode *e)
         IS_ERROR_UNARY(e, ty);
 
         if (!is_integer(ty))
-            ERROR(e, "invalid operand to %s", token_table[e->attr.op*2+1]);
+            ERROR_R(e, "invalid operand to %s", token_table[e->attr.op*2+1]);
 
         e->type.decl_specs = get_type_node(get_promoted_type(ty));
         break;
@@ -1403,7 +1436,7 @@ void analyze_unary_expression(ExecNode *e)
         IS_ERROR_UNARY(e, ty);
 
         if (!is_scalar(ty) && ty!=TOK_FUNCTION && ty!=TOK_SUBSCRIPT)
-            ERROR(e, "invalid operand to !");
+            ERROR_R(e, "invalid operand to !");
 
         /* the result has type int */
         e->type.decl_specs = get_type_node(TOK_INT);
@@ -1441,7 +1474,7 @@ void analyze_postfix_expression(ExecNode *e)
             ptr_operand = e->child[1]->type.idl;
             ch_idx = 1;
         } else {
-            ERROR(e, "subscripted value is neither array nor pointer");
+            ERROR_R(e, "subscripted value is neither array nor pointer");
         }
 
         /*
@@ -1458,7 +1491,7 @@ void analyze_postfix_expression(ExecNode *e)
         } else if (ptr_operand->child->op==TOK_SUBSCRIPT && ptr_operand->child->attr.e==NULL) {
             goto subs_incomp;
         } else if (ptr_operand->child->op == TOK_FUNCTION) {
-            ERROR(e, "subscripting pointer to function");
+            ERROR_R(e, "subscripting pointer to function");
         }
 
         /* set as the type of the [] node the element type */
@@ -1468,9 +1501,9 @@ void analyze_postfix_expression(ExecNode *e)
         }
         break;
 non_int_sub:
-        ERROR(e, "array subscript is not an integer");
+        ERROR_R(e, "array subscript is not an integer");
 subs_incomp:
-        ERROR(e, "subscripting pointer to incomplete type");
+        ERROR_R(e, "subscripting pointer to incomplete type");
     }
     case TOK_FUNCTION: {
         /*
@@ -1513,7 +1546,7 @@ subs_incomp:
 
             ts = get_type_spec(e->child[0]->type.decl_specs);
             if (is_struct_union_enum(ts->op) && !is_complete(ts->str))
-                ERROR(e, "calling function with incomplete return type `%s %s'", token_table[ts->op*2+1], ts->str);
+                ERROR_R(e, "calling function with incomplete return type `%s %s'", token_table[ts->op*2+1], ts->str);
         }
 
         /*
@@ -1544,10 +1577,16 @@ subs_incomp:
                 break;
             p_ty.decl_specs = p->decl->decl_specs;
             p_ty.idl = (p->decl->idl!=NULL&&p->decl->idl->op==TOK_ID)?p->decl->idl->child:p->decl->idl;
-            if (!can_assign_to(&p_ty, a))
-                ERROR(e, "parameter/argument type mismatch (parameter #%d; expected `%s', "
-                "given `%s')", n, stringify_type_exp(&p_ty, TRUE),
-                stringify_type_exp(&a->type, TRUE));
+            if (!can_assign_to(&p_ty, a)) {
+                char *ty1, *ty2;
+
+                ty1 = stringify_type_exp(&p_ty, TRUE);
+                ty2 = stringify_type_exp(&a->type, TRUE);
+                ERROR(e, "parameter/argument type mismatch (parameter #%d; expected `%s', given `%s')", n, ty1, ty2);
+                free(ty1), free(ty2);
+
+                return;
+            }
 
             ++n;
             p = p->next;
@@ -1557,7 +1596,7 @@ subs_incomp:
             if (p!=NULL && p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
                 ; /* OK */
             else
-                ERROR(e, "parameter/argument number mismatch");
+                ERROR_R(e, "parameter/argument number mismatch");
         }
 
         /* set as the type of the node () the return type of the function */
@@ -1565,7 +1604,7 @@ subs_incomp:
         e->type.idl = ty->child;
         break;
 non_callable:
-        ERROR(e, "called object is not a function");
+        ERROR_R(e, "called object is not a function");
     }
     case TOK_DOT:
     case TOK_ARROW: {
@@ -1587,13 +1626,13 @@ non_callable:
         ts = get_type_spec(e->child[0]->type.decl_specs);
 
         if (ts->op!=TOK_STRUCT && ts->op!=TOK_UNION)
-            ERROR(e, "left operand of %s has neither structure nor union type", token_table[e->attr.op*2+1]);
+            ERROR_R(e, "left operand of %s has neither structure nor union type", token_table[e->attr.op*2+1]);
         if (e->attr.op == TOK_DOT) {
             if (e->child[0]->type.idl != NULL)
-                ERROR(e, "invalid operand to .");
+                ERROR_R(e, "invalid operand to .");
         } else {
             if (e->child[0]->type.idl==NULL || !is_pointer(e->child[0]->type.idl->op))
-                ERROR(e, "invalid operand to ->");
+                ERROR_R(e, "invalid operand to ->");
         }
 
         /* fetch the name of the requested member */
@@ -1605,7 +1644,7 @@ non_callable:
                 TypeTag *np;
 
                 if ((np=lookup_tag(ts->str, TRUE))->type->attr.dl == NULL)
-                    ERROR(e, "left operand of . has incomplete type");
+                    ERROR_R(e, "left operand of . has incomplete type");
                 ts = np->type;
             }
         }
@@ -1617,7 +1656,7 @@ non_callable:
                     goto mem_found;
             }
         }
-        ERROR(e, "`%s %s' has no member named `%s'", token_table[ts->op*2+1],
+        ERROR_R(e, "`%s %s' has no member named `%s'", token_table[ts->op*2+1],
         (ts->str==NULL)?"<anonymous>":ts->str, id);
 mem_found:
         /*
@@ -2042,7 +2081,7 @@ long eval_const_expr(ExecNode *e, int is_addr)
     }
     }
 
-    // ERROR(e, "invalid constant expression");
+    // ERROR_R(e, "invalid constant expression");
     FATAL_ERROR(e, "invalid constant expression");
 }
 

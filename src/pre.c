@@ -5,10 +5,6 @@
 #include <ctype.h>
 #include "util.h"
 
-
-#define equal(s, t)     (strcmp(s, t) == 0)
-#define not_equal(s, t) (strcmp(s, t) != 0)
-
 #define SRC_FILE    curr_source_file
 #define SRC_LINE    curr_line
 #define SRC_COLUMN  src_column

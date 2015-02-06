@@ -33,6 +33,9 @@
  */
 #define my_assert(expr, msg) do { if (!(expr)) fprintf(stderr, "Assertion failed at function `%s'\n", msg), exit(1); } while (0)
 
+#define equal(s, t)     (strcmp((s), (t)) == 0)
+#define not_equal(s, t) (strcmp((s), (t)) != 0)
+
 unsigned long hash2(long k);
 unsigned hash(char *s);
 

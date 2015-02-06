@@ -346,9 +346,14 @@ void analyze_jump_statement(ExecNode *s, int in_loop, int in_switch)
              * type different from the return type of the function in which it appears, the value is
              * converted as if by assignment to an object having the return type of the function.
              */
-            if (!can_assign_to(&ret_ty, s->child[0]))
-                ERROR(s, "incompatible types when returning type `%s' but `%s' was expected",
-                stringify_type_exp(&s->child[0]->type, TRUE), stringify_type_exp(&ret_ty, FALSE));
+            if (!can_assign_to(&ret_ty, s->child[0])) {
+                char *ty1, *ty2;
+
+                ty1 = stringify_type_exp(&s->child[0]->type, TRUE);
+                ty2 = stringify_type_exp(&ret_ty, FALSE);
+                ERROR(s, "incompatible types when returning type `%s' but `%s' was expected", ty1, ty2);
+                free(ty1), free(ty2);
+            }
         } else {
             /* return; */
             if (ret_ty.idl!=NULL || get_type_spec(ret_ty.decl_specs)->op!=TOK_VOID)
