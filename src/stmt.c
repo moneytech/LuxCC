@@ -9,6 +9,7 @@
 #include "expr.h"
 
 extern unsigned warning_count, error_count;
+extern int disable_warnings;
 
 #define ERROR(tok, ...)\
     do {\
@@ -23,8 +24,9 @@ extern unsigned warning_count, error_count;
     } while (0)
 
 #define WARNING(tok, ...)\
+    (!disable_warnings)?\
     PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
-    ++warning_count
+    ++warning_count:0
 
 #define HASH_SIZE       101
 #define MAX_SWITCH_NEST 16

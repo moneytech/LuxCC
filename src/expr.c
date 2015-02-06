@@ -9,6 +9,7 @@
 #include "decl.h"
 
 extern unsigned error_count, warning_count;
+extern int disable_warnings;
 
 /*
  * Print error, increase error count, and set to 'error'
@@ -29,8 +30,9 @@ extern unsigned error_count, warning_count;
     } while (0)
 
 #define WARNING(tok, ...)\
+    (!disable_warnings)?\
     PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
-    ++warning_count
+    ++warning_count:0
 
 #define FATAL_ERROR(tok, ...)\
     PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
@@ -1241,8 +1243,8 @@ void analyze_cast_expression(ExecNode *e)
 
     /*
      * 6.5.4
-     * #2 Unless the type name specifies a void type, the type name shall specify qualified
-     * or unqualified scalar type and the operand shall have scalar type.
+     * #2 Unless the type name specifies a void type, the type name shall specify
+     * qualified or unqualified scalar type and the operand shall have scalar type.
      */
     /* source type */
     ty_src = get_type_category(&e->child[0]->type);
@@ -1280,7 +1282,8 @@ void analyze_inc_dec_operator(ExecNode *e)
     IS_ERROR_UNARY(e, ty);
 
     if (!is_integer(ty) && !is_pointer(ty))
-        ERROR_R(e, "wrong type argument to increment");
+        ERROR_R(e, "wrong type argument to %s",
+        (e->attr.op==TOK_POS_INC||e->attr.op==TOK_PRE_INC)?"increment":"decrement");
     if (!is_modif_lvalue(e->child[0]))
         ERROR_R(e, "expression is not modifiable");
 
@@ -1576,16 +1579,21 @@ subs_incomp:
             if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
                 break;
             p_ty.decl_specs = p->decl->decl_specs;
+            /* handle parameters with and without an identifier */
             p_ty.idl = (p->decl->idl!=NULL&&p->decl->idl->op==TOK_ID)?p->decl->idl->child:p->decl->idl;
             if (!can_assign_to(&p_ty, a)) {
                 char *ty1, *ty2;
 
                 ty1 = stringify_type_exp(&p_ty, TRUE);
                 ty2 = stringify_type_exp(&a->type, TRUE);
-                ERROR(e, "parameter/argument type mismatch (parameter #%d; expected `%s', given `%s')", n, ty1, ty2);
+                // ERROR(e, "parameter/argument type mismatch (parameter #%d; expected `%s', given `%s')", n, ty1, ty2);
+                PRINT_ERROR(a->info->src_file, a->info->src_line, a->info->src_column,
+                "parameter/argument type mismatch (parameter #%d; expected `%s', given `%s')",
+                n, ty1, ty2);
                 free(ty1), free(ty2);
+                ++error_count;
 
-                return;
+                // return;
             }
 
             ++n;
@@ -2091,7 +2099,7 @@ void free_expression_tree(ExecNode *e)
         return;
 
     /*
-     * TODO: handle operator nodes.
+     * TODO: free operator nodes.
      */
     switch (e->kind.exp) {
     case OpExp:

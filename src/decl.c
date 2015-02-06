@@ -8,6 +8,7 @@
 #include "stmt.h"
 
 extern unsigned error_count, warning_count;
+extern int disable_warnings;
 
 #define ERROR(tok, ...)\
     do {\
@@ -28,8 +29,9 @@ extern unsigned error_count, warning_count;
     } while (0)
 
 #define WARNING(tok, ...)\
+    (!disable_warnings)?\
     PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
-    ++warning_count
+    ++warning_count:0
 
 #define FATAL_ERROR(tok, ...)\
     PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
@@ -1574,6 +1576,13 @@ no_link_incomp:
     ERROR_R(declarator, "`%s' has no linkage and incomplete type", declarator->str);
 }
 
+/*
+ * struct declaration related errors terminate compilation
+ * so further code that analyzes expressions doesn't get confused.
+ * TODO: find a workaround to this so compilation can go on and detect
+ * more errors.
+ */
+
 void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)
 {
     /* 6.7.2.1
@@ -1644,6 +1653,11 @@ void check_for_dup_member(DeclList *d)
     }
 }
 
+/*
+ * If show_decayed is TRUE, array are shown as pointers to the element
+ * type and function designators are shown as pointers to the function
+ * they designate.
+ */
 char *stringify_type_exp(Declaration *d, int show_decayed)
 {
     TypeExp *e;
