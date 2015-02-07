@@ -13,6 +13,8 @@
     PRINT_ERROR(SRC_FILE, SRC_LINE, SRC_COLUMN, __VA_ARGS__),\
     exit(EXIT_FAILURE)
 
+#define MAX_LOG_LINE_LEN 4096
+
 #define MACRO_TABLE_SIZE 101
 
 typedef enum {
@@ -48,7 +50,7 @@ typedef enum {
 } State;
 
 static char *buf, *curr, *curr_source_file;
-static char token_string[1024];
+static char token_string[MAX_LOG_LINE_LEN];
 static PreTokenNode *curr_tok, *token_list;
 static int curr_line, src_column;
 unsigned number_of_pre_tokens;
@@ -128,7 +130,7 @@ PreTokenNode *tokenize(void)
     return n;
 }
 
-// static
+static
 char *str_tok[] = {
     "EOF",
     "punctuator",
@@ -142,8 +144,7 @@ char *str_tok[] = {
 
 /*
  * Load the file located at `file_path' into the global buffer `buf',
- * and perform end-of-line replacing (DOS's CRLF are replaced for a
- * single LF) and line splicing.
+ * and perform end-of-line replacement (CRLF ==> LF) and line splicing.
  */
 static
 void init(char *file_path)
@@ -154,7 +155,7 @@ void init(char *file_path)
     fp = fopen(file_path, "rb");
     if (fp == NULL) {
         fprintf(stderr, "Error reading file `%s'\n", file_path);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     fseek(fp, 0, SEEK_END);
@@ -163,7 +164,7 @@ void init(char *file_path)
     rewind(fp);
     curr = buf = malloc(buf_size);
 
-    while (fgets(curr, /*0x7FFFFFFF*/0x1000, fp) != NULL) {
+    while (fgets(curr, 0x7FFFFFFF, fp) != NULL) {
         int line_len = strlen(curr);
 #if WIN_LINE_ENDING
         /* replace CRLFs for LFs */
@@ -175,7 +176,7 @@ void init(char *file_path)
         /* join lines ending in \ with the next line (the last line must not end with \) */
         while (line_len>1 && curr[line_len-2]=='\\') {
             line_len -= 2; /* removes '\\' and '\n' */
-            fgets(curr+line_len, /*0x7FFFFFFF*/0x1000, fp);
+            fgets(curr+line_len, 0x7FFFFFFF, fp);
             line_len += strlen(curr+line_len);
 #if WIN_LINE_ENDING
             /* again, replace CRLFs for LFs */
@@ -184,6 +185,10 @@ void init(char *file_path)
                 --line_len;
             }
 #endif
+        }
+        if (line_len > MAX_LOG_LINE_LEN-1) {
+            fprintf(stderr, "Error: logical line too long\n");
+            exit(EXIT_FAILURE);
         }
         curr += line_len;
     }
@@ -840,7 +845,7 @@ void control_line(int skip)
 
         /*
          * Tokenize the file's content and insert
-         * the result right after the filename.
+         * the result right after #include directive.
          */
         tokenized_file = tokenize();
         /*
@@ -1273,7 +1278,8 @@ void reenable_macro(char *name)
     Macro *m;
 
     for(m = macro_table[hash(name)%MACRO_TABLE_SIZE]; m != NULL; m = m->next) {
-        if(equal(get_lexeme(1), m->name)) {
+        // if(equal(get_lexeme(1), m->name)) {
+        if(equal(name, m->name)) {
             m->enabled = TRUE;
             break;
         }

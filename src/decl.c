@@ -1253,7 +1253,7 @@ void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds
     dct->info->src_file, dct->info->src_line, dct->info->src_column);
     fprintf(stderr, "conflicting types for `%s'\n", dct->str);
     fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "previously declared with type `%s'\n", ty1);
-    fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "now redeclared with type `%s'\n", ty2);
+    fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "now redeclared with type      `%s'\n", ty2);
     free(ty1), free(ty2);
 }
 
