@@ -528,7 +528,7 @@ TypeExp *struct_or_union_specifier(void)
             } else {
                 if (n->op != all->type->op)
                     ERROR("use of `%s' with tag type that does not match previous declaration", n->str);
-                n->str = all->type->str; /* this allows to do type compatibility through pointers comparison */
+                n->str = all->type->str; /* this allows to check for type compatibility through pointers comparison */
             }
         } else {
             install_tag(n); /* new incomplete type */
@@ -1349,6 +1349,10 @@ ExecNode *expression_statement(void)
         n->child[0] = expression();
     match(TOK_SEMICOLON);
 
+#include "ic.h"
+    // ic_expression(n->child[0], FALSE);
+    // disassemble();
+
     return n;
 }
 
@@ -1984,6 +1988,8 @@ ExecNode *postfix(void)
     return n;
 }
 
+char *extra_str[] = { "auto", "static", "none", "external", "internal" };
+
 /*
  * primary_expression = identifier |
  *                      constant |
@@ -2032,6 +2038,10 @@ ExecNode *primary_expression(void)
             if ((scs=get_sto_class_spec(s->decl_specs))==NULL || scs->op!=TOK_TYPEDEF) {
                 n->type.decl_specs = s->decl_specs;
                 n->type.idl = (s->declarator->op!=TOK_ENUM_CONST)?s->declarator->child:s->declarator;
+                set_extra_attr(n, s);
+                // printf("identifier `%s', scope=%d, linkage=%s, storage=%s, is_param=%d\n", n->attr.str,
+                // n->extra[ATTR_SCOPE], extra_str[n->extra[ATTR_LINKAGE]], extra_str[n->extra[ATTR_DURATION]],
+                // n->extra[ATTR_IS_PARAM]);
             } else {
                 PRINT_ERROR(curr_tok->src_file, curr_tok->src_line, curr_tok->src_column,
                 "expecting primary-expression; found typedef-name `%s'", n->attr.str);

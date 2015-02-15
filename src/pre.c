@@ -95,7 +95,7 @@ char *get_lexeme(int i)
     return p->lexeme;
 }
 
-PreToken get_token(void);
+static PreToken get_token(void);
 
 static PreTokenNode *penultimate_node; /* the code for #include use this */
 
@@ -123,7 +123,7 @@ PreTokenNode *tokenize(void)
     }
 
     /*
-     * The file buffer is not needed anymore, free it.
+     * The file buffer is not needed anymore.
      */
     free(buf);
 
@@ -244,9 +244,8 @@ PreToken get_token(void)
                 save = FALSE;
                 state = STATE_INCHAR;
             } else if (c == '\"') {
-                // save = FALSE;
                 state = STATE_INSTR;
-            } else if ((c=='/') && ((*curr=='/')||(*curr=='*'))) { /* // or /* */
+            } else if ((c=='/') && ((*curr=='/')||(*curr=='*'))) { // /* or //
                 save = FALSE;
                 if (*curr == '/')
                     state = STATE_INLINECOMMENT;
@@ -386,14 +385,12 @@ PreToken get_token(void)
         case STATE_INID:
             if (!isalpha(c) && !isdigit(c) && (c!='_')) {
                 save = FALSE;
-                // --curr;
                 REWIND();
                 token = (state==STATE_INNUM)?PRE_TOK_NUM:PRE_TOK_ID;
                 state = STATE_DONE;
             }
             break;
         case STATE_INCHAR:
-            // --curr;
             REWIND();
             if (*curr=='\0' || *curr=='\n') {
                 ERROR("missing terminating \"'\" character");
@@ -416,7 +413,7 @@ PreToken get_token(void)
                 cb = 0;
                 if (*curr == '\\')
                     ++cb;
-                token_string[tok_str_ind++] = ADVANCE();//*curr++;
+                token_string[tok_str_ind++] = ADVANCE();
                 while (*curr!='\'' || cb%2!=0) {
                     if (*curr=='\0' || *curr=='\n')
                         ERROR("missing terminating \"'\" character");
@@ -424,17 +421,15 @@ PreToken get_token(void)
                         ++cb;
                     else
                         cb = 0;
-                    token_string[tok_str_ind++] = ADVANCE();//*curr++;
+                    token_string[tok_str_ind++] = ADVANCE();
                 }
-                // ++curr; /* skip ' */
-                ADVANCE();
+                ADVANCE(); /* skip ' */
                 save = FALSE;
                 state = STATE_DONE;
                 token = PRE_TOK_CHACON;
             }
             break;
         case STATE_INSTR:
-            // --curr;
             REWIND();
             if (*curr=='\0' || *curr=='\n') {
                 ERROR("missing terminating '\"' character");
@@ -450,12 +445,9 @@ PreToken get_token(void)
                         ++cb;
                     else
                         cb = 0;
-                    token_string[tok_str_ind++] = ADVANCE();//*curr++;
+                    token_string[tok_str_ind++] = ADVANCE();
                 }
-                // ++curr; /* skip " */
-                // ADVANCE();
-                // save = FALSE;
-                c = *curr++;
+                c = ADVANCE(); /* " */
                 state = STATE_DONE;
                 token = PRE_TOK_STRLIT;
             }
@@ -484,11 +476,9 @@ PreToken get_token(void)
         case STATE_INLINECOMMENT:
             save = FALSE;
             if (c == '\n') {
-                // --curr;
                 REWIND();
                 state = STATE_START;
             } else if (c == '\0') {
-                // --curr;
                 REWIND();
                 state = STATE_START;
             }
@@ -973,6 +963,14 @@ void preprocessing_token(int skip)
     }
 }
 
+static
+void copy_node_info(PreTokenNode *dest, PreTokenNode *src)
+{
+    dest->src_file = src->src_file;
+    dest->src_line = src->src_line;
+    dest->src_column = src->src_column;
+}
+
 /*
  * Duplicate a replacement list.
  */
@@ -987,11 +985,11 @@ PreTokenNode *dup_rep_list(PreTokenNode *r)
 
     /* make the duplicate */
     new_rep_list = temp = new_node(r->token, r->lexeme);
-    new_rep_list->src_line = curr_tok->src_line;
+    copy_node_info(new_rep_list, curr_tok);
     r = r->next;
     while (r->token != PRE_TOK_NL) {
         temp->next = new_node(r->token, r->lexeme);
-        temp->next->src_line = curr_tok->src_line;
+        copy_node_info(temp->next, curr_tok);
         temp = temp->next;
         r = r->next;
     }
@@ -1009,22 +1007,16 @@ void expand_simple_macro(Macro *m)
     /* test empty replacement list */
     if ((r=dup_rep_list(m->rep)) == NULL)
         goto empty_rep_list;
-    /*
-     * Insert the replacement list between the
-     * identifier and the next token.
-     */
+    /* insert the replacement list between the identifier and the next token */
     old_next = curr_tok->next;
     curr_tok->next = r;
     while (r->next != NULL)
         r = r->next;
-    // r->next = old_next;
     r->next = new_node(PRE_TOK_MACRO_REENABLER, m->name);
     r->next->next = old_next;
     m->enabled = FALSE; /* disable the macro temporally */
 empty_rep_list:
-    /*
-     * Mark the identifier as deleted and advance.
-     */
+    /* mark the identifier as deleted and advance. */
     match2(lookahead(1));
 }
 
@@ -1050,7 +1042,7 @@ PreTokenNode *copy_arg(PreTokenNode **a, ParaListKind kind)
     if (equal((*a)->lexeme, "("))
         ++pn;
     copy = temp = new_node((*a)->token, (*a)->lexeme);
-    copy->src_line = (*a)->src_line;
+    // copy_node_info(copy, (*a));
     (*a) = (*a)->next;
 
     while (pn>0 || ((kind==VAR_LIST||not_equal((*a)->lexeme, ",")) && not_equal((*a)->lexeme, ")"))) {
@@ -1058,7 +1050,7 @@ PreTokenNode *copy_arg(PreTokenNode **a, ParaListKind kind)
         else if (equal((*a)->lexeme, ")")) pn--;
         else if ((*a)->token == PRE_TOK_EOF) ERROR("missing `)' in macro call");
         temp->next = new_node((*a)->token, (*a)->lexeme);
-        temp->next->src_line = (*a)->src_line;
+        // copy_node_info(temp->next, (*a));
         temp = temp->next;
         *a = (*a)->next;
     }
@@ -1075,12 +1067,12 @@ PreTokenNode *copy_arg2(PreTokenNode *a, PreTokenNode **last)
     PreTokenNode *copy;
 
     copy = *last = new_node(a->token, a->lexeme);
-    copy->src_line = a->src_line;
+    // copy_node_info(copy, a);
     a = a->next;
 
     while (a != NULL) {
         (*last)->next = new_node(a->token, a->lexeme);
-        (*last)->next->src_line = a->src_line;
+        // copy_node_info((*last)->next, a);
         *last = (*last)->next;
         a = a->next;
     }
@@ -1095,8 +1087,8 @@ void expand_parameterized_macro(Macro *m)
     int tab_size = 0, i;
 
     /*
-     * The name of a function-like macro not followed by left parenthesis,
-     * is not an invocation to the macro.
+     * The name of a function-like macro not followed by
+     * left parenthesis is not an invocation to the macro.
      */
     arg = curr_tok->next;
     while (arg->token==PRE_TOK_NL || arg->token==PRE_TOK_MACRO_REENABLER) arg = arg->next;
@@ -1107,7 +1099,7 @@ void expand_parameterized_macro(Macro *m)
 
     // if ((r=dup_rep_list(m->rep)) == NULL)
         // goto empty_rep_list;
-    r=dup_rep_list(m->rep);
+    r = dup_rep_list(m->rep);
 
     param = m->params;
     // arg = curr_tok->next->next; /* ID -> "(" -> first-argument */

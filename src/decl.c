@@ -251,10 +251,12 @@ void install_tag(TypeExp *t)
 }
 
 
+static int n;
 Symbol *lookup(char *id, int all)
 {
     Symbol *np;
-    int n = curr_scope;
+    // int n = curr_scope;
+    n = curr_scope;
 
     if (delayed_delete)
         delete_scope();
@@ -274,7 +276,7 @@ Symbol *lookup(char *id, int all)
 }
 
 static
-void install(TypeExp *decl_specs, TypeExp *declarator)
+void install(TypeExp *decl_specs, TypeExp *declarator, int is_param)
 {
     Symbol *np;
     unsigned hash_val;
@@ -289,6 +291,7 @@ void install(TypeExp *decl_specs, TypeExp *declarator)
         np = malloc(sizeof(Symbol));
         np->decl_specs = decl_specs;
         np->declarator = declarator;
+        np->is_param = is_param;
         hash_val = hash(declarator->str)%HASH_SIZE;
         np->next = ordinary_identifiers[hash_val][curr_scope];
         ordinary_identifiers[hash_val][curr_scope] = np;
@@ -401,6 +404,40 @@ install_external_id(TypeExp *decl_specs, TypeExp *declarator, ExtIdStatus status
     hash_val = hash(declarator->str)%HASH_SIZE;
     np->next = external_declarations[hash_val];
     external_declarations[hash_val] = np;
+}
+
+
+void set_extra_attr(ExecNode *e, Symbol *sym)
+{
+    TypeExp *ds;
+
+    /* set scope */
+    e->extra[ATTR_SCOPE] = (char)n;
+
+    ds = get_sto_class_spec(e->type.decl_specs);
+
+    /* set storage duration */
+    if (n==FILE_SCOPE || ds!=NULL&&(ds->op==TOK_EXTERN||ds->op==TOK_STATIC))
+        e->extra[ATTR_DURATION] = DURATION_STATIC;
+    else
+        e->extra[ATTR_DURATION] = DURATION_AUTO;
+
+    /* set linkage */
+    if (ds == NULL) {
+        if (n==FILE_SCOPE || get_type_category(&e->type)==TOK_FUNCTION)
+            e->extra[ATTR_LINKAGE] = LINKAGE_EXTERNAL;
+        else
+            e->extra[ATTR_LINKAGE] = LINKAGE_NONE;
+    } else if (ds->op == TOK_EXTERN) {
+        e->extra[ATTR_LINKAGE] = LINKAGE_EXTERNAL;
+    } else if (ds->op==TOK_STATIC && n==FILE_SCOPE) {
+        e->extra[ATTR_LINKAGE] = LINKAGE_INTERNAL;
+    } else {
+        e->extra[ATTR_LINKAGE] = LINKAGE_NONE;
+    }
+
+    /* is it a formal parameter? */
+    e->extra[ATTR_IS_PARAM] = (char)sym->is_param;
 }
 
 
@@ -651,7 +688,7 @@ void analyze_enumerator(TypeExp *e)
     e->attr.e->attr.val = en_val;
     // printf("en_val=%ld\n", en_val);
 error:
-    install(&enum_ds, e);
+    install(&enum_ds, e, FALSE);
 }
 
 int compare_decl_specs(TypeExp *ds1, TypeExp *ds2, int qualified)
@@ -718,11 +755,10 @@ int are_compatible(TypeExp *ds1, TypeExp *dct1,
             if (dct1->attr.e->attr.val != dct2->attr.e->attr.val)
                 return FALSE;
         } else if (compose) {
-            if (dct1->attr.e==NULL && dct2->attr.e!=NULL) {
+            if (dct1->attr.e==NULL && dct2->attr.e!=NULL)
                 dct1->attr.e = dct2->attr.e;
-            } else if (dct2->attr.e==NULL && dct1->attr.e!=NULL) {
+            else if (dct2->attr.e==NULL && dct1->attr.e!=NULL)
                 dct2->attr.e = dct1->attr.e;
-            }
         }
         break;
     case TOK_FUNCTION: {
@@ -878,6 +914,8 @@ int examine_declarator(TypeExp *decl_specs, TypeExp *declarator)
     return examine_declarator(decl_specs, declarator->child);
 }
 
+static TokenNode *typedef_name_info;
+
 static
 DeclList *new_param_decl(TypeExp *decl_specs, TypeExp *declarator)
 {
@@ -901,6 +939,7 @@ TypeExp *dup_declarator(TypeExp *d)
 
     new_node = malloc(sizeof(TypeExp));
     *new_node = *d;
+    new_node->info = typedef_name_info;
     if (d->op == TOK_FUNCTION) {
         DeclList *p, *temp;
 
@@ -936,10 +975,13 @@ void replace_typedef_name(Declaration *decl)
      * Type specifiers
      */
     s = lookup(ts->str, TRUE);
+    /* new created nodes will have the same file/line/column information as the typedef name node */
+    typedef_name_info = ts->info;
     /* replace the typedef name node for the type specifier node of the typedef name */
     temp = ts->child;
     *ts = *get_type_spec(s->decl_specs);
     ts->child = temp;
+    ts->info = typedef_name_info;
 
     /*
      * Append the declarator part (if present) of the typedef name.
@@ -1063,9 +1105,9 @@ int analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym)
          * Other functions in this module act in a similar way.
          */
         if (good)
-            install(decl_specs, declarator);
+            install(decl_specs, declarator, FALSE);
         else
-            install(get_type_node(TOK_ERROR), declarator);
+            install(get_type_node(TOK_ERROR), declarator, FALSE);
     }
 
     return good;
@@ -1113,9 +1155,9 @@ void analyze_parameter_declaration(Declaration *d)
                 good = FALSE;
             }
             if (good)
-                install(d->decl_specs, d->idl);
+                install(d->decl_specs, d->idl, TRUE);
             else
-                install(get_type_node(TOK_ERROR), d->idl);
+                install(get_type_node(TOK_ERROR), d->idl, TRUE);
         } else {
             p = d->idl;
         }
@@ -1510,8 +1552,12 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
      * 6.9.2
      * #3 If the declaration of an identifier for an object is a tentative definition and has internal
      * linkage, the declared type shall not be an incomplete type.
+     *
+     * See: http://www.open-std.org/jtc1/sc22/wg14/www/docs/dr_016.html
+     * TODO: after the whole translation unit is processed, a final traverse
+     * over the external symbols table should be check that the type of the
+     * non-extern identifiers is not an incomplete type.
      */
-    // if (scs!=NULL && scs->op==TOK_STATIC
 
     return; /* end file scope */
 static_follows_non_static:
@@ -1577,10 +1623,9 @@ no_link_incomp:
 }
 
 /*
- * struct declaration related errors terminate compilation
- * so further code that analyzes expressions doesn't get confused.
- * TODO: find a workaround to this so compilation can go on and detect
- * more errors.
+ * Code that deals with expressions will get too confused if there is an error in a struct/union
+ * declaration, so errors found in a struct/union declaration terminate translation.
+ * TODO: find a workaround to this issue.
  */
 
 void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)

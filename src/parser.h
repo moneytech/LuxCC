@@ -75,6 +75,28 @@ typedef enum {
     OpExp, IConstExp, StrLitExp, IdExp
 } ExpKind;
 
+enum {
+    DURATION_AUTO,
+    DURATION_STATIC,
+    /*DURATION_ALLOC,*/
+    LINKAGE_NONE,
+    LINKAGE_EXTERNAL,
+    LINKAGE_INTERNAL
+};
+
+/*
+ * extra[ATTR_SCOPE]: 0-127
+ * extra[ATTR_LINKAGE]: none/external/internal
+ * extra[ATTR_DURATION]: auto/static
+ * extra[ATTR_IS_PARAM]: true/false
+ */
+enum {
+    ATTR_SCOPE,
+    ATTR_LINKAGE,
+    ATTR_DURATION,
+    ATTR_IS_PARAM
+};
+
 struct ExecNode {
     ExecNode *child[4];
     ExecNode *sibling;
@@ -91,6 +113,7 @@ struct ExecNode {
         unsigned long uval;
     } attr;
     Declaration type;
+    char extra[4]; /* extra attributes */
     TokenNode *info;
 };
 

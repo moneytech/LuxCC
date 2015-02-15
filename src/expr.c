@@ -71,7 +71,7 @@ Token get_type_category(Declaration *d)
 {
     /*
      * If the type 'error' is between the declaration specifiers,
-     * ignore any declarator and just return that type. This only handles
+     * ignore any declarator and just return that type. This is only to handle
      * those identifiers that were installed in the symbol table as having
      * erroneous type.
      */
@@ -98,7 +98,8 @@ int is_integer(Token ty)
     }
 }
 
-static int is_pointer(Token op)
+// static
+int is_pointer(Token op)
 {
     /*
      * Note: function designators are checked for explicitly by the code.
@@ -373,27 +374,33 @@ Token get_result_type(Token ty1, Token ty2)
     return TOK_UNSIGNED_LONG;
 }
 
+/*
+ * Note: the returned nodes aren't supposed to be modified.
+ */
 TypeExp *get_type_node(Token ty)
 {
-    static TypeExp ty_char = { TOK_CHAR };
-    static TypeExp ty_int = { TOK_INT };
-    static TypeExp ty_unsigned = { TOK_UNSIGNED };
-    static TypeExp ty_long = { TOK_LONG };
+    static TypeExp ty_char          = { TOK_CHAR };
+    static TypeExp ty_int           = { TOK_INT };
+    static TypeExp ty_unsigned      = { TOK_UNSIGNED };
+    static TypeExp ty_long          = { TOK_LONG };
     static TypeExp ty_unsigned_long = { TOK_UNSIGNED_LONG };
-    static TypeExp ty_error = { TOK_ERROR };
+    static TypeExp ty_error         = { TOK_ERROR };
 
     switch (ty) {
-    case TOK_CHAR: return &ty_char;
-    case TOK_INT: case TOK_ENUM: return &ty_int;
-    case TOK_UNSIGNED: return &ty_unsigned;
-    case TOK_LONG: return &ty_long;
-    case TOK_UNSIGNED_LONG: return &ty_unsigned_long;
-    case TOK_ERROR: return &ty_error;
+    case TOK_CHAR:                  return &ty_char;
+    case TOK_INT: case TOK_ENUM:    return &ty_int;
+    case TOK_UNSIGNED:              return &ty_unsigned;
+    case TOK_LONG:                  return &ty_long;
+    case TOK_UNSIGNED_LONG:         return &ty_unsigned_long;
+    case TOK_ERROR:                 return &ty_error;
     }
 
     my_assert(0, "get_type_node()");
 }
 
+/*
+ * Shorthand function used by the most of binary operators.
+ */
 void binary_op_error(ExecNode *op)
 {
     char *ty1, *ty2;
@@ -460,7 +467,7 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
 
             /*
              * If the src expression is an integer constant,
-             * try to check if the constant fits into the dest type.
+             * try to verify that the constant fits into the dest type.
              * Emit a warning if it doesn't.
              */
             if (e->kind.exp == IConstExp) {
@@ -507,13 +514,13 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
                     my_assert(0, "can_assign_to()");
                 }
 
-                WARNING(e, "implicit conversion from '%s' to '%s' changes value from %lu to %ld",
+                WARNING(e, "implicit conversion from `%s' to `%s' changes value from %lu to %ld",
                 token_table[cat_s*2+1], token_table[cat_d*2+1], e->attr.uval, stored_val);
 
                 return TRUE;
             }
 
-            /* int and long have the same rank for assignment purposes */
+            /* consider int and long as having the same rank */
             rank_d = get_rank(cat_d);
             rank_d = (rank_d==4)?3:rank_d;
             rank_s = get_rank(cat_s);
@@ -526,8 +533,8 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
                 WARNING(e, "implicit conversion loses integer precision: `%s' to `%s'",
                 token_table[cat_s*2+1], token_table[cat_d*2+1]);
             /*
-             * Otherwise, emit a warning if the source and destination types
-             * do not have the same signedness.
+             * Otherwise, emit a warning if the source and destination
+             * types do not have the same signedness.
              */
             else if (rank_d==rank_s && is_signed_int(cat_d)!=is_signed_int(cat_s))
                 WARNING(e, "implicit conversion changes signedness: `%s' to `%s'",
@@ -1273,8 +1280,8 @@ void analyze_inc_dec_operator(ExecNode *e)
 {
     /*
      * 6.5.2.4#1/6.5.3.1#1
-     * The operand of the postfix/prefix increment or decrement operator shall have qualified or
-     * unqualified real or pointer type and shall be a modifiable lvalue.
+     * The operand of the postfix/prefix increment or decrement operator shall have
+     * qualified or unqualified real or pointer type and shall be a modifiable lvalue.
      */
     Token ty;
 
@@ -1498,10 +1505,8 @@ void analyze_postfix_expression(ExecNode *e)
         }
 
         /* set as the type of the [] node the element type */
-        if (is_pointer(ty1)) {
-            e->type.decl_specs = e->child[ch_idx]->type.decl_specs;
-            e->type.idl = e->child[ch_idx]->type.idl->child;
-        }
+        e->type.decl_specs = e->child[ch_idx]->type.decl_specs;
+        e->type.idl = e->child[ch_idx]->type.idl->child;
         break;
 non_int_sub:
         ERROR_R(e, "array subscript is not an integer");
@@ -1830,7 +1835,7 @@ unsigned_ty:
     }
 }
 
-static unsigned compute_sizeof(Declaration *ty)
+unsigned compute_sizeof(Declaration *ty)
 {
     Token cat;
     unsigned size;
@@ -2014,7 +2019,7 @@ long eval_const_expr(ExecNode *e, int is_addr)
                      * pointer - integer.
                      * Escalate the non-pointer operand before subtract.
                      * For example:
-                     *  (int *12) - 1 == 12 - 1*sizeof(int)
+                     *  (int *)12 - 1 == 12 - 1*sizeof(int)
                      */
                     return L - R*compute_sizeof(&pointed_to_ty);
             } else {

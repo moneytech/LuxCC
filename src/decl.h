@@ -7,6 +7,7 @@ typedef struct Symbol Symbol;
 struct Symbol {
     TypeExp *decl_specs;
     TypeExp *declarator;
+    int is_param;
     Symbol *next;
 };
 
@@ -42,5 +43,6 @@ int are_compatible(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2, int
 int is_complete(char *tag);
 int is_struct_union_enum(Token t);
 int is_external_id(char *id);
+void set_extra_attr(ExecNode *e, Symbol *sym);
 
 #endif

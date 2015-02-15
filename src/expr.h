@@ -25,5 +25,8 @@ void reset_enum_val(void);
 int is_unsigned_int(Token ty);
 int is_integer(Token ty);
 int get_rank(Token ty);
+int is_integer(Token ty);
+unsigned compute_sizeof(Declaration *ty);
+int is_pointer(Token op);
 
 #endif
