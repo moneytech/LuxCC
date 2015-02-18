@@ -36,7 +36,8 @@
 #define equal(s, t)     (strcmp((s), (t)) == 0)
 #define not_equal(s, t) (strcmp((s), (t)) != 0)
 
-unsigned long hash2(long k);
+unsigned long hash2(unsigned long k);
 unsigned hash(char *s);
+int round_up(int num, int multiple);
 
 #endif

@@ -59,8 +59,7 @@ static ExternId *external_declarations[HASH_SIZE];
 /*
  * Hash tables that implement ordinary identifiers and tags names spaces.
  * The hash tabla that implements label names is in stmt.c.
- * The hash table that implements structure and union members is a local
- * table to check_for_dup_member().
+ * Structure and union members are handled specially.
  */
 static Symbol *ordinary_identifiers[HASH_SIZE][MAX_NEST];
 static TypeTag *tags[HASH_SIZE][MAX_NEST];
@@ -235,6 +234,8 @@ TypeTag *lookup_tag(char *id, int all)
 
 void install_tag(TypeExp *t)
 {
+    /* Note: the parser already that care of redefinitions */
+
     TypeTag *np;
     unsigned hash_val;
 
@@ -792,7 +793,8 @@ int is_complete(char *tag)
 {
     TypeTag *tp;
 
-    if (tag == NULL) /* anonymous struct/union/enum */
+    // if (tag == NULL) /* anonymous struct/union/enum */
+    if (tag[0] == '<') /* <anonymous> struct/union/enum */
         return TRUE;
 
     tp = lookup_tag(tag, TRUE);
@@ -1622,11 +1624,116 @@ no_link_incomp:
     ERROR_R(declarator, "`%s' has no linkage and incomplete type", declarator->str);
 }
 
+#define MAX_DESCR_STACK 64
+
+static StructDescriptor *struct_descriptor_table[HASH_SIZE];
+static StructDescriptor *descriptor_stack[MAX_DESCR_STACK];
+static int descr_stack_top = -1;
+
 /*
- * Code that deals with expressions will get too confused if there is an error in a struct/union
- * declaration, so errors found in a struct/union declaration terminate translation.
- * TODO: find a workaround to this issue.
+ * Add a new member to the top descriptor.
  */
+void new_struct_member(TypeExp *decl_specs, TypeExp *declarator)
+{
+    unsigned alignment;
+    StructMember *n, *p;
+
+    /* before add, check for duplicate */
+    for (p = descriptor_stack[descr_stack_top]->members; p != NULL; p = p->next)
+        if (equal(declarator->str, p->id))
+            FATAL_ERROR(declarator, "duplicate member `%s'", declarator->str);
+
+    n = malloc(sizeof(StructMember));
+    /* set tag and type */
+    n->id = declarator->str;
+    n->type.decl_specs = decl_specs;
+    n->type.idl = declarator->child;
+    /* set size */
+    n->size = compute_sizeof(&n->type);
+    /* set an offset that met with the alignment requirements of the member's type */
+    alignment = get_alignment(&n->type);
+    n->offset = round_up(descriptor_stack[descr_stack_top]->size, alignment);
+    /* update struct's overall size */
+    descriptor_stack[descr_stack_top]->size = n->offset+n->size;
+    /* update struct's alignment */
+    if (alignment > descriptor_stack[descr_stack_top]->alignment)
+        descriptor_stack[descr_stack_top]->alignment = alignment;
+    /* append member */
+    n->next = descriptor_stack[descr_stack_top]->members;
+    descriptor_stack[descr_stack_top]->members = n;
+}
+
+void push_struct_descriptor(TypeExp *ty)
+{
+    int i;
+    char *tag;
+    StructDescriptor *n;
+
+    tag = ty->str;
+
+    /*
+     * Check for the tricky case where the struct is redefined inside itself.
+     * For example
+     *      struct A {
+     *          struct A {
+     *              int x;
+     *          } m;
+     *      };
+     */
+    for (i = descr_stack_top; i >= 0; i--)
+        if (equal(tag, descriptor_stack[i]->tag))
+            FATAL_ERROR(ty, "nested redefinition of `%s %s'", token_table[ty->op*2+1], tag);
+
+    /* push new descriptor */
+    n = malloc(sizeof(StructDescriptor));
+    n->tag = tag;
+    n->size = n->alignment = 0;
+    n->members = NULL;
+    descriptor_stack[++descr_stack_top] = n;
+}
+
+void pop_struct_descriptor(void)
+{
+    char *tag;
+    unsigned h;
+    StructDescriptor *n;
+
+    /*
+     * Before pop, fetch the descriptor to add it to the struct descriptor table.
+     */
+    n = descriptor_stack[descr_stack_top];
+    --descr_stack_top;
+    tag = n->tag;
+
+    /* adjust the overall size to met with alignment requirements */
+    n->size = round_up(n->size, n->alignment);
+
+    /*
+     * Note that the address itself is hashed and not the string it points to.
+     * Because of scope rules the tag does not uniquely identifies the struct type.
+     * On the other hand, the address is unique and can be used to unambiguously
+     * identify it.
+     */
+    h = hash2((unsigned long)tag)%HASH_SIZE;
+    n->next = struct_descriptor_table[h];
+    struct_descriptor_table[h] = n;
+}
+
+StructDescriptor *lookup_struct_descriptor(char *tag)
+{
+    unsigned h;
+    StructDescriptor *np;
+
+    h = hash2((unsigned long)tag)%HASH_SIZE;
+    for (np = struct_descriptor_table[h]; np != NULL; np = np->next)
+        if (tag == np->tag)
+            break;
+
+    if (np == NULL)
+        my_assert(0, "lookup_struct_descriptor()");
+
+    return np;
+}
 
 void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)
 {
@@ -1636,7 +1743,7 @@ void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)
      * of itself) [we don't support flexible array members, so what follows is not important to us]
      */
     if (!analyze_declarator(sql, declarator, FALSE))
-        exit(EXIT_FAILURE);
+        exit(EXIT_FAILURE); // TOFIX
     if (declarator->child == NULL) {
         /* not a derived declarator type */
         TypeExp *ts;
@@ -1649,53 +1756,12 @@ void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)
         if (declarator->child->attr.e == NULL)
             goto incomp_error;
     } else if (declarator->child->op == TOK_FUNCTION) {
-        FATAL_ERROR(declarator, "member `%s' declared as a function", declarator->str);
+        FATAL_ERROR(declarator, "member `%s' declared as a function", declarator->str); // TOFIX
     }
+    new_struct_member(sql, declarator);
     return; /* OK */
 incomp_error:
-    FATAL_ERROR(declarator, "member `%s' has incomplete type", declarator->str);
-}
-
-void check_for_dup_member(DeclList *d)
-{
-#define MEM_TAB_SIZE 53
-    typedef struct Member Member;
-    static struct Member {
-        char *id;
-        Member *next;
-    } *members[MEM_TAB_SIZE], *np, *temp;
-    TypeExp *dct;
-    unsigned h;
-
-    /* traverse the struct declaration list */
-    while (d != NULL) {
-        /* traverse the struct declarator list */
-        for (dct = d->decl->idl; dct != NULL; dct = dct->sibling) {
-            /* search member */
-            h = hash(dct->str)%MEM_TAB_SIZE;
-            for (np = members[h]; np != NULL; np = np->next)
-                if (strcmp(dct->str, np->id) == 0)
-                    FATAL_ERROR(dct, "duplicate member `%s'", dct->str);
-            /* not found */
-            np = malloc(sizeof(Member));
-            np->id = dct->str;
-            np->next = members[h];
-            members[h] = np;
-        }
-        d = d->next;
-    }
-
-    /* empty table */
-    for (h = 0; h < MEM_TAB_SIZE; h++) {
-        if (members[h] != NULL) {
-            for (np = members[h]; np != NULL;) {
-                temp = np;
-                np = np->next;
-                free(temp);
-            }
-            members[h] = NULL;
-        }
-    }
+    FATAL_ERROR(declarator, "member `%s' has incomplete type", declarator->str); // TOFIX
 }
 
 /*
@@ -1716,7 +1782,7 @@ char *stringify_type_exp(Declaration *d, int show_decayed)
             strcat(ds, token_table[e->op*2+1]);
             if (is_struct_union_enum(e->op)) {
                 strcat(ds, " ");
-                strcat(ds, (e->str!=NULL)?e->str:"<anonymous>");
+                strcat(ds, e->str);
             }
             if (e->child != NULL) {
                 strcat(ds, " ");

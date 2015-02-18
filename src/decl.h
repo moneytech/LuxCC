@@ -3,6 +3,22 @@
 
 #include "parser.h"
 
+typedef struct StructMember StructMember;
+struct StructMember {
+    char *id;
+    unsigned size, offset;
+    Declaration type;
+    StructMember *next;
+};
+
+typedef struct StructDescriptor StructDescriptor;
+struct StructDescriptor {
+    char *tag;
+    unsigned size, alignment; /* overall size and member's most restrictive alignment */
+    StructMember *members;
+    StructDescriptor *next;
+};
+
 typedef struct Symbol Symbol;
 struct Symbol {
     TypeExp *decl_specs;
@@ -24,7 +40,6 @@ void analyze_enumerator(TypeExp *e);
 void analyze_parameter_declaration(Declaration *d);
 void analyze_function_definition(FuncDef *f);
 void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator);
-void check_for_dup_member(DeclList *d);
 void analyze_type_name(Declaration *tn);
 
 void push_scope(void);
@@ -44,5 +59,8 @@ int is_complete(char *tag);
 int is_struct_union_enum(Token t);
 int is_external_id(char *id);
 void set_extra_attr(ExecNode *e, Symbol *sym);
+void push_struct_descriptor(TypeExp *ty);
+void pop_struct_descriptor(void);
+StructDescriptor *lookup_struct_descriptor(char *tag);
 
 #endif

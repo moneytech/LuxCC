@@ -537,16 +537,21 @@ TypeExp *struct_or_union_specifier(void)
         if (lookahead(1) == TOK_LBRACE) {
             if (cur!=NULL && cur->type->attr.dl!=NULL)
                 ERROR("redefinition of `%s %s'", token_table[n->op*2+1], n->str);
+            push_struct_descriptor(n);
             match(TOK_LBRACE);
             n->attr.dl = struct_declaration_list();
             match(TOK_RBRACE); /* the type is complete now */
             if (cur!=NULL && cur->type!=n)
                 cur->type = n; /* update the previous incomplete declaration */
+            pop_struct_descriptor();
         }
     } else if (lookahead(1) == TOK_LBRACE) {
+        n->str = strdup("<anonymous>");
+        push_struct_descriptor(n);
         match(TOK_LBRACE);
         n->attr.dl = struct_declaration_list();
         match(TOK_RBRACE);
+        pop_struct_descriptor();
     } else {
         ERROR("expecting identifier or struct-declaration-list");
     }
@@ -590,7 +595,6 @@ DeclList *struct_declaration_list(void)
         temp->decl = struct_declaration();
         temp->next = NULL;
     }
-    check_for_dup_member(n);
 
     return n;
 }
@@ -679,7 +683,9 @@ TypeExp *struct_declarator(TypeExp *sql)
 TypeExp *enum_specifier(void)
 {
     /*
-     * Note: Incomplete enums are not standard.
+     * Note: Incomplete enums are not standard,
+     * but they allow to handle enums the same
+     * way as struct and unions.
      */
     TypeExp *n;
 
@@ -728,6 +734,7 @@ TypeExp *enum_specifier(void)
 
         }
     } else if (lookahead(1) == TOK_LBRACE) {
+        n->str = strdup("<anonymous>");
         match(TOK_LBRACE);
         n->attr.el = enumerator_list();
         match(TOK_RBRACE);
@@ -1349,8 +1356,10 @@ ExecNode *expression_statement(void)
         n->child[0] = expression();
     match(TOK_SEMICOLON);
 
-#include "ic.h"
+// #include "ic.h"
+    // number_expression_tree(n->child[0]);
     // ic_expression(n->child[0], FALSE);
+    // printf("n=%d\n", n->child[0]->nreg);
     // disassemble();
 
     return n;

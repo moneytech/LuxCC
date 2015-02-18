@@ -3,7 +3,7 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include "parser.h"
-#include "ic.h"
+// #include "ic.h"
 
 unsigned warning_count, error_count;
 int disable_warnings;
@@ -128,7 +128,7 @@ int main(int argc, char *argv[])
         exit(EXIT_SUCCESS);
     }
 
-    ic_init();
+    // ic_init();
     tree = parser(tok);
 
     if (option_flags & OPT_SHOW_STATS) {

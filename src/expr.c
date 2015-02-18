@@ -1651,7 +1651,7 @@ non_callable:
         /* fetch the name of the requested member */
         id = e->child[1]->attr.str;
 
-        if (ts->str != NULL) {
+        // if (ts->str != NULL) {
             /* non-anonymous struct/union */
             if (ts->attr.dl == NULL) {
                 TypeTag *np;
@@ -1660,7 +1660,7 @@ non_callable:
                     ERROR_R(e, "left operand of . has incomplete type");
                 ts = np->type;
             }
-        }
+        // }
 
         /* search for the member */
         for (d = ts->attr.dl; d != NULL; d = d->next) {
@@ -1669,8 +1669,7 @@ non_callable:
                     goto mem_found;
             }
         }
-        ERROR_R(e, "`%s %s' has no member named `%s'", token_table[ts->op*2+1],
-        (ts->str==NULL)?"<anonymous>":ts->str, id);
+        ERROR_R(e, "`%s %s' has no member named `%s'", token_table[ts->op*2+1], ts->str, id);
 mem_found:
         /*
          * 6.5.2.3
@@ -1835,6 +1834,45 @@ unsigned_ty:
     }
 }
 
+unsigned get_alignment(Declaration *ty)
+{
+    Token cat;
+    unsigned alignment;
+    Declaration new_ty;
+
+    cat = get_type_category(ty);
+    switch (cat) {
+    case TOK_STRUCT:
+    case TOK_UNION:
+        alignment = lookup_struct_descriptor(get_type_spec(ty->decl_specs)->str)->alignment;
+        break;
+    case TOK_SUBSCRIPT:
+        new_ty.decl_specs = ty->decl_specs;
+        new_ty.idl = ty->idl->child;
+        alignment = get_alignment(&new_ty);
+        break;
+    case TOK_STAR:
+        alignment = 4;
+        break;
+    case TOK_ENUM:
+    case TOK_LONG: case TOK_UNSIGNED_LONG:
+    case TOK_INT: case TOK_UNSIGNED:
+        alignment = 4;
+        break;
+    case TOK_SHORT: case TOK_UNSIGNED_SHORT:
+        alignment = 2;
+        break;
+    case TOK_CHAR: case TOK_SIGNED_CHAR: case TOK_UNSIGNED_CHAR:
+        alignment = 1;
+        break;
+    /*case TOK_ERROR: ???
+        alignment = 0;
+        break;*/
+    }
+
+    return alignment;
+}
+
 unsigned compute_sizeof(Declaration *ty)
 {
     Token cat;
@@ -1846,34 +1884,9 @@ unsigned compute_sizeof(Declaration *ty)
     cat = get_type_category(ty);
     switch (cat) {
     case TOK_STRUCT:
-    case TOK_UNION: {
-        TypeExp *ts;
-        DeclList *d;
-
-        /* fetch declaration list */
-        ts = get_type_spec(ty->decl_specs);
-        if (ts->attr.dl == NULL)
-            ts = lookup_tag(ts->str, TRUE)->type;
-        d = ts->attr.dl;
-
-        for (; d != NULL; d = d->next) {
-            TypeExp *dct;
-
-            for (dct = d->decl->idl; dct != NULL; dct = dct->sibling) {
-                new_ty.decl_specs = d->decl->decl_specs;
-                new_ty.idl = dct->child;
-                if (cat == TOK_STRUCT) {
-                    size += compute_sizeof(&new_ty);
-                } else {
-                    unsigned new_size;
-
-                    new_size = compute_sizeof(&new_ty);
-                    size = (new_size>size)?new_size:size;
-                }
-            }
-        }
+    case TOK_UNION:
+        size = lookup_struct_descriptor(get_type_spec(ty->decl_specs)->str)->size;
         break;
-    }
     case TOK_SUBSCRIPT:
         new_ty.decl_specs = ty->decl_specs;
         new_ty.idl = ty->idl->child;

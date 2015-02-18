@@ -28,5 +28,7 @@ int get_rank(Token ty);
 int is_integer(Token ty);
 unsigned compute_sizeof(Declaration *ty);
 int is_pointer(Token op);
+Token get_promoted_type(Token int_ty);
+unsigned get_alignment(Declaration *ty);
 
 #endif

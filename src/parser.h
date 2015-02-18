@@ -114,6 +114,7 @@ struct ExecNode {
     } attr;
     Declaration type;
     char extra[4]; /* extra attributes */
+    int nreg; /* number of registers needed to evaluate the expression represented by this node */
     TokenNode *info;
 };
 

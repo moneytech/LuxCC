@@ -53,7 +53,7 @@ SwitchLabel *lookup_switch_label(long val, int is_default)
 {
     SwitchLabel *np;
 
-    np = switch_labels[is_default?0:hash2(val)%HASH_SIZE][switch_nesting_level];
+    np = switch_labels[is_default?0:hash2((unsigned long)val)%HASH_SIZE][switch_nesting_level];
     while (np != NULL) {
         if (is_default) {
             if (np->is_default)
@@ -77,7 +77,7 @@ int install_switch_label(long val, int is_default)
         np->val = val;
         np->is_default = is_default;
         /* 'default' labels are always at switch_labels[0][switch_nesting_level] */
-        hash_val = is_default?0:hash2(val)%HASH_SIZE;
+        hash_val = is_default?0:hash2((unsigned long)val)%HASH_SIZE;
         np->next = switch_labels[hash_val][switch_nesting_level];
         switch_labels[hash_val][switch_nesting_level] = np;
         return TRUE; /* success */
