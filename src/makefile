@@ -1,16 +1,14 @@
 CC=gcc
-CFLAGS=-c -g -Wall -Wconversion -Wextra -Wno-switch -Wno-parentheses -Wno-missing-field-initializers -fwrapv -Wno-sign-conversion #-Wno-enum-compare
+CFLAGS=-c -g -pg -Wall -Wconversion -Wextra -Wno-switch -Wno-parentheses -Wno-missing-field-initializers -fwrapv -Wno-sign-conversion #-Wno-enum-compare
 PROG = main
-OBJS = main.o pre.o lexer.o parser.o util.o decl.o expr.o stmt.o ic.o
-SRCS = main.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c
+OBJS = main.o pre.o lexer.o parser.o util.o decl.o expr.o stmt.o ic.o arena.o
+SRCS = main.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c
 LFLAGS = -lm
 
 all: main
 
 main: $(OBJS)
-	$(CC) -o $(PROG) $(OBJS) $(LFLAGS)
-vm: vm.c vm.h
-	$(CC) -g -Wall -Wconversion -Wextra -Wno-switch -o vm vm.c
+	$(CC) -pg -o $(PROG) $(OBJS) $(LFLAGS)
 .c.o:
 	$(CC) $(CFLAGS) $*.c
 clean:

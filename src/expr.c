@@ -35,6 +35,7 @@ extern int disable_warnings;
     ++warning_count:0
 
 #define FATAL_ERROR(tok, ...)\
+    fprintf(stderr, "An unrecoverable error occurred\n"),\
     PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
     exit(EXIT_FAILURE)
 
@@ -739,6 +740,13 @@ void analyze_assignment_expression(ExecNode *e)
 
             return;
         }
+        /*
+         * Save infered result type for later use.
+         * child 2 and 3 are unused by this operator,
+         * so the result can be stored there.
+         */
+        e->child[2] = (ExecNode *)temp.type.decl_specs;
+        e->child[3] = (ExecNode *)temp.type.idl;
     }
 
     e->type = e->child[0]->type;
@@ -1575,6 +1583,7 @@ subs_incomp:
         p = ty->attr.dl;
         if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID && p->decl->idl==NULL)
             p = NULL;
+        e->locals = p; /* for later ease of access to the formal parameters */
         a = e->child[1];
         while (p!=NULL && a!=NULL) {
             Declaration p_ty;

@@ -8,13 +8,18 @@
 #include "expr.h"
 #include "stmt.h"
 
-#define ERROR(...)\
-    PRINT_ERROR(curr_tok->src_file, curr_tok->src_line, curr_tok->src_column, __VA_ARGS__),\
-    exit(EXIT_FAILURE)
-
 static TokenNode *curr_tok;
 unsigned number_of_ast_nodes;
 extern unsigned warning_count, error_count;
+
+/*
+ * All syntax errors are fatal.
+ * No attempt of recovery is made.
+ */
+#define ERROR(...)\
+    fprintf(stderr, "An unrecoverable error occurred\n"),\
+    PRINT_ERROR(curr_tok->src_file, curr_tok->src_line, curr_tok->src_column, __VA_ARGS__),\
+    exit(EXIT_FAILURE)
 
 /*
  * Recursive parsing functions.
@@ -129,18 +134,8 @@ static void match(Token token)
 /*
  * Functions that test lookahead(1).
  */
-static int in_first_declaration_specifiers(void);
-static int in_first_storage_class_specifier(void);
-static int in_first_type_specifier(void);
-static int in_first_specifier_qualifier_list(void);
-static int in_first_type_qualifier(void);
 
-int in_first_declaration_specifiers(void)
-{
-    return (in_first_storage_class_specifier()||in_first_type_specifier()||in_first_type_qualifier());
-}
-
-int in_first_storage_class_specifier(void)
+static int in_first_storage_class_specifier(void)
 {
     switch (lookahead(1)) {
     case TOK_TYPEDEF:
@@ -154,7 +149,7 @@ int in_first_storage_class_specifier(void)
     }
 }
 
-int in_first_type_specifier(void)
+static int in_first_type_specifier(void)
 {
     switch (lookahead(1)) {
     case TOK_VOID:
@@ -177,16 +172,20 @@ int in_first_type_specifier(void)
     }
 }
 
-int in_first_specifier_qualifier_list(void)
-{
-    return (in_first_type_specifier()||in_first_type_qualifier());
-}
-
-int in_first_type_qualifier(void)
+static int in_first_type_qualifier(void)
 {
     return (lookahead(1)==TOK_CONST||lookahead(1)==TOK_VOLATILE);
 }
 
+static int in_first_specifier_qualifier_list(void)
+{
+    return (in_first_type_specifier()||in_first_type_qualifier());
+}
+
+static int in_first_declaration_specifiers(void)
+{
+    return (in_first_storage_class_specifier()||in_first_type_specifier()||in_first_type_qualifier());
+}
 
 /*
  * Main function of the parser.
@@ -194,6 +193,7 @@ int in_first_type_qualifier(void)
 ExternDecl *parser(TokenNode *tokens)
 {
     curr_tok = tokens;
+    init_symbol_tables(); /* initialize decl.c's tables */
     return translation_unit();
 }
 
@@ -1356,12 +1356,6 @@ ExecNode *expression_statement(void)
         n->child[0] = expression();
     match(TOK_SEMICOLON);
 
-// #include "ic.h"
-    // number_expression_tree(n->child[0]);
-    // ic_expression(n->child[0], FALSE);
-    // printf("n=%d\n", n->child[0]->nreg);
-    // disassemble();
-
     return n;
 }
 
@@ -1526,11 +1520,6 @@ static ExecNode *new_pri_exp_node(ExpKind kind)
  */
 ExecNode *constant_expression(void)
 {
-    /*ExecNode *n;
-
-    n = conditional_expression();
-
-    return n;*/
     return conditional_expression();
 }
 
@@ -2011,30 +2000,13 @@ ExecNode *primary_expression(void)
 
     switch (lookahead(1)) {
     case TOK_ID: {
-    /*
-     * 6.5.1.2:
-     * An identifier is a primary expression, provided it has been declared as designating an
-     * object (in which case it is an lvalue) or a function (in which case it is a function
-     * designator).79)
-     * 79) Thus, an undeclared identifier is a violation of the syntax.
-     */
-        /*Symbol *s;
-        TypeExp *scs;
-
-        if ((s=lookup(get_lexeme(1), TRUE)) == NULL)
-            ERROR("undeclared identifier `%s'", get_lexeme(1));
-
-        if ((scs=get_sto_class_spec(s->decl_specs))==NULL || scs->op!=TOK_TYPEDEF) {
-            n = new_pri_exp_node(IdExp);
-            n->attr.str = get_lexeme(1);
-
-            n->type.decl_specs = s->decl_specs;
-            n->type.idl = (s->declarator->op!=TOK_ENUM_CONST)?s->declarator->child:s->declarator;
-
-            match(TOK_ID);
-        } else {
-            ERROR("expecting primary-expression; found typedef-name `%s'", get_lexeme(1));
-        }*/
+        /*
+         * 6.5.1.2:
+         * An identifier is a primary expression, provided it has been declared as designating an
+         * object (in which case it is an lvalue) or a function (in which case it is a function
+         * designator).79)
+         * 79) Thus, an undeclared identifier is a violation of the syntax.
+         */
         Symbol *s;
 
         n = new_pri_exp_node(IdExp);
@@ -2045,12 +2017,10 @@ ExecNode *primary_expression(void)
             TypeExp *scs;
 
             if ((scs=get_sto_class_spec(s->decl_specs))==NULL || scs->op!=TOK_TYPEDEF) {
-                n->type.decl_specs = s->decl_specs;
-                n->type.idl = (s->declarator->op!=TOK_ENUM_CONST)?s->declarator->child:s->declarator;
-                set_extra_attr(n, s);
-                // printf("identifier `%s', scope=%d, linkage=%s, storage=%s, is_param=%d\n", n->attr.str,
-                // n->extra[ATTR_SCOPE], extra_str[n->extra[ATTR_LINKAGE]], extra_str[n->extra[ATTR_DURATION]],
-                // n->extra[ATTR_IS_PARAM]);
+                set_attributes(n, s);
+                /*printf("identifier `%s', scope=%d, linkage=%s, storage=%s, is_param=%d\n", n->attr.str,
+                n->extra[ATTR_SCOPE], extra_str[n->extra[ATTR_LINKAGE]], extra_str[n->extra[ATTR_DURATION]],
+                n->extra[ATTR_IS_PARAM]);*/
             } else {
                 PRINT_ERROR(curr_tok->src_file, curr_tok->src_line, curr_tok->src_column,
                 "expecting primary-expression; found typedef-name `%s'", n->attr.str);

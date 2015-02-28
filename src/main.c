@@ -3,7 +3,7 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include "parser.h"
-// #include "ic.h"
+#include "ic.h"
 
 unsigned warning_count, error_count;
 int disable_warnings;
@@ -128,10 +128,9 @@ int main(int argc, char *argv[])
         exit(EXIT_SUCCESS);
     }
 
-    // ic_init();
     tree = parser(tok);
 
-    if (option_flags & OPT_SHOW_STATS) {
+    /*if (option_flags & OPT_SHOW_STATS) {
         extern unsigned number_of_pre_tokens;
         extern unsigned number_of_c_tokens;
         extern unsigned number_of_ast_nodes;
@@ -143,7 +142,10 @@ int main(int argc, char *argv[])
     printf("%d warning and %d error generated\n", warning_count, error_count);
 
     if (option_flags & OPT_ANALYZE)
-        exit(EXIT_SUCCESS);
+        exit(EXIT_SUCCESS);*/
+
+    // if (error_count == 0)
+        // ic_main(tree);
 
 	return 0;
 }

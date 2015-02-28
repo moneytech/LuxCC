@@ -10,6 +10,7 @@
 
 extern unsigned warning_count, error_count;
 extern int disable_warnings;
+extern int label_counter;
 
 #define ERROR(tok, ...)\
     do {\
@@ -28,8 +29,10 @@ extern int disable_warnings;
     PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
     ++warning_count:0
 
-#define HASH_SIZE       101
-#define MAX_SWITCH_NEST 16
+#define HASH_SIZE           4093
+#define MAX_SWITCH_NEST     16
+#define HASH_VAL(s)         (hash(s)%HASH_SIZE)
+#define HASH_VAL2(x)        (hash2(x)%HASH_SIZE)
 
 
 typedef struct UnresolvedGoto UnresolvedGoto;
@@ -44,16 +47,16 @@ static struct SwitchLabel {
     int val;
     int is_default;
     SwitchLabel *next;
-} *switch_labels[HASH_SIZE][MAX_SWITCH_NEST];
+} *switch_labels[MAX_SWITCH_NEST][HASH_SIZE];
 
 static int switch_nesting_level = -1;
 
-static
+/*static
 SwitchLabel *lookup_switch_label(long val, int is_default)
 {
     SwitchLabel *np;
 
-    np = switch_labels[is_default?0:hash2((unsigned long)val)%HASH_SIZE][switch_nesting_level];
+    np = switch_labels[switch_nesting_level][is_default?0:HASH_VAL2((unsigned long)val)];
     while (np != NULL) {
         if (is_default) {
             if (np->is_default)
@@ -63,23 +66,34 @@ SwitchLabel *lookup_switch_label(long val, int is_default)
         }
         np = np->next;
     }
-    return NULL; /* not found */
-}
+    return NULL;
+}*/
 
 static
 int install_switch_label(long val, int is_default)
 {
     SwitchLabel *np;
-    unsigned long hash_val;
+    unsigned long h;
 
-    if ((np=lookup_switch_label(val, is_default)) == NULL) {
+    h = is_default?0:HASH_VAL2((unsigned long)val); /* 'default' labels are always at bucket zero */
+    np = switch_labels[switch_nesting_level][h];
+    while (np != NULL) {
+        if (is_default) {
+            if (np->is_default)
+                break;
+        } else if (np->val == val) {
+            break;
+        }
+        np = np->next;
+    }
+
+    if (np == NULL) {
+        /* not found in this switch nesting level */
         np = malloc(sizeof(SwitchLabel));
         np->val = val;
         np->is_default = is_default;
-        /* 'default' labels are always at switch_labels[0][switch_nesting_level] */
-        hash_val = is_default?0:hash2((unsigned long)val)%HASH_SIZE;
-        np->next = switch_labels[hash_val][switch_nesting_level];
-        switch_labels[hash_val][switch_nesting_level] = np;
+        np->next = switch_labels[switch_nesting_level][h];
+        switch_labels[switch_nesting_level][h] = np;
         return TRUE; /* success */
     } else {
         return FALSE; /* failure */
@@ -97,13 +111,13 @@ void decrease_switch_nesting_level(void)
     SwitchLabel *np, *temp;
 
     for (i = 0; i < HASH_SIZE; i++) {
-        if (switch_labels[i][switch_nesting_level] != NULL) {
-            for (np = switch_labels[i][switch_nesting_level]; np != NULL;) {
+        if (switch_labels[switch_nesting_level][i] != NULL) {
+            for (np = switch_labels[switch_nesting_level][i]; np != NULL;) {
                 temp = np;
                 np = np->next;
                 free(temp);
             }
-            switch_labels[i][switch_nesting_level] = NULL;
+            switch_labels[switch_nesting_level][i] = NULL;
         }
     }
     --switch_nesting_level;
@@ -113,6 +127,7 @@ void decrease_switch_nesting_level(void)
 typedef struct LabelName LabelName;
 static struct LabelName {
     char *name;
+    int lab_num;
     LabelName *next;
 } *label_names[HASH_SIZE];
 
@@ -121,24 +136,29 @@ LabelName *lookup_label_name(char *name)
 {
     LabelName *np;
 
-    for (np = label_names[hash(name)%HASH_SIZE]; np != NULL; np = np->next)
-        if (strcmp(name, np->name) == 0)
+    for (np = label_names[HASH_VAL(name)]; np != NULL; np = np->next)
+        if (equal(name, np->name))
             return np;
     return NULL; /* not found */
 }
 
 static
-int install_label_name(char *name)
+int install_label_name(char *name, int lab_num)
 {
     LabelName *np;
-    unsigned hash_val;
+    unsigned h;
 
-    if ((np=lookup_label_name(name)) == NULL) {
+    h = HASH_VAL(name);
+    for (np = label_names[h]; np != NULL; np = np->next)
+        if (equal(name, np->name))
+            break;
+
+    if (np == NULL) {
         np = malloc(sizeof(LabelName));
-        np->name = name;
-        hash_val = hash(name)%HASH_SIZE;
-        np->next = label_names[hash_val];
-        label_names[hash_val] = np;
+        np->name = strdup(name);
+        np->lab_num = lab_num;
+        np->next = label_names[h];
+        label_names[h] = np;
         return TRUE; /* success */
     } else {
         return FALSE; /* failure */
@@ -171,10 +191,15 @@ void resolve_gotos(void)
 
     p = unresolved_gotos_list;
     while (p != NULL) {
+        LabelName *lab;
         UnresolvedGoto *temp;
 
-        if (!lookup_label_name(p->s->attr.str))
+        if ((lab=lookup_label_name(p->s->attr.str)) == NULL) {
             ERROR(p->s, "use of undefined label `%s'", p->s->attr.str);
+        } else {
+            free(p->s->attr.str);
+            p->s->attr.val = lab->lab_num;
+        }
 
         temp = p;
         p = p->next;
@@ -184,6 +209,10 @@ void resolve_gotos(void)
     unresolved_gotos_list = NULL;
 }
 
+/*
+ * Return type of the current function being processed.
+ * Used for return statement.
+ */
 static Declaration ret_ty;
 
 void set_return_type(TypeExp *ds, TypeExp *dct)
@@ -211,14 +240,22 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
      */
 
     switch (s->kind.stmt) {
-    case LabelStmt:
+    case LabelStmt: {
+        int lab_num;
+
         /*
          * 6.8.1
          * #3 Label names shall be unique within a function.
          */
-        if (!install_label_name(s->attr.str))
+        lab_num = label_counter++;
+        if (!install_label_name(s->attr.str, lab_num))
             ERROR(s, "duplicate label `%s'", s->attr.str);
+
+        free(s->attr.str);
+        s->attr.val = lab_num;
+
         break;
+    }
     /*
      * 6.8.4.2
      * #3 The expression of each case label shall be an integer constant expression and no two of
@@ -304,13 +341,15 @@ void analyze_iteration_statement(ExecNode *s)
 void analyze_jump_statement(ExecNode *s, int in_loop, int in_switch)
 {
     switch (s->kind.stmt) {
-    case GotoStmt:
+    case GotoStmt: {
         /*
          * 6.8.6.1
          * #1 The identifier in a goto statement shall name a label located
          * somewhere in the enclosing function.
          */
-        if (!lookup_label_name(s->attr.str)) {
+        LabelName *lab;
+
+        if ((lab=lookup_label_name(s->attr.str)) == NULL) {
             /* forward jump */
             UnresolvedGoto *new_node;
 
@@ -318,8 +357,12 @@ void analyze_jump_statement(ExecNode *s, int in_loop, int in_switch)
             new_node->s = s;
             new_node->next = unresolved_gotos_list;
             unresolved_gotos_list = new_node;
+        } else {
+            free(s->attr.str);
+            s->attr.val = lab->lab_num;
         }
         break;
+    }
     case ContinueStmt:
         if (!in_loop)
             ERROR(s, "continue statement not within a loop");
@@ -356,6 +399,9 @@ void analyze_jump_statement(ExecNode *s, int in_loop, int in_switch)
                 ERROR(s, "incompatible types when returning type `%s' but `%s' was expected", ty1, ty2);
                 free(ty1), free(ty2);
             }
+            /* save return type for later use */
+            s->child[1] = (ExecNode *)ret_ty.decl_specs;
+            s->child[2] = (ExecNode *)ret_ty.idl;
         } else {
             /* return; */
             if (ret_ty.idl!=NULL || get_type_spec(ret_ty.decl_specs)->op!=TOK_VOID)

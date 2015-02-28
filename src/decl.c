@@ -6,6 +6,7 @@
 #include "util.h"
 #include "expr.h"
 #include "stmt.h"
+#include "arena.h"
 
 extern unsigned error_count, warning_count;
 extern int disable_warnings;
@@ -34,13 +35,15 @@ extern int disable_warnings;
     ++warning_count:0
 
 #define FATAL_ERROR(tok, ...)\
+    fprintf(stderr, "An unrecoverable error occurred\n"),\
     PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
     exit(EXIT_FAILURE)
 
-#define HASH_SIZE 101
-#define MAX_NEST  16
-
-#define FILE_SCOPE 0
+#define HASH_SIZE       4093
+#define MAX_NEST        16  /* maximum block nesting level */
+#define FILE_SCOPE      0
+#define HASH_VAL(s)     (hash(s)%HASH_SIZE)
+#define HASH_VAL2(x)    (hash2(x)%HASH_SIZE)
 
 typedef enum {
     DEFINED,            /* int x = 0; or void foo(void){...} */
@@ -59,25 +62,70 @@ static ExternId *external_declarations[HASH_SIZE];
 /*
  * Hash tables that implement ordinary identifiers and tags names spaces.
  * The hash tabla that implements label names is in stmt.c.
- * Structure and union members are handled specially.
+ * Structure and union members are handled in a special way.
  */
-static Symbol *ordinary_identifiers[HASH_SIZE][MAX_NEST];
-static TypeTag *tags[HASH_SIZE][MAX_NEST];
+static Symbol *ordinary_identifiers[MAX_NEST][HASH_SIZE];
+static TypeTag *tags[MAX_NEST][HASH_SIZE];
 
 static int curr_scope = 0;
 static int delayed_delete = FALSE;
 
+/* memory arenas used to maintain identifier and tag scopes */
+static Arena *oids_arena[MAX_NEST];
+static Arena *tags_arena[MAX_NEST];
 
-
-int is_sto_class_spec(Token t)
+void init_symbol_tables(void)
 {
-    return (t==TOK_TYPEDEF||t==TOK_EXTERN||t==TOK_STATIC||t==TOK_AUTO||t==TOK_REGISTER);
+    enum {
+        OIDS_ARENA_SIZE = 8192,
+        TAGS_ARENA_SIZE = 4096
+    };
+    int i;
+
+    for (i = 0; i < MAX_NEST; i++) {
+        oids_arena[i] = arena_new(OIDS_ARENA_SIZE);
+        tags_arena[i] = arena_new(TAGS_ARENA_SIZE);
+    }
+}
+
+static Symbol *new_symbol(void)
+{
+    void *p;
+
+    if ((p=arena_alloc(oids_arena[curr_scope], sizeof(Symbol))) == NULL)
+        my_assert(0, "new_symbol()");
+
+    return p;
+}
+
+static TypeTag *new_tag(void)
+{
+    void *p;
+
+    if ((p=arena_alloc(tags_arena[curr_scope], sizeof(TypeTag))) == NULL)
+        my_assert(0, "new_tag()");
+
+    return p;
+}
+
+static int is_sto_class_spec(Token t)
+{
+    switch (t) {
+    case TOK_TYPEDEF:
+    case TOK_EXTERN:
+    case TOK_STATIC:
+    case TOK_AUTO:
+    case TOK_REGISTER:
+        return TRUE;
+    default:
+        return FALSE;
+    }
 }
 
 /*
  * Return TRUE if `t' is a type specifier.
  */
-int is_type_spec(Token t)
+static int is_type_spec(Token t)
 {
     switch (t) {
     case TOK_VOID: case TOK_CHAR: case TOK_SHORT: case TOK_INT: case TOK_LONG:
@@ -93,7 +141,7 @@ int is_type_spec(Token t)
  * Same as is_type_spec() but recognizes additional specifiers that appear
  * after analyze_decl_specs() processes the declaration specifiers list.
  */
-int is_type_spec2(Token t)
+static int is_type_spec2(Token t)
 {
     switch (t) {
     case TOK_VOID: case TOK_CHAR: case TOK_SIGNED_CHAR: case TOK_UNSIGNED_CHAR:
@@ -106,7 +154,10 @@ int is_type_spec2(Token t)
     }
 }
 
-#define is_type_qualifier(t) (t==TOK_CONST || t==TOK_VOLATILE)
+static int is_type_qualifier(Token t)
+{
+    return (t==TOK_CONST || t==TOK_VOLATILE);
+}
 
 int is_struct_union_enum(Token t)
 {
@@ -117,70 +168,72 @@ TypeExp *get_sto_class_spec(TypeExp *d)
 {
     while (d != NULL) {
         if (is_sto_class_spec(d->op))
-            return d;
+            break;
         d = d->child;
     }
 
-    return NULL;
+    return d;
 }
 
 TypeExp *get_type_spec(TypeExp *d)
 {
     while (d != NULL) {
         if (is_type_spec2(d->op))
-            return d;
+            break;
         d = d->child;
     }
 
-    /* a type specifier is required */
     if (d == NULL)
-        my_assert(stderr, "get_type_spec()");
+        my_assert(stderr, "get_type_spec()"); /* a type specifier is required */
 
-    return NULL; /* just to avoid warning */
+    return d;
 }
 
 TypeExp *get_type_qual(TypeExp *d)
 {
     while (d != NULL) {
         if (is_type_qualifier(d->op) || d->op==TOK_CONST_VOLATILE)
-            return d;
+            break;
         d = d->child;
     }
 
-    return NULL;
+    return d;
 }
 
-
-static
-void delete_scope(void)
+/* pop_scope() just set a flag. This function performs the actual delete. */
+static void delete_scope(void)
 {
-    int i;
+    /*int i;
     Symbol *np, *temp;
-    TypeTag *np2, *temp2;
+    TypeTag *np2, *temp2;*/
 
-    if (curr_scope < 0) {
-        fprintf(stderr, "Underflow in delete_scope()\n");
-        exit(EXIT_FAILURE);
-    }
+    if (curr_scope < 0) /* underflow */
+        my_assert(0, "delete_scope()");
 
-    for (i = 0; i < HASH_SIZE; i++) {
-        if (ordinary_identifiers[i][curr_scope] != NULL) {
-            for (np = ordinary_identifiers[i][curr_scope]; np != NULL;) {
+    memset(&ordinary_identifiers[curr_scope][0], 0, sizeof(Symbol *)*HASH_SIZE);
+    arena_reset(oids_arena[curr_scope]);
+
+    memset(&tags[curr_scope][0], 0, sizeof(TypeTag *)*HASH_SIZE);
+    arena_reset(tags_arena[curr_scope]);
+
+    /*for (i = 0; i < HASH_SIZE; i++) {
+        if (ordinary_identifiers[curr_scope][i] != NULL) {
+            for (np = ordinary_identifiers[curr_scope][i]; np != NULL;) {
                 temp = np;
                 np = np->next;
                 free(temp);
             }
-            ordinary_identifiers[i][curr_scope] = NULL;
+            ordinary_identifiers[curr_scope][i] = NULL;
         }
-        if (tags[i][curr_scope] != NULL) {
-            for (np2 = tags[i][curr_scope]; np2 != NULL;) {
+        if (tags[curr_scope][i] != NULL) {
+            for (np2 = tags[curr_scope][i]; np2 != NULL;) {
                 temp2 = np2;
                 np2 = np2->next;
                 free(temp2);
             }
-            tags[i][curr_scope] = NULL;
+            tags[curr_scope][i] = NULL;
         }
-    }
+    }*/
     --curr_scope;
     delayed_delete = FALSE;
 }
@@ -195,10 +248,8 @@ void push_scope(void)
     if (delayed_delete)
         delete_scope();
 
-    if (++curr_scope == MAX_NEST) {
-        fprintf(stderr, "Overflow in push_scope()\n");
-        exit(EXIT_FAILURE);
-    }
+    if (++curr_scope == MAX_NEST) /* overflow */
+        my_assert(0, "push_scope()");
 }
 
 void pop_scope(void)
@@ -212,65 +263,70 @@ void pop_scope(void)
 
 TypeTag *lookup_tag(char *id, int all)
 {
+    int n;
+    unsigned h;
     TypeTag *np;
-    int n = curr_scope;
 
     if (delayed_delete)
         delete_scope();
 
+    n = curr_scope;
+    h = HASH_VAL(id);
     if (all == TRUE) {
         for (; n >= 0; n--)
-            for (np = tags[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
-                if (strcmp(id, np->type->str) == 0)
+            for (np = tags[n][h]; np != NULL; np = np->next)
+                if (equal(id, np->type->str))
                     return np;
         return NULL; /* not found */
     } else {
-        for (np = tags[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
-            if (strcmp(id, np->type->str) == 0)
+        for (np = tags[n][h]; np != NULL; np = np->next)
+            if (equal(id, np->type->str))
                 return np;
         return NULL; /* not found */
     }
 }
 
-void install_tag(TypeExp *t)
+void install_tag(TypeExp *ty)
 {
-    /* Note: the parser already that care of redefinitions */
+    /* Note: the parser already take care of redefinitions */
 
+    unsigned h;
     TypeTag *np;
-    unsigned hash_val;
 
-    DEBUG_PRINTF("new tag `%s', scope: %d\n", t->str, curr_scope);
+    DEBUG_PRINTF("new tag `%s', scope: %d\n", ty->str, curr_scope);
 
     if (delayed_delete)
         delete_scope();
 
-    np = malloc(sizeof(TypeTag));
-    np->type = t;
-    hash_val = hash(t->str)%HASH_SIZE;
-    np->next = tags[hash_val][curr_scope];
-    tags[hash_val][curr_scope] = np;
+    // np = malloc(sizeof(TypeTag));
+    np = new_tag();
+    np->type = ty;
+    h = HASH_VAL(ty->str);
+    np->next = tags[curr_scope][h];
+    tags[curr_scope][h] = np;
 }
 
 
-static int n;
 Symbol *lookup(char *id, int all)
 {
+    int n;
     Symbol *np;
-    // int n = curr_scope;
-    n = curr_scope;
+    unsigned h;
 
     if (delayed_delete)
         delete_scope();
 
+    n = curr_scope;
+    h = HASH_VAL(id);
     if (all == TRUE) {
         for (; n >= 0; n--)
-            for (np = ordinary_identifiers[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
-                if (strcmp(id, np->declarator->str) == 0)
+            for (np = ordinary_identifiers[n][h]; np != NULL; np = np->next)
+                if (equal(id, np->declarator->str))
                     return np;
         return NULL; /* not found */
     } else {
-        for (np = ordinary_identifiers[hash(id)%HASH_SIZE][n]; np != NULL; np = np->next)
-            if (strcmp(id, np->declarator->str) == 0)
+        for (np = ordinary_identifiers[n][h]; np != NULL; np = np->next)
+            if (equal(id, np->declarator->str))
                 return np;
         return NULL; /* not found */
     }
@@ -280,22 +336,28 @@ static
 void install(TypeExp *decl_specs, TypeExp *declarator, int is_param)
 {
     Symbol *np;
-    unsigned hash_val;
+    unsigned h;
     TypeExp *scs;
     Token curr_scs, prev_scs;
 
     if (delayed_delete)
         delete_scope();
 
-    if ((np=lookup(declarator->str, FALSE)) == NULL) {
-        /* not found */
-        np = malloc(sizeof(Symbol));
+    h = HASH_VAL(declarator->str);
+    for (np = ordinary_identifiers[curr_scope][h]; np != NULL; np = np->next)
+        if (equal(declarator->str, np->declarator->str))
+            break;
+
+    if (np == NULL) {
+        /* not found in this scope */
+        // np = malloc(sizeof(Symbol));
+        np = new_symbol();
         np->decl_specs = decl_specs;
         np->declarator = declarator;
-        np->is_param = is_param;
-        hash_val = hash(declarator->str)%HASH_SIZE;
-        np->next = ordinary_identifiers[hash_val][curr_scope];
-        ordinary_identifiers[hash_val][curr_scope] = np;
+        np->is_param = (short)is_param;
+        np->scope = (short)curr_scope;
+        np->next = ordinary_identifiers[curr_scope][h];
+        ordinary_identifiers[curr_scope][h] = np;
         return;
     }
 
@@ -381,10 +443,25 @@ ExternId *lookup_external_id(char *id)
 {
     ExternId *np;
 
-    for (np = external_declarations[hash(id)%HASH_SIZE]; np != NULL; np = np->next)
-        if (strcmp(id, np->declarator->str) == 0)
+    for (np = external_declarations[HASH_VAL(id)]; np != NULL; np = np->next)
+        if (equal(id, np->declarator->str))
             return np;
     return NULL; /* not found */
+}
+
+static
+void install_external_id(TypeExp *decl_specs, TypeExp *declarator, ExtIdStatus status)
+{
+    ExternId *np;
+    unsigned h;
+
+    np = malloc(sizeof(ExternId));
+    np->decl_specs = decl_specs;
+    np->declarator = declarator;
+    np->status = status;
+    h = HASH_VAL(declarator->str);
+    np->next = external_declarations[h];
+    external_declarations[h] = np;
 }
 
 int is_external_id(char *id)
@@ -392,52 +469,40 @@ int is_external_id(char *id)
     return lookup_external_id(id)!=NULL;
 }
 
-static void
-install_external_id(TypeExp *decl_specs, TypeExp *declarator, ExtIdStatus status)
+/* set attributes to an identifier node */
+void set_attributes(ExecNode *e, Symbol *sym)
 {
-    ExternId *np;
-    unsigned hash_val;
+    TypeExp *scs;
 
-    np = malloc(sizeof(ExternId));
-    np->decl_specs = decl_specs;
-    np->declarator = declarator;
-    np->status = status;
-    hash_val = hash(declarator->str)%HASH_SIZE;
-    np->next = external_declarations[hash_val];
-    external_declarations[hash_val] = np;
-}
-
-
-void set_extra_attr(ExecNode *e, Symbol *sym)
-{
-    TypeExp *ds;
+    /* set type */
+    e->type.decl_specs = sym->decl_specs;
+    e->type.idl = (sym->declarator->op!=TOK_ENUM_CONST)?sym->declarator->child:sym->declarator;
 
     /* set scope */
-    e->extra[ATTR_SCOPE] = (char)n;
+    e->extra[ATTR_SCOPE] = (char)sym->scope;
 
-    ds = get_sto_class_spec(e->type.decl_specs);
+    scs = get_sto_class_spec(e->type.decl_specs);
 
     /* set storage duration */
-    if (n==FILE_SCOPE || ds!=NULL&&(ds->op==TOK_EXTERN||ds->op==TOK_STATIC))
+    if (sym->scope==FILE_SCOPE || scs!=NULL&&(scs->op==TOK_EXTERN||scs->op==TOK_STATIC))
         e->extra[ATTR_DURATION] = DURATION_STATIC;
     else
         e->extra[ATTR_DURATION] = DURATION_AUTO;
 
     /* set linkage */
-    if (ds == NULL) {
-        if (n==FILE_SCOPE || get_type_category(&e->type)==TOK_FUNCTION)
+    if (scs == NULL) {
+        if (sym->scope==FILE_SCOPE || get_type_category(&e->type)==TOK_FUNCTION)
             e->extra[ATTR_LINKAGE] = LINKAGE_EXTERNAL;
         else
             e->extra[ATTR_LINKAGE] = LINKAGE_NONE;
-    } else if (ds->op == TOK_EXTERN) {
+    } else if (scs->op == TOK_EXTERN) {
         e->extra[ATTR_LINKAGE] = LINKAGE_EXTERNAL;
-    } else if (ds->op==TOK_STATIC && n==FILE_SCOPE) {
+    } else if (scs->op==TOK_STATIC && sym->scope==FILE_SCOPE) {
         e->extra[ATTR_LINKAGE] = LINKAGE_INTERNAL;
     } else {
         e->extra[ATTR_LINKAGE] = LINKAGE_NONE;
     }
 
-    /* is it a formal parameter? */
     e->extra[ATTR_IS_PARAM] = (char)sym->is_param;
 }
 
@@ -793,7 +858,6 @@ int is_complete(char *tag)
 {
     TypeTag *tp;
 
-    // if (tag == NULL) /* anonymous struct/union/enum */
     if (tag[0] == '<') /* <anonymous> struct/union/enum */
         return TRUE;
 
@@ -852,7 +916,6 @@ int examine_declarator(TypeExp *decl_specs, TypeExp *declarator)
                 ERROR_RF(declarator, "array has incomplete element type");
         }
         if (declarator->attr.e != NULL) {
-            // analyze_array_size_expr(declarator);
             long size;
 
             /*
@@ -961,9 +1024,6 @@ TypeExp *dup_declarator(TypeExp *d)
 static
 void replace_typedef_name(Declaration *decl)
 {
-    /*
-     * TODO: fix the file & line/column number mess.
-     */
     Symbol *s;
     TypeExp *temp, *tq, *ts, *decl_specs, *declarator;
 
@@ -1058,8 +1118,7 @@ common:
     } else if (declarator->attr.el->op != temp->op) {
         declarator->attr.el->op = TOK_CONST_VOLATILE;
     }
-    temp->op = 0; /* no declaration specifier has value zero. TODO: find a way of directly
-                     delete this node so it doesn't stay around bothering */
+    temp->op = 0; /* no declaration specifier has value zero */
 nothing:
     /* check for (2) */
     tq = get_type_qual(s->decl_specs);
@@ -1273,6 +1332,7 @@ no_params:
     set_return_type(f->decl_specs, f->header->child->child);
 }
 
+static
 void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds, TypeExp *dct)
 {
     char *ty1, *ty2;
@@ -1301,6 +1361,7 @@ void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds
     free(ty1), free(ty2);
 }
 
+static
 void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
 {
     /*
@@ -1434,7 +1495,6 @@ scalar:
         /* the same rules as for simple assignment apply */
         dest_ty.decl_specs = ds;
         dest_ty.idl = dct;
-        // if (!can_assign_to(e, &dest_ty, &e->type))
         if (!can_assign_to(&dest_ty, e)) {
             char *ty1, *ty2;
 
@@ -1557,7 +1617,7 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
      *
      * See: http://www.open-std.org/jtc1/sc22/wg14/www/docs/dr_016.html
      * TODO: after the whole translation unit is processed, a final traverse
-     * over the external symbols table should be check that the type of the
+     * over the external symbols table should check that the type of the
      * non-extern identifiers is not an incomplete type.
      */
 
@@ -1624,6 +1684,13 @@ no_link_incomp:
     ERROR_R(declarator, "`%s' has no linkage and incomplete type", declarator->str);
 }
 
+
+/*
+ *
+ * TODO: handle errors more gracefully.
+ *
+ */
+
 #define MAX_DESCR_STACK 64
 
 static StructDescriptor *struct_descriptor_table[HASH_SIZE];
@@ -1641,7 +1708,7 @@ void new_struct_member(TypeExp *decl_specs, TypeExp *declarator)
     /* before add, check for duplicate */
     for (p = descriptor_stack[descr_stack_top]->members; p != NULL; p = p->next)
         if (equal(declarator->str, p->id))
-            FATAL_ERROR(declarator, "duplicate member `%s'", declarator->str);
+            FATAL_ERROR(declarator, "duplicate member `%s'", declarator->str); // TOFIX
 
     n = malloc(sizeof(StructMember));
     /* set tag and type */
@@ -1681,8 +1748,8 @@ void push_struct_descriptor(TypeExp *ty)
      *      };
      */
     for (i = descr_stack_top; i >= 0; i--)
-        if (equal(tag, descriptor_stack[i]->tag))
-            FATAL_ERROR(ty, "nested redefinition of `%s %s'", token_table[ty->op*2+1], tag);
+        if (*tag!='<' && equal(tag, descriptor_stack[i]->tag))
+            FATAL_ERROR(ty, "nested redefinition of `%s %s'", token_table[ty->op*2+1], tag); // TOFIX
 
     /* push new descriptor */
     n = malloc(sizeof(StructDescriptor));
@@ -1710,22 +1777,18 @@ void pop_struct_descriptor(void)
 
     /*
      * Note that the address itself is hashed and not the string it points to.
-     * Because of scope rules the tag does not uniquely identifies the struct type.
-     * On the other hand, the address is unique and can be used to unambiguously
-     * identify it.
+     * Because of scope rules the tag does not uniquely identify the struct type.
      */
-    h = hash2((unsigned long)tag)%HASH_SIZE;
+    h = HASH_VAL2((unsigned long)tag);
     n->next = struct_descriptor_table[h];
     struct_descriptor_table[h] = n;
 }
 
 StructDescriptor *lookup_struct_descriptor(char *tag)
 {
-    unsigned h;
     StructDescriptor *np;
 
-    h = hash2((unsigned long)tag)%HASH_SIZE;
-    for (np = struct_descriptor_table[h]; np != NULL; np = np->next)
+    for (np = struct_descriptor_table[HASH_VAL2((unsigned long)tag)]; np != NULL; np = np->next)
         if (tag == np->tag)
             break;
 
@@ -1743,7 +1806,7 @@ void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)
      * of itself) [we don't support flexible array members, so what follows is not important to us]
      */
     if (!analyze_declarator(sql, declarator, FALSE))
-        exit(EXIT_FAILURE); // TOFIX
+        FATAL_ERROR(declarator, "faulty struct/union member"); // TOFIX
     if (declarator->child == NULL) {
         /* not a derived declarator type */
         TypeExp *ts;

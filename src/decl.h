@@ -4,6 +4,10 @@
 #include "parser.h"
 
 typedef struct StructMember StructMember;
+typedef struct StructDescriptor StructDescriptor;
+typedef struct Symbol Symbol;
+typedef struct TypeTag TypeTag;
+
 struct StructMember {
     char *id;
     unsigned size, offset;
@@ -11,7 +15,6 @@ struct StructMember {
     StructMember *next;
 };
 
-typedef struct StructDescriptor StructDescriptor;
 struct StructDescriptor {
     char *tag;
     unsigned size, alignment; /* overall size and member's most restrictive alignment */
@@ -19,15 +22,13 @@ struct StructDescriptor {
     StructDescriptor *next;
 };
 
-typedef struct Symbol Symbol;
 struct Symbol {
     TypeExp *decl_specs;
     TypeExp *declarator;
-    int is_param;
+    short is_param, scope;
     Symbol *next;
 };
 
-typedef struct TypeTag TypeTag;
 struct TypeTag {
     TypeExp *type;
     TypeTag *next;
@@ -46,7 +47,7 @@ void push_scope(void);
 void pop_scope(void);
 void restore_scope(void);
 Symbol *lookup(char *id, int all);
-void install_tag(TypeExp *t);
+void install_tag(TypeExp *ty);
 TypeTag *lookup_tag(char *id, int all);
 int is_typedef_name(char *id);
 char *stringify_type_exp(Declaration *d, int show_decayed);
@@ -58,9 +59,10 @@ int are_compatible(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2, int
 int is_complete(char *tag);
 int is_struct_union_enum(Token t);
 int is_external_id(char *id);
-void set_extra_attr(ExecNode *e, Symbol *sym);
+void set_attributes(ExecNode *e, Symbol *sym);
 void push_struct_descriptor(TypeExp *ty);
 void pop_struct_descriptor(void);
 StructDescriptor *lookup_struct_descriptor(char *tag);
+void init_symbol_tables(void);
 
 #endif

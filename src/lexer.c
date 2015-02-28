@@ -5,14 +5,16 @@
 #include <stdlib.h>
 #include "util.h"
 
-#define ERROR(...)\
-    PRINT_ERROR(pre_tok->src_file, pre_tok->src_line, pre_tok->src_column, __VA_ARGS__),\
-    exit(EXIT_FAILURE)
+static int get_esc_seq_val(char **c);
+static void check_integer_constant(char *ic);
 
-int get_esc_seq_val(char **c);
-void check_integer_constant(char *ic);
 static PreTokenNode *pre_tok; /* declared global so ERROR can access it */
 unsigned number_of_c_tokens;
+
+#define ERROR(...)\
+    fprintf(stderr, "An unrecoverable error occurred\n"),\
+    PRINT_ERROR(pre_tok->src_file, pre_tok->src_line, pre_tok->src_column, __VA_ARGS__),\
+    exit(EXIT_FAILURE)
 
 /*
  * Table that contains token-name/lexeme pairs.
@@ -128,7 +130,7 @@ const char *token_table[] = {
     "INIT_LIST", "initializer list"
 };
 
-const struct Keyword {
+static const struct Keyword {
     char *str;
     Token tok;
 } keywords_table[] = { /* sorted for bsearch() */
@@ -168,10 +170,7 @@ const struct Keyword {
     {"while", TOK_WHILE}
 };
 
-static const int
-number_of_keywords = sizeof(keywords_table)/sizeof(struct Keyword);
-
-int cmp_kw(const void *p1, const void *p2)
+static int cmp_kw(const void *p1, const void *p2)
 {
    struct Keyword *x1 = (struct Keyword *)p1;
    struct Keyword *x2 = (struct Keyword *)p2;
@@ -179,35 +178,19 @@ int cmp_kw(const void *p1, const void *p2)
    return strcmp(x1->str, x2->str);
 }
 
-Token lookup_id(char *s)
+static Token lookup_id(char *s)
 {
     struct Keyword key, *res;
 
     key.str = s;
-    res = bsearch(&key, keywords_table, number_of_keywords, sizeof(struct Keyword), cmp_kw);
+    res = bsearch(&key, keywords_table, NELEMS(keywords_table), sizeof(keywords_table[0]), cmp_kw);
     if (res == NULL)
         return TOK_ID;
     else
         return res->tok;
 }
 
-TokenNode *new_token(Token token, PreTokenNode *ptok)
-{
-    TokenNode *temp;
-
-    temp = malloc(sizeof(TokenNode));
-    temp->token = token;
-    temp->lexeme = ptok->lexeme;
-    temp->src_line = ptok->src_line;
-    temp->src_column = ptok->src_column;
-    temp->src_file = ptok->src_file;
-    temp->next = NULL;
-    ++number_of_c_tokens;
-
-    return temp;
-}
-
-const struct Punctuator {
+static const struct Punctuator {
     char *str;
     Token tok;
 } punctuators_table[] = { /* sorted for bsearch() */
@@ -259,10 +242,7 @@ const struct Punctuator {
     {"~", TOK_COMPLEMENT},
 };
 
-static const int
-number_of_punctuators = sizeof(punctuators_table)/sizeof(struct Punctuator);
-
-int cmp_punct(const void *p1, const void *p2)
+static int cmp_punct(const void *p1, const void *p2)
 {
    struct Punctuator *x1 = (struct Punctuator *)p1;
    struct Punctuator *x2 = (struct Punctuator *)p2;
@@ -273,15 +253,15 @@ int cmp_punct(const void *p1, const void *p2)
 /*
  * Convert escape sequences.
  */
-void convert_string(char *s)
+static void convert_string(char *s)
 {
-    size_t len;
+    unsigned slen;
     char *src, *dest;
 
     /* remove "" */
-    len = strlen(s+1);
-    memmove(s, s+1, len+1);
-    s[len-1] = '\0';
+    slen = strlen(s);
+    memmove(s, s+1, slen-1);
+    s[slen-2] = '\0';
 
     src = dest = s;
     while (*src != '\0') {
@@ -295,17 +275,32 @@ void convert_string(char *s)
     *dest = *src; /* copy '\0' */
 }
 
+static TokenNode *new_token(Token token, PreTokenNode *ptok)
+{
+    TokenNode *temp;
+
+    temp = malloc(sizeof(TokenNode));
+    temp->token = token;
+    temp->lexeme = ptok->lexeme;
+    temp->src_line = ptok->src_line;
+    temp->src_column = ptok->src_column;
+    temp->src_file = ptok->src_file;
+    temp->next = NULL;
+    ++number_of_c_tokens;
+
+    return temp;
+}
+
 /*
- * Convert preprocessing tokens
- * to compiler C tokens.
+ * Take a sequence of preprocessing tokens and convert it to a sequence
+ * of C tokens (roughly translation phases 5, 6, and part of 7 of the standard).
  */
 TokenNode *lexer(PreTokenNode *pre_token_list)
 {
     TokenNode *first, *tok;
-    // PreTokenNode *pre_tok;
 
     pre_tok = pre_token_list;
-    first = tok = malloc(sizeof(TokenNode)); /* this node is deleted later */
+    first = tok = malloc(sizeof(TokenNode)); /* dummy node, it's removed before return */
     while (pre_tok != NULL) {
         if (pre_tok->deleted) {
             pre_tok = pre_tok->next;
@@ -320,11 +315,9 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
             struct Punctuator key, *res;
 
             key.str = pre_tok->lexeme;
-            res = bsearch(&key, punctuators_table, number_of_punctuators, sizeof(struct Punctuator), cmp_punct);
-            if (res == NULL) {
-                fprintf(stderr, "lexer bug: bsearch returned NULL in PRE_TOK_PUNCTUATOR case\n");
-                exit(EXIT_FAILURE);
-            }
+            res = bsearch(&key, punctuators_table, NELEMS(punctuators_table), sizeof(punctuators_table[0]), cmp_punct);
+            if (res == NULL)
+                my_assert(0, "lexer()<1>");
             tok->next = new_token(res->tok, pre_tok);
             break;
         }
@@ -403,8 +396,8 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
             break;
         }
         case PRE_TOK_NL:
-            fprintf(stderr, "lexer bug: new-line token not deleted during preprocessing");
-            exit(1);
+            /* new-line token not deleted during preprocessing */
+            my_assert(0, "lexer()<2>");
             break;
         case PRE_TOK_OTHER:
             /*
@@ -419,12 +412,12 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
         tok = tok->next;
     }
     tok = first->next;
-    free(first);
+    free(first); /* delete dummy node */
 
     return tok;
 }
 
-int isodigit(int c)
+static int isodigit(int c)
 {
     return (c!='8')&&(c!='9')&&(isdigit(c));
 }
@@ -505,9 +498,10 @@ void check_integer_constant(char *ic)
         INULSUF,
         INERROR
     };
+    char *c;
     int state;
-    char *c = ic;
 
+    c = ic;
     state = START;
     while (TRUE) {
         switch (state) {

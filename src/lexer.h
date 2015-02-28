@@ -145,8 +145,8 @@ typedef struct TokenNode TokenNode;
 struct TokenNode {
     Token token;
     char *lexeme, *src_file;
-    TokenNode *next;
     int src_line, src_column;
+    TokenNode *next;
 };
 
 extern const char *token_table[];
