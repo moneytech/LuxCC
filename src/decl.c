@@ -30,9 +30,9 @@ extern int disable_warnings;
     } while (0)
 
 #define WARNING(tok, ...)\
-    (!disable_warnings)?\
+    ((!disable_warnings)?\
     PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
-    ++warning_count:0
+    ++warning_count:0)
 
 #define FATAL_ERROR(tok, ...)\
     fprintf(stderr, "An unrecoverable error occurred\n"),\
@@ -45,7 +45,7 @@ extern int disable_warnings;
 #define HASH_VAL(s)     (hash(s)%HASH_SIZE)
 #define HASH_VAL2(x)    (hash2(x)%HASH_SIZE)
 
-typedef enum {
+typedef enum { /* ExternId.status */
     DEFINED,            /* int x = 0; or void foo(void){...} */
     REFERENCED,         /* extern int x; or void foo(void); */
     TENTATIVELY_DEFINED /* int x; */

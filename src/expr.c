@@ -30,9 +30,9 @@ extern int disable_warnings;
     } while (0)
 
 #define WARNING(tok, ...)\
-    (!disable_warnings)?\
+    ((!disable_warnings)?\
     PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
-    ++warning_count:0
+    ++warning_count:0)
 
 #define FATAL_ERROR(tok, ...)\
     fprintf(stderr, "An unrecoverable error occurred\n"),\
@@ -111,7 +111,7 @@ int is_pointer(Token op)
 static int is_scalar(Token op)
 {
     /*
-     * Note: again, function designators and arrays are checked for explicitly.
+     * Note: function designators and arrays are checked for explicitly.
      */
     return (is_integer(op) || op==TOK_STAR);
 }
@@ -741,7 +741,7 @@ void analyze_assignment_expression(ExecNode *e)
             return;
         }
         /*
-         * Save infered result type for later use.
+         * Save inferred result type for later use.
          * child 2 and 3 are unused by this operator,
          * so the result can be stored there.
          */
@@ -1828,7 +1828,7 @@ unsigned_ty:
         errno = 0;
         e->attr.uval = strtoul(ic, &ep, 0);
         if (errno == ERANGE)
-            /* strtoul() saturates the result, that is, we end up with 0xFFFFFFFF */
+            /* Note: strtoul() saturates its result (we end up with 0xFFFFFFFF) */
             WARNING(e, "integer constant is too large for `unsigned long' type");
         e->type.decl_specs = get_type_node(TOK_UNSIGNED);
         break;

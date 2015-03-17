@@ -47,7 +47,7 @@ typedef enum {
     STATE_INCOMMENT1,
     STATE_INCOMMENT2,
     STATE_INLINECOMMENT,
-    STATE_INCMD
+    /*STATE_INCMD*/
 } State;
 
 static char *buf, *curr, *curr_source_file;

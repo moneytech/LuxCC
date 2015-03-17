@@ -25,9 +25,9 @@ extern int label_counter;
     } while (0)
 
 #define WARNING(tok, ...)\
-    (!disable_warnings)?\
+    ((!disable_warnings)?\
     PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
-    ++warning_count:0
+    ++warning_count:0)
 
 #define HASH_SIZE           4093
 #define MAX_SWITCH_NEST     16
