@@ -18,6 +18,19 @@ int *stack, *data, *bss;
 uchar text[MAX_TEXT_SIZE];
 int text_size, data_size, bss_size;
 
+int cmp_int(const void *p1, const void *p2)
+{
+    int v1 = *(int *)p1;
+    int v2 = *(int *)p2;
+
+    if (v1 < v2)
+        return -1;
+    else if (v1 == v2)
+        return 0;
+    else
+        return 1;
+}
+
 int *exec(void)
 {
     uchar *ip, *ip1;
@@ -257,19 +270,38 @@ int *exec(void)
                 ip = ip1;
                 break;
             case OpJmpF:
-                ip1 = *(int *)ip;
+                ip1 = (uchar *)(*(int *)ip);
                 ip += 4;
                 if (!sp[0])
                     ip = ip1;
                 --sp;
                 break;
             case OpJmpT:
-                ip1 = *(int *)ip;
+                ip1 = (uchar *)(*(int *)ip);
                 ip += 4;
                 if (sp[0])
                     ip = ip1;
                 --sp;
                 break;
+
+            case OpSwitch: {
+                int val, count;
+                int *tab, *p, *p_end, *res;
+
+                val = sp[-1];
+                tab = (int *)sp[0];
+                sp -= 2;
+
+                p = tab;
+                count = *p++;
+                p_end = tab+count;
+
+                if ((res=bsearch(&val, p, count-1, sizeof(*p), cmp_int)) == NULL)
+                    ip = (uchar *)*p_end; /* default */
+                else
+                    ip = (uchar *)*(p_end+(res-tab));
+                break;
+            }
 
                 /* stack management */
             case OpAddSP:
@@ -470,6 +502,7 @@ void disassemble_text(uchar *text, int text_size)
         case OpAddSP:   printf("addsp ");   printf("%x\n", *(int *)p); p+=4; break;
         case OpNop:     printf("nop\n");    break;
         case OpSwap:    printf("swap\n");   break;
+        case OpSwitch:  printf("switch\n"); break;
         }
     }
 }

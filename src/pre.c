@@ -4,6 +4,7 @@
 #include <string.h>
 #include <ctype.h>
 #include "util.h"
+#include "imp_lim.h"
 
 #define SRC_FILE    curr_source_file
 #define SRC_LINE    curr_line
@@ -14,7 +15,6 @@
     PRINT_ERROR(SRC_FILE, SRC_LINE, SRC_COLUMN, __VA_ARGS__),\
     exit(EXIT_FAILURE)
 
-#define MAX_LOG_LINE_LEN    4096
 #define MACRO_TABLE_SIZE    4093
 #define HASH_VAL(s)         (hash(s)%MACRO_TABLE_SIZE)
 
@@ -51,7 +51,7 @@ typedef enum {
 } State;
 
 static char *buf, *curr, *curr_source_file;
-static char token_string[MAX_LOG_LINE_LEN];
+static char token_string[MAX_LOG_LINE_LEN+1];
 static PreTokenNode *curr_tok;
 static int curr_line, src_column;
 unsigned number_of_pre_tokens;
@@ -171,8 +171,8 @@ void init(char *file_path)
             }
 #endif
         }
-        if (line_len > MAX_LOG_LINE_LEN-1)
-            TERMINATE("Logical line exceeds maximum length of %u characters", MAX_LOG_LINE_LEN-1);
+        if (line_len > MAX_LOG_LINE_LEN)
+            TERMINATE("Logical line exceeds maximum length of %u characters", MAX_LOG_LINE_LEN);
         curr += line_len;
     }
 

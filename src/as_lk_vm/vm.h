@@ -128,7 +128,7 @@ enum {
     OpJmpT, /* jump if TOS != 0 */
     OpJmp,
 
-     // switch_i,
+    OpSwitch,
 
      /* appel de fonctions */
     OpCall,

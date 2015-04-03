@@ -3,8 +3,6 @@
 
 #include "parser.h"
 
-#define MAX_NEST 16  /* maximum block nesting level (blocks without locals don't count) */
-
 typedef struct StructMember StructMember;
 typedef struct StructDescriptor StructDescriptor;
 typedef struct Symbol Symbol;

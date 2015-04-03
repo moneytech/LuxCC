@@ -7,6 +7,7 @@
 #include "expr.h"
 #include "stmt.h"
 #include "arena.h"
+#include "imp_lim.h"
 
 extern unsigned error_count, warning_count;
 extern int disable_warnings;

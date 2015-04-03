@@ -9,9 +9,11 @@
 #include "../expr.h"
 #include "../decl.h"
 #include "../arena.h"
+#include "../imp_lim.h"
 
 #define HASH_SIZE       4093
 #define HASH_VAL(s)     (hash(s)%HASH_SIZE)
+#define HASH_VAL2(x)    (hash2(x)%HASH_SIZE)
 
 static int curr_scope = 0;
 static char *curr_func; /* name of current function */
@@ -258,7 +260,7 @@ void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mang
 
     /* label */
     if (mangle_name)
-        /* mangled name = '@' + current function name + static local object name */
+        /* mangled name = '@' + current function name + '_' + static local object name */
         emit("@%s_%s:", curr_func, declarator->str);
     else
         emit("%s:", declarator->str);
@@ -314,6 +316,7 @@ void statement(ExecNode *s)
         if_statement(s);
         break;
     case SwitchStmt:
+        switch_statement(s);
         break;
     case WhileStmt:
         while_statement(s);
@@ -337,8 +340,10 @@ void statement(ExecNode *s)
         return_statement(s);
         break;
     case CaseStmt:
+        case_statement(s);
         break;
     case DefaultStmt:
+        default_statement(s);
         break;
     case ExpStmt:
         expression_statement(s);
@@ -586,10 +591,6 @@ void if_statement(ExecNode *s)
     emit_lab(L2); /* L1==L2 if no ELSE-part */
 }
 
-void switch_statement(ExecNode *s)
-{
-}
-
 void while_statement(ExecNode *s)
 {
     unsigned L1, L2;
@@ -623,10 +624,7 @@ void goto_statement(ExecNode *s)
 
 void label_statement(ExecNode *s)
 {
-    /*
-     * Mangling of names for labels:
-     *      mangled name = "@@" + current function name + label name
-     */
+    /* mangled label name = "@@" + current function name + '_' + label name */
     emit("@@%s_%s:", curr_func, s->attr.str);
     statement(s->child[0]);
 }
@@ -650,14 +648,6 @@ void return_statement(ExecNode *s)
     emit("ret;");
 }
 
-void case_statement(ExecNode *s)
-{
-}
-
-void default_statement(ExecNode *s)
-{
-}
-
 void expression_statement(ExecNode *s)
 {
     if (s->child[0] == NULL)
@@ -667,6 +657,148 @@ void expression_statement(ExecNode *s)
     /*if (get_type_category(&s->child[0]->type) != TOK_VOID)*/
         emit("pop;");
 }
+
+/*
+ * Switch statement.
+ */
+typedef struct SwitchLabel SwitchLabel;
+static struct SwitchLabel {
+    unsigned lab;
+    int val, is_default;
+    SwitchLabel *next;
+} *switch_labels[MAX_SWITCH_NEST][HASH_SIZE];
+
+static int switch_nesting_level = -1;
+
+static
+int cmp_switch_label(const void *p1, const void *p2)
+{
+    SwitchLabel *x1 = *(SwitchLabel **)p1;
+    SwitchLabel *x2 = *(SwitchLabel **)p2;
+
+    if (x1->is_default)
+        return -1;
+    if (x2->is_default)
+        return 1;
+
+    if (x1->val < x2->val)
+        return -1;
+    else if (x1->val == x2->val)
+        return 0;
+    else
+        return 1;
+}
+
+static
+void install_switch_label(int val, int is_default, unsigned lab)
+{
+    unsigned h;
+    SwitchLabel *np;
+
+    np = malloc(sizeof(SwitchLabel));
+    np->lab = lab;
+    np->val = val;
+    np->is_default = is_default;
+    h = is_default?0:HASH_VAL2((unsigned long)val);
+    np->next = switch_labels[switch_nesting_level][h];
+    switch_labels[switch_nesting_level][h] = np;
+}
+
+void switch_statement(ExecNode *s)
+{
+    int i, st_size;
+    unsigned ST, EXIT;
+    SwitchLabel *search_table[128], *np;
+
+    /*
+     * Controlling expression.
+     */
+    ST = new_label();
+    expression(s->child[0], FALSE);
+    emit("ldi @T%u;", ST);
+    emit("switch;");
+
+    /*
+     * Body.
+     */
+    ++switch_nesting_level;
+    EXIT = new_label();
+    push_break_target(EXIT);
+    statement(s->child[1]);
+    pop_break_target();
+    emit_lab(EXIT);
+
+    /*
+     * Build search table.
+     */
+    st_size = 0;
+    for (i = 0; i < HASH_SIZE; i++) {
+        if (switch_labels[switch_nesting_level][i] != NULL) {
+            for (np = switch_labels[switch_nesting_level][i]; np != NULL; np = np->next)
+                search_table[st_size++] = np;
+            switch_labels[switch_nesting_level][i] = NULL;
+        }
+    }
+    --switch_nesting_level;
+    if (st_size == 0)
+        return;
+    qsort(search_table, st_size, sizeof(search_table[0]), cmp_switch_label);
+
+    /*
+     * Emit search table.
+     */
+    emit(".data");
+    emit(".align 4");
+    emit("@T%u:", ST);
+
+    /* emit case values */
+    /* the first value corresponds to the default case and is the size of the search table */
+    if (!search_table[0]->is_default) {
+        /* there is no default label */
+        emit(".dword %u", st_size+1);
+        i = 0;
+    } else {
+        emit(".dword %u", st_size);
+        i = 1;
+    }
+    while (i < st_size) {
+        emit(".dword %u", search_table[i]->val);
+        ++i;
+    }
+
+    /* emit labels */
+    /* the first label correspond to the default case; if there is none the exit label acts as default */
+    if (!search_table[0]->is_default)
+        /* there is no default label */
+        emit(".dword @L%u", EXIT);
+    for (i = 0; i < st_size; i++)
+        emit(".dword @L%u", search_table[i]->lab);
+    emit(".text");
+}
+
+void case_statement(ExecNode *s)
+{
+    unsigned L;
+
+    L = new_label();
+    install_switch_label(s->child[0]->attr.val, FALSE, L);
+    emit_lab(L);
+    statement(s->child[1]);
+}
+
+void default_statement(ExecNode *s)
+{
+    unsigned L;
+
+    L = new_label();
+    install_switch_label(0, TRUE, L);
+    emit_lab(L);
+    statement(s->child[0]);
+}
+
+// =============================================================================
+// Expressions
+// =============================================================================
 
 /*
  * Generate code for expression `e'.
