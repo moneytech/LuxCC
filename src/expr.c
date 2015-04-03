@@ -76,7 +76,7 @@ Token get_type_category(Declaration *d)
      * those identifiers that were installed in the symbol table as having
      * erroneous type.
      */
-    if (d->decl_specs->op == TOK_ERROR)
+    if (/*d->decl_specs!=NULL && */d->decl_specs->op==TOK_ERROR)
         return TOK_ERROR;
 
     if (d->idl != NULL)
@@ -1313,8 +1313,8 @@ void analyze_unary_expression(ExecNode *e)
         analyze_inc_dec_operator(e);
         break;
     case TOK_SIZEOF: {
-        Token ty;
-        TypeExp *ts, *dct;
+        Token cat;
+        Declaration ty;
 
         /*
          * 6.5.3.4
@@ -1324,21 +1324,20 @@ void analyze_unary_expression(ExecNode *e)
          */
         if (e->child[1] != NULL) {
             /* "sizeof" "(" type_name ")" */
-            ts = get_type_spec(((Declaration *)e->child[1])->decl_specs);
-            dct = ((Declaration *)e->child[1])->idl;
-            ty = get_type_category((Declaration *)e->child[1]);
+            ty.decl_specs = ((Declaration *)e->child[1])->decl_specs;
+            ty.idl = ((Declaration *)e->child[1])->idl;
         } else {
             /* "sizeof" unary_expression */
-            ts = get_type_spec(e->child[0]->type.decl_specs);
-            dct = e->child[0]->type.idl;
-            ty = get_type_category(&e->child[0]->type);
+            ty.decl_specs = e->child[0]->type.decl_specs;
+            ty.idl = e->child[0]->type.idl;
         }
-        IS_ERROR_UNARY(e, ty);
+        cat = get_type_category(&ty);
+        IS_ERROR_UNARY(e, cat);
 
-        if (ty == TOK_FUNCTION)
+        if (cat == TOK_FUNCTION)
             ERROR_R(e, "invalid application of `sizeof' to a function type");
-        else if (ty==TOK_SUBSCRIPT && dct->attr.e==NULL
-        || is_struct_union_enum(ty) && !is_complete(ts->str))
+        else if (cat==TOK_SUBSCRIPT && ty.idl->attr.e==NULL
+        || is_struct_union_enum(cat) && !is_complete(get_type_spec(ty.decl_specs)->str))
             ERROR_R(e, "invalid application of `sizeof' to incomplete type");
 
         /*
@@ -1353,9 +1352,10 @@ void analyze_unary_expression(ExecNode *e)
          * that has structure or union type, the result is the total number of bytes in such an object,
          * including internal and trailing padding.
          */
-        /* >> calculate value here << */
-
+        /* convert node to integer constant */
+        e->kind.exp = IConstExp;
         e->type.decl_specs = get_type_node(TOK_UNSIGNED_LONG);
+        e->attr.uval = compute_sizeof(&ty);
         break;
     }
     case TOK_ADDRESS_OF: {
@@ -1660,16 +1660,14 @@ non_callable:
         /* fetch the name of the requested member */
         id = e->child[1]->attr.str;
 
-        // if (ts->str != NULL) {
-            /* non-anonymous struct/union */
-            if (ts->attr.dl == NULL) {
-                TypeTag *np;
+        if (ts->attr.dl == NULL) {
+            TypeTag *np;
 
-                if ((np=lookup_tag(ts->str, TRUE))->type->attr.dl == NULL)
-                    ERROR_R(e, "left operand of . has incomplete type");
-                ts = np->type;
-            }
-        // }
+            if ((np=lookup_tag(ts->str, TRUE))->type->attr.dl == NULL)
+                ERROR_R(e, "left operand of . has incomplete type");
+            // ts = np->type;
+            ts->attr.dl = np->type->attr.dl;
+        }
 
         /* search for the member */
         for (d = ts->attr.dl; d != NULL; d = d->next) {
@@ -1892,8 +1890,18 @@ unsigned compute_sizeof(Declaration *ty)
 
     cat = get_type_category(ty);
     switch (cat) {
+    case TOK_UNION: {
+        StructMember *sm;
+        StructDescriptor *sd;
+
+        sd = lookup_struct_descriptor(get_type_spec(ty->decl_specs)->str);
+        for (sm = sd->members; sm != NULL; sm = sm->next)
+            if (sm->size > size)
+                size = sm->size;
+        size = round_up(size, sd->alignment);
+        break;
+    }
     case TOK_STRUCT:
-    case TOK_UNION:
         size = lookup_struct_descriptor(get_type_spec(ty->decl_specs)->str)->size;
         break;
     case TOK_SUBSCRIPT:
@@ -1915,6 +1923,7 @@ unsigned compute_sizeof(Declaration *ty)
     case TOK_CHAR: case TOK_SIGNED_CHAR: case TOK_UNSIGNED_CHAR:
         size = 1;
         break;
+    case TOK_VOID:
     case TOK_ERROR:
         size = 0;
         break;

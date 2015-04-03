@@ -10,7 +10,7 @@
 
 extern unsigned warning_count, error_count;
 extern int disable_warnings;
-extern int label_counter;
+// extern int label_counter;
 
 #define ERROR(tok, ...)\
     do {\
@@ -127,7 +127,7 @@ void decrease_switch_nesting_level(void)
 typedef struct LabelName LabelName;
 static struct LabelName {
     char *name;
-    int lab_num;
+    // int lab_num;
     LabelName *next;
 } *label_names[HASH_SIZE];
 
@@ -143,10 +143,11 @@ LabelName *lookup_label_name(char *name)
 }
 
 static
-int install_label_name(char *name, int lab_num)
+// int install_label_name(char *name, int lab_num)
+int install_label_name(char *name)
 {
-    LabelName *np;
     unsigned h;
+    LabelName *np;
 
     h = HASH_VAL(name);
     for (np = label_names[h]; np != NULL; np = np->next)
@@ -156,7 +157,7 @@ int install_label_name(char *name, int lab_num)
     if (np == NULL) {
         np = malloc(sizeof(LabelName));
         np->name = strdup(name);
-        np->lab_num = lab_num;
+        // np->lab_num = lab_num;
         np->next = label_names[h];
         label_names[h] = np;
         return TRUE; /* success */
@@ -197,8 +198,8 @@ void resolve_gotos(void)
         if ((lab=lookup_label_name(p->s->attr.str)) == NULL) {
             ERROR(p->s, "use of undefined label `%s'", p->s->attr.str);
         } else {
-            free(p->s->attr.str);
-            p->s->attr.val = lab->lab_num;
+            // free(p->s->attr.str);
+            // p->s->attr.val = lab->lab_num;
         }
 
         temp = p;
@@ -241,18 +242,19 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
 
     switch (s->kind.stmt) {
     case LabelStmt: {
-        int lab_num;
+        // int lab_num;
 
         /*
          * 6.8.1
          * #3 Label names shall be unique within a function.
          */
-        lab_num = label_counter++;
-        if (!install_label_name(s->attr.str, lab_num))
+        // lab_num = label_counter++;
+        // if (!install_label_name(s->attr.str, lab_num))
+        if (!install_label_name(s->attr.str))
             ERROR(s, "duplicate label `%s'", s->attr.str);
 
-        free(s->attr.str);
-        s->attr.val = lab_num;
+        // free(s->attr.str);
+        // s->attr.val = lab_num;
 
         break;
     }
@@ -358,8 +360,8 @@ void analyze_jump_statement(ExecNode *s, int in_loop, int in_switch)
             new_node->next = unresolved_gotos_list;
             unresolved_gotos_list = new_node;
         } else {
-            free(s->attr.str);
-            s->attr.val = lab->lab_num;
+            // free(s->attr.str);
+            // s->attr.val = lab->lab_num;
         }
         break;
     }

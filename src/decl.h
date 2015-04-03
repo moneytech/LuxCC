@@ -3,10 +3,28 @@
 
 #include "parser.h"
 
+#define MAX_NEST 16  /* maximum block nesting level (blocks without locals don't count) */
+
 typedef struct StructMember StructMember;
 typedef struct StructDescriptor StructDescriptor;
 typedef struct Symbol Symbol;
 typedef struct TypeTag TypeTag;
+typedef struct ExternId ExternId;
+
+typedef enum { /* ExternId.status */
+    DEFINED,            /* int x = 0; or void foo(void){...} */
+    REFERENCED,         /* extern int x; or void foo(void); */
+    TENTATIVELY_DEFINED /* int x; */
+} ExtIdStatus;
+
+struct ExternId {
+    TypeExp *decl_specs;
+    TypeExp *declarator;
+    ExtIdStatus status;
+    ExternId *next;
+};
+
+ExternId *get_extern_symtab(void);
 
 struct StructMember {
     char *id;
@@ -39,7 +57,7 @@ int analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym);
 void analyze_decl_specs(TypeExp *d);
 void analyze_enumerator(TypeExp *e);
 void analyze_parameter_declaration(Declaration *d);
-void analyze_function_definition(FuncDef *f);
+void analyze_function_definition(Declaration *f);
 void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator);
 void analyze_type_name(Declaration *tn);
 
@@ -64,5 +82,7 @@ void push_struct_descriptor(TypeExp *ty);
 void pop_struct_descriptor(void);
 StructDescriptor *lookup_struct_descriptor(char *tag);
 void init_symbol_tables(void);
+ExternId *lookup_external_id(char *id);
+StructMember *get_member_descriptor(TypeExp *ty, char *id);
 
 #endif

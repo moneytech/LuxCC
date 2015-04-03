@@ -11,7 +11,7 @@ typedef struct ExecNode ExecNode;
 typedef struct TypeExp TypeExp;
 typedef struct Declaration Declaration;
 typedef struct DeclList DeclList;
-typedef struct FuncDef FuncDef;
+/*typedef struct FuncDef FuncDef;*/
 typedef struct ExternDecl ExternDecl;
 
 struct TypeExp {
@@ -19,7 +19,7 @@ struct TypeExp {
     char *str;        /* struct/union/enum tag or id */
     union {
         DeclList *dl; /* struct declaration list or function parameters */
-        ExecNode *e;  /* array size exp or initializer */
+        ExecNode *e;  /* array size exp, initializer, or function body */
         TypeExp *el;  /* enumerator list or pointer qualifiers */
     } attr;
     TypeExp *child, *sibling;
@@ -36,11 +36,11 @@ struct Declaration {
     TypeExp *idl;     /* init declarator list */
 };
 
-struct FuncDef {
+/*struct FuncDef {
     TypeExp *decl_specs;
-    TypeExp *header;  /* declarator */
+    TypeExp *header;
     ExecNode *body;
-};
+};*/
 
 typedef enum {
     DECLARATION,
@@ -49,10 +49,11 @@ typedef enum {
 
 struct ExternDecl {
     EDKind kind;
-    union {
+    /*union {
         Declaration *d;
         FuncDef *f;
-    } ed;
+    } ed;*/
+    Declaration *d;
     ExternDecl *sibling;
 };
 
@@ -84,17 +85,11 @@ enum {
     LINKAGE_INTERNAL
 };
 
-/*
- * extra[ATTR_SCOPE]: 0-127
- * extra[ATTR_LINKAGE]: none/external/internal
- * extra[ATTR_DURATION]: auto/static
- * extra[ATTR_IS_PARAM]: true/false
- */
-enum {
-    ATTR_SCOPE,
-    ATTR_LINKAGE,
-    ATTR_DURATION,
-    ATTR_IS_PARAM
+enum { /* ExecNode.extra[] */
+    ATTR_SCOPE,     /* extra[ATTR_SCOPE]: 0-127 */
+    ATTR_LINKAGE,   /* extra[ATTR_LINKAGE]: none/external/internal */
+    ATTR_DURATION,  /* extra[ATTR_DURATION]: auto/static */
+    ATTR_IS_PARAM   /* extra[ATTR_IS_PARAM]: true/false */
 };
 
 struct ExecNode {

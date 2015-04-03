@@ -40,24 +40,32 @@ extern int disable_warnings;
     exit(EXIT_FAILURE)
 
 #define HASH_SIZE       4093
-#define MAX_NEST        16  /* maximum block nesting level */
 #define FILE_SCOPE      0
 #define HASH_VAL(s)     (hash(s)%HASH_SIZE)
 #define HASH_VAL2(x)    (hash2(x)%HASH_SIZE)
 
-typedef enum { /* ExternId.status */
-    DEFINED,            /* int x = 0; or void foo(void){...} */
-    REFERENCED,         /* extern int x; or void foo(void); */
-    TENTATIVELY_DEFINED /* int x; */
-} ExtIdStatus;
-typedef struct ExternId ExternId;
-struct ExternId {
-    TypeExp *decl_specs;
-    TypeExp *declarator;
-    ExtIdStatus status;
-    ExternId *next;
-};
 static ExternId *external_declarations[HASH_SIZE];
+
+/* Note: messes up the table! */
+ExternId *get_extern_symtab(void)
+{
+    int i;
+    ExternId *first, *last;
+
+    for (i = 0; i < HASH_SIZE; i++) {
+        if (external_declarations[i] != NULL) {
+            first = external_declarations[i];
+            for (last = external_declarations[i]; last->next != NULL; last = last->next);
+            break;
+        }
+    }
+
+    for (i = i+1; i < HASH_SIZE; i++)
+        if (external_declarations[i] != NULL)
+            for (last->next = external_declarations[i]; last->next != NULL; last = last->next);
+
+    return first;
+}
 
 /*
  * Hash tables that implement ordinary identifiers and tags names spaces.
@@ -438,7 +446,6 @@ redecl_as_diff_kind:
 }
 
 
-static
 ExternId *lookup_external_id(char *id)
 {
     ExternId *np;
@@ -1247,7 +1254,7 @@ void analyze_parameter_declaration(Declaration *d)
     }
 }
 
-void analyze_function_definition(FuncDef *f)
+void analyze_function_definition(Declaration *f)
 {
     int good;
     DeclList *p;
@@ -1261,17 +1268,19 @@ void analyze_function_definition(FuncDef *f)
      * Note: check this before replace typedef names because it is not allowed for the identifier
      * of a function definition to inherit its 'functionness' from a typedef name.
      */
-    if (f->header->child==NULL || f->header->child->op!=TOK_FUNCTION) {
+    if (f->idl->child==NULL || f->idl->child->op!=TOK_FUNCTION) {
         set_return_type(get_type_node(TOK_ERROR), NULL);
-        ERROR_R(f->header, "declarator of function definition does not specify a function type");
+        ERROR_R(f->idl, "declarator of function definition does not specify a function type");
     }
+
+    my_assert(curr_scope == FILE_SCOPE+1, "analyze_function_definition()");
 
     /* temporally switch to file scope */
     curr_scope=FILE_SCOPE, delayed_delete=FALSE;
 
-    good = analyze_declarator(f->decl_specs, f->header, TRUE);
+    good = analyze_declarator(f->decl_specs, f->idl, TRUE);
     if (good)
-        analyze_init_declarator(f->decl_specs, f->header, TRUE);
+        analyze_init_declarator(f->decl_specs, f->idl, TRUE);
 
     /* switch back */
     curr_scope = FILE_SCOPE+1;
@@ -1288,7 +1297,7 @@ void analyze_function_definition(FuncDef *f)
         ERROR(spec, "invalid storage class `%s' in function definition", token_table[spec->op*2+1]);
 
     /* check that the function doesn't return an incomplete type */
-    if (f->header->child->child == NULL) {
+    if (f->idl->child->child == NULL) {
         /* the return type is not a derived declarator type */
         spec = get_type_spec(f->decl_specs);
         if (is_struct_union_enum(spec->op) && !is_complete(spec->str)) {
@@ -1307,7 +1316,7 @@ void analyze_function_definition(FuncDef *f)
      * After adjustment, the parameters in a parameter type list in a function declarator that is
      * part of a definition of that function shall not have incomplete type.
      */
-    p = f->header->child->attr.dl;
+    p = f->idl->child->attr.dl;
     if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID)
         if (p->decl->idl == NULL)
             goto no_params;
@@ -1329,7 +1338,7 @@ void analyze_function_definition(FuncDef *f)
         p = p->next;
     } while (p!=NULL && p->decl->idl->op!=TOK_ELLIPSIS);
 no_params:
-    set_return_type(f->decl_specs, f->header->child->child);
+    set_return_type(f->decl_specs, f->idl->child->child);
 }
 
 static
@@ -1447,7 +1456,8 @@ void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
         e = e->child[0];
 
         if (ts->attr.dl == NULL)
-            ts = lookup_tag(ts->str, TRUE)->type;
+            // ts = lookup_tag(ts->str, TRUE)->type;
+            ts->attr.dl = lookup_tag(ts->str, TRUE)->type->attr.dl;
         d = ts->attr.dl;
         for (; d != NULL; d = d->next) {
             dct = d->decl->idl;
@@ -1472,7 +1482,8 @@ void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
         e = e->child[0];
 
         if (ts->attr.dl == NULL)
-            ts = lookup_tag(ts->str, TRUE)->type;
+            // ts = lookup_tag(ts->str, TRUE)->type;
+            ts->attr.dl = lookup_tag(ts->str, TRUE)->type->attr.dl;
         /* only the first member of the union can be initialized */
         analyze_initializer(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e, const_expr);
 
@@ -1514,7 +1525,7 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
     int is_func_decl, is_initialized;
 
     is_func_decl = declarator->child!=NULL && declarator->child->op==TOK_FUNCTION;
-    is_initialized = declarator->attr.e!=NULL;
+    is_initialized = declarator->attr.e!=NULL && !is_func_def;
     scs = get_sto_class_spec(decl_specs);
 
     /*
@@ -1581,7 +1592,7 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
         if (is_initialized || is_func_def) {
             if (prev->status == DEFINED)
                 ERROR_R(declarator, "redefinition of `%s'", declarator->str);
-            // prev->declarator->attr.e = declarator->attr.e;
+            prev->declarator->attr.e = declarator->attr.e;
             prev->status = DEFINED;
         }
 
@@ -1796,6 +1807,20 @@ StructDescriptor *lookup_struct_descriptor(char *tag)
         my_assert(0, "lookup_struct_descriptor()");
 
     return np;
+}
+
+StructMember *get_member_descriptor(TypeExp *ty, char *id)
+{
+    StructMember *m;
+
+    m = lookup_struct_descriptor(ty->str)->members;
+    while (m != NULL) {
+        if (equal(id, m->id))
+            return m;
+        m = m->next;
+    }
+
+    my_assert(0, "ic_member_offset()");
 }
 
 void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)

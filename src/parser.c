@@ -26,7 +26,7 @@ extern unsigned warning_count, error_count;
  */
 static ExternDecl *translation_unit(void);
 static ExternDecl *external_declaration(void);
-static FuncDef *function_definition(TypeExp *decl_specs, TypeExp *header);
+static Declaration *function_definition(TypeExp *decl_specs, TypeExp *header);
 static Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator);
 static TypeExp *declaration_specifiers(int type_spec_seen);
 static TypeExp *init_declarator_list(TypeExp *decl_specs, TypeExp *first_declarator);
@@ -238,10 +238,12 @@ ExternDecl *external_declaration(void)
 
     if (lookahead(1) == TOK_LBRACE) {
         e->kind = FUNCTION_DEFINITION;
-        e->ed.f = function_definition(p, q);
+        // e->ed.f = function_definition(p, q);
+        e->d = function_definition(p, q);
     } else {
         e->kind = DECLARATION;
-        e->ed.d = declaration(p, q);
+        // e->ed.d = declaration(p, q);
+        e->d = declaration(p, q);
     }
 
     return e;
@@ -250,17 +252,21 @@ ExternDecl *external_declaration(void)
 /*
  * function_definition = declaration_specifiers declarator compound_statement
  */
-FuncDef *function_definition(TypeExp *decl_specs, TypeExp *header)
+Declaration *function_definition(TypeExp *decl_specs, TypeExp *header)
 {
-    FuncDef *f;
+    ExternId *ed;
+    Declaration *f;
 
-    f = malloc(sizeof(FuncDef));
+    f = malloc(sizeof(Declaration));
     f->decl_specs = decl_specs;
-    f->header = header;
+    f->idl = header;
+    restore_scope(); /* restore parameters' scope */
     analyze_function_definition(f);
-    // restore_scope(); /* restore parameters' scope */  <= unnecessary
+    f->idl->attr.e = compound_statement(FALSE, FALSE, FALSE);
 
-    f->body = compound_statement(FALSE, FALSE, FALSE);
+    if ((ed=lookup_external_id(f->idl->str)) != NULL)
+        ed->declarator->attr.e = f->idl->attr.e;
+
     pop_scope();
     resolve_gotos();
     empty_label_table();
