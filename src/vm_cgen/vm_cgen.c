@@ -618,12 +618,16 @@ void for_statement(ExecNode *s)
 
 void goto_statement(ExecNode *s)
 {
-    emit("jmp @%s_%s;", curr_func, s->attr.str);
+    emit("jmp @@%s_%s;", curr_func, s->attr.str);
 }
 
 void label_statement(ExecNode *s)
 {
-    emit("@%s_%s:", curr_func, s->attr.str);
+    /*
+     * Mangling of names for labels:
+     *      mangled name = "@@" + current function name + label name
+     */
+    emit("@@%s_%s:", curr_func, s->attr.str);
     statement(s->child[0]);
 }
 
