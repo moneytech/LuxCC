@@ -141,7 +141,7 @@ enum {
     OpSwap,
 
      /* appel de fonctions externes */
-     // libcall,
+    OpLibCall,
     OpFill,
 
     OpNop,

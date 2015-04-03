@@ -609,12 +609,55 @@ void while_statement(ExecNode *s)
 
 void do_statement(ExecNode *s)
 {
-    ;
+    unsigned L1, L2, L3;
+
+    L1 = new_label(); /* label to TOP */
+    L2 = new_label(); /* label to TEST-part */
+    L3 = new_label(); /* label to EXIT */
+    emit_lab(L1);
+    push_break_target(L3), push_continue_target(L2);
+    statement(s->child[1]);
+    pop_break_target(), pop_continue_target();
+    emit_lab(L2);
+    expression(s->child[0], FALSE);
+    emit_jmpf(L3);
+    emit_jmp(L1);
+    emit_lab(L3);
 }
 
 void for_statement(ExecNode *s)
 {
-    ;
+    unsigned L1, L2, L3;
+
+    /* INITIALIZATION-part */
+    if (s->child[1] != NULL) {
+        expression(s->child[1], FALSE);
+        emit("pop;");
+    }
+
+    L1 = new_label();
+    if (s->child[2] != NULL)
+        L2 = new_label();
+    L3 = new_label();
+
+    /* TEST-part */
+    emit_lab(L1);
+    if (s->child[0] != NULL) {
+        expression(s->child[0], FALSE);
+        emit_jmpf(L3);
+    }
+    /* BODY-part */
+    push_break_target(L3), push_continue_target((s->child[2]!=NULL)?L2:L1);
+    statement(s->child[3]);
+    pop_break_target(), pop_continue_target();
+    /* INCREMENT-part */
+    if (s->child[2] != NULL) {
+        emit_lab(L2);
+        expression(s->child[2], FALSE);
+        emit("pop;");
+    }
+    emit_jmp(L1);
+    emit_lab(L3);
 }
 
 void goto_statement(ExecNode *s)
@@ -661,6 +704,7 @@ void expression_statement(ExecNode *s)
 /*
  * Switch statement.
  */
+
 typedef struct SwitchLabel SwitchLabel;
 static struct SwitchLabel {
     unsigned lab;
@@ -740,9 +784,8 @@ void switch_statement(ExecNode *s)
         }
     }
     --switch_nesting_level;
-    if (st_size == 0)
-        return;
-    qsort(search_table, st_size, sizeof(search_table[0]), cmp_switch_label);
+    if (st_size != 0)
+        qsort(search_table, st_size, sizeof(search_table[0]), cmp_switch_label);
 
     /*
      * Emit search table.
@@ -750,6 +793,13 @@ void switch_statement(ExecNode *s)
     emit(".data");
     emit(".align 4");
     emit("@T%u:", ST);
+    if (st_size == 0) {
+        /* if there are no labels at all, the body of the switch is skipped */
+        emit(".dword 1");
+        emit(".dword @L%u", EXIT);
+        emit(".text");
+        return;
+    }
 
     /* emit case values */
     /* the first value corresponds to the default case and is the size of the search table */
@@ -769,10 +819,11 @@ void switch_statement(ExecNode *s)
     /* emit labels */
     /* the first label correspond to the default case; if there is none the exit label acts as default */
     if (!search_table[0]->is_default)
-        /* there is no default label */
         emit(".dword @L%u", EXIT);
-    for (i = 0; i < st_size; i++)
+    for (i = 0; i < st_size; i++) {
         emit(".dword @L%u", search_table[i]->lab);
+        free(search_table[i]);
+    }
     emit(".text");
 }
 

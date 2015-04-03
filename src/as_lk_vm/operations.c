@@ -73,7 +73,8 @@ static Operation operations[] = {
     { "swap",   OpSwap,     0 },
 
     { "fill",   OpFill,     1 },
-    { "switch", OpSwitch,   0 }
+    { "switch", OpSwitch,   0 },
+    { "libcall",OpLibCall,  1 }
 };
 
 static int cmp_op(const void *p1, const void *p2)

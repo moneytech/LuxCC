@@ -69,7 +69,7 @@ ExternId *get_extern_symtab(void)
 }
 
 /*
- * Hash tables that implement ordinary identifiers and tags names spaces.
+ * Hash tables that implement ordinary identifiers and tags name spaces.
  * The hash tabla that implements label names is in stmt.c.
  * Structure and union members are handled in a special way.
  */
