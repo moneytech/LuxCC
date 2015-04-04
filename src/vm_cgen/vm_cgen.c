@@ -963,27 +963,81 @@ void expression(ExecNode *e, int is_addr)
         case TOK_BW_OR_ASSIGN:
             break;
 
-        case TOK_CONDITIONAL:
+        case TOK_CONDITIONAL: {
+            /*
+             * e1 ? e2 : e3
+             */
+            unsigned L1, L2;
+
+            L1 = new_label();
+            L2 = new_label();
+            /* e1 */
+            expression(e->child[0], FALSE);
+            emit_jmpf(L1);
+            /* e2 */
+            expression(e->child[1], FALSE);
+            emit_jmp(L2);
+            /* e3 */
+            emit_lab(L1);
+            expression(e->child[2], FALSE);
+            emit_lab(L2);
             break;
+        }
 
         case TOK_OR:
         case TOK_AND:
+            break;
+
         case TOK_BW_OR:
         case TOK_BW_XOR:
         case TOK_BW_AND:
             break;
 
         case TOK_EQ:
-        case TOK_NEQ:
+            expression(e->child[0], FALSE);
+            expression(e->child[1], FALSE);
+            emit("eq;");
             break;
-        case TOK_LT:
+        case TOK_NEQ:
+            expression(e->child[0], FALSE);
+            expression(e->child[1], FALSE);
+            emit("neq;");
+            break;
+        case TOK_LT: {
+            Token cat1, cat2;
+
+            expression(e->child[0], FALSE);
+            expression(e->child[1], FALSE);
+            cat1 = get_type_category(&e->child[0]->type);
+            cat2 = get_type_category(&e->child[1]->type);
+            if (is_integer(cat1) && is_integer(cat2)) {
+                if (is_unsigned_int(get_promoted_type(cat1))
+                || is_unsigned_int(get_promoted_type(cat2)))
+                    emit("ult;");
+                else
+                    emit("slt;");
+            } else { /* at least one of the operands has pointer type */
+                emit("ult;");
+            }
+            break;
+        }
         case TOK_GT:
         case TOK_LET:
         case TOK_GET:
             break;
 
         case TOK_LSHIFT:
+            expression(e->child[0], FALSE);
+            expression(e->child[1], FALSE);
+            emit("sll;");
+            break;
         case TOK_RSHIFT:
+            expression(e->child[0], FALSE);
+            expression(e->child[1], FALSE);
+            if (is_unsigned_int(get_type_category(&e->type)))
+                emit("srl;");
+            else
+                emit("sra;");
             break;
 
         case TOK_PLUS:
@@ -998,8 +1052,25 @@ void expression(ExecNode *e, int is_addr)
             break;
 
         case TOK_MUL:
+            expression(e->child[0], FALSE);
+            expression(e->child[1], FALSE);
+            emit("mul;");
+            break;
         case TOK_DIV:
+            expression(e->child[0], FALSE);
+            expression(e->child[1], FALSE);
+            if (is_unsigned_int(get_type_category(&e->type)))
+                emit("udiv;");
+            else
+                emit("sdiv;");
+            break;
         case TOK_MOD:
+            expression(e->child[0], FALSE);
+            expression(e->child[1], FALSE);
+            if (is_unsigned_int(get_type_category(&e->type)))
+                emit("umod;");
+            else
+                emit("smod;");
             break;
 
         case TOK_CAST:
@@ -1021,9 +1092,19 @@ void expression(ExecNode *e, int is_addr)
             break;
 
         case TOK_UNARY_PLUS:
+            expression(e->child[0], FALSE);
+            break;
         case TOK_UNARY_MINUS:
+            expression(e->child[0], FALSE);
+            emit("neg;");
+            break;
         case TOK_COMPLEMENT:
+            expression(e->child[0], FALSE);
+            emit("cmpl;");
+            break;
         case TOK_NEGATION:
+            expression(e->child[0], FALSE);
+            emit("not;");
             break;
 
         case TOK_SUBSCRIPT:
@@ -1065,7 +1146,7 @@ void expression(ExecNode *e, int is_addr)
         } /* switch (e->attr.op) */
         break;
     case IConstExp:
-        emit("ldi %u;", e->attr.uval);
+        emit("ldi %lu;", e->attr.uval);
         break;
     case StrLitExp: {
         /*

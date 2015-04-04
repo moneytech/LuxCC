@@ -442,17 +442,17 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
      * 6.5.16.1 Simple assignment
      * Constraints
      * 1# One of the following shall hold:
-     * — the left operand has qualified or unqualified arithmetic type and the right has
+     * - the left operand has qualified or unqualified arithmetic type and the right has
      * arithmetic type;
-     * — the left operand has a qualified or unqualified version of a structure or union type
+     * - the left operand has a qualified or unqualified version of a structure or union type
      * compatible with the type of the right;
-     * — both operands are pointers to qualified or unqualified versions of compatible types,
+     * - both operands are pointers to qualified or unqualified versions of compatible types,
      * and the type pointed to by the left has all the qualifiers of the type pointed to by the
      * right;
-     * — one operand is a pointer to an object or incomplete type and the other is a pointer to a
+     * - one operand is a pointer to an object or incomplete type and the other is a pointer to a
      * qualified or unqualified version of void, and the type pointed to by the left has all
      * the qualifiers of the type pointed to by the right;
-     * — the left operand is a pointer and the right is a null pointer constant;
+     * - the left operand is a pointer and the right is a null pointer constant;
      */
     Token cat_d, cat_s;
     Declaration *src_ty;
@@ -776,12 +776,12 @@ void analyze_conditional_expression(ExecNode *e)
      *
      * #2 The first operand shall have scalar type.
      * #3 One of the following shall hold for the second and third operands:
-     * — both operands have arithmetic type;
-     * — both operands have the same structure or union type;
-     * — both operands have void type;
-     * — both operands are pointers to qualified or unqualified versions of compatible types;
-     * — one operand is a pointer and the other is a null pointer constant; or
-     * — one operand is a pointer to an object or incomplete type and the other is a pointer to
+     * - both operands have arithmetic type;
+     * - both operands have the same structure or union type;
+     * - both operands have void type;
+     * - both operands are pointers to qualified or unqualified versions of compatible types;
+     * - one operand is a pointer and the other is a null pointer constant; or
+     * - one operand is a pointer to an object or incomplete type and the other is a pointer to
      * a qualified or unqualified version of void.
      */
     Token ty1, ty2, ty3;
@@ -1027,21 +1027,21 @@ void analyze_relational_equality_expression(ExecNode *e)
     /*
      * 6.5.8 Relational operators
      * #2 One of the following shall hold:
-     * — both operands have real type;
-     * — both operands are pointers to qualified or unqualified versions of compatible object
+     * - both operands have real type;
+     * - both operands are pointers to qualified or unqualified versions of compatible object
      * types; or
-     * — both operands are pointers to qualified or unqualified versions of compatible
+     * - both operands are pointers to qualified or unqualified versions of compatible
      * incomplete types.
      */
 
      /*
       * 6.5.9 Equality operators
       * One of the following shall hold:
-      * — both operands have arithmetic type;
-      * — both operands are pointers to qualified or unqualified versions of compatible types;
-      * — one operand is a pointer to an object or incomplete type and the other is a pointer to a
+      * - both operands have arithmetic type;
+      * - both operands are pointers to qualified or unqualified versions of compatible types;
+      * - one operand is a pointer to an object or incomplete type and the other is a pointer to a
       * qualified or unqualified version of void; or
-      * — one operand is a pointer and the other is a null pointer constant.
+      * - one operand is a pointer and the other is a null pointer constant.
       */
     Token ty1, ty2;
 
@@ -1189,10 +1189,10 @@ void analyze_additive_expression(ExecNode *e)
         /*
          * 6.5.6
          * #3 For subtraction, one of the following shall hold:
-         * — both operands have arithmetic type;
-         * — both operands are pointers to qualified or unqualified versions of compatible object
+         * - both operands have arithmetic type;
+         * - both operands are pointers to qualified or unqualified versions of compatible object
          * types; or
-         * — the left operand is a pointer to an object type and the right operand has integer type.
+         * - the left operand is a pointer to an object type and the right operand has integer type.
          * (Decrementing is equivalent to subtracting 1.)
          */
         if (is_integer(ty_l)) {

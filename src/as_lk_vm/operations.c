@@ -42,7 +42,7 @@ static Operation operations[] = {
     { "sget",   OpSGET,     0 },
     { "uget",   OpUGET,     0 },
     { "eq",     OpEQ,       0 },
-    { "neg",    OpNEQ,      0 },
+    { "neq",    OpNEQ,      0 },
 
     { "and",    OpAnd,      0 },
     { "or",     OpOr,       0 },
