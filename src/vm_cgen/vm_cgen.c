@@ -1017,8 +1017,19 @@ void expression(ExecNode *e, int is_addr)
             break;
 
         case TOK_BW_OR:
+            expression(e->child[0], FALSE);
+            expression(e->child[1], FALSE);
+            emit("or;");
+            break;
         case TOK_BW_XOR:
+            expression(e->child[0], FALSE);
+            expression(e->child[1], FALSE);
+            emit("xor;");
+            break;
         case TOK_BW_AND:
+            expression(e->child[0], FALSE);
+            expression(e->child[1], FALSE);
+            emit("and;");
             break;
 
         case TOK_EQ:
