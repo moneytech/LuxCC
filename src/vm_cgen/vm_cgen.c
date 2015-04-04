@@ -267,7 +267,7 @@ void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mang
 
     /* allocation/initialization */
     if (initializer != NULL)
-        ; // TODO
+        ; // TODO (the assembler needs improvements)
     else
         emit(".res %u", compute_sizeof(&ty));
 
@@ -573,16 +573,23 @@ unsigned new_label(void)
 
 void if_statement(ExecNode *s)
 {
+    /*
+     * if (e)
+     *      stmt1
+     * else
+     *      stmt2
+     */
+
     unsigned L1, L2;
 
-    /* TEST-part */
+    /* e */
     expression(s->child[0], FALSE);
     L1 = L2 = new_label();
     emit_jmpf(L1);
-    /* THEN-part */
+    /* stmt1 */
     statement(s->child[1]);
     if (s->child[2] != NULL) {
-        /* ELSE-part */
+        /* stmt2 */
         L2 = new_label();
         emit_jmp(L2);
         emit_lab(L1);
@@ -593,13 +600,20 @@ void if_statement(ExecNode *s)
 
 void while_statement(ExecNode *s)
 {
+    /*
+     * while (e)
+     *      stmt
+     */
+
     unsigned L1, L2;
 
-    L1 = new_label(); /* label to TEST-part */
-    L2 = new_label(); /* label to EXIT */
+    L1 = new_label();
+    L2 = new_label();
+    /* e */
     emit_lab(L1);
     expression(s->child[0], FALSE);
     emit_jmpf(L2);
+    /* stmt */
     push_break_target(L2), push_continue_target(L1);
     statement(s->child[1]);
     pop_break_target(), pop_continue_target();
@@ -609,15 +623,23 @@ void while_statement(ExecNode *s)
 
 void do_statement(ExecNode *s)
 {
+    /*
+     * do
+     *      stmt
+     * while (e);
+     */
+
     unsigned L1, L2, L3;
 
-    L1 = new_label(); /* label to TOP */
-    L2 = new_label(); /* label to TEST-part */
-    L3 = new_label(); /* label to EXIT */
+    L1 = new_label();
+    L2 = new_label();
+    L3 = new_label();
+    /* stmt */
     emit_lab(L1);
     push_break_target(L3), push_continue_target(L2);
     statement(s->child[1]);
     pop_break_target(), pop_continue_target();
+    /* e */
     emit_lab(L2);
     expression(s->child[0], FALSE);
     emit_jmpf(L3);
@@ -627,9 +649,14 @@ void do_statement(ExecNode *s)
 
 void for_statement(ExecNode *s)
 {
+    /*
+     * for (e1; e2; e3)
+     *      stmt;
+     */
+
     unsigned L1, L2, L3;
 
-    /* INITIALIZATION-part */
+    /* e1 */
     if (s->child[1] != NULL) {
         expression(s->child[1], FALSE);
         emit("pop;");
@@ -640,17 +667,17 @@ void for_statement(ExecNode *s)
         L2 = new_label();
     L3 = new_label();
 
-    /* TEST-part */
+    /* e2 */
     emit_lab(L1);
     if (s->child[0] != NULL) {
         expression(s->child[0], FALSE);
         emit_jmpf(L3);
     }
-    /* BODY-part */
+    /* stmt */
     push_break_target(L3), push_continue_target((s->child[2]!=NULL)?L2:L1);
     statement(s->child[3]);
     pop_break_target(), pop_continue_target();
-    /* INCREMENT-part */
+    /* e3 */
     if (s->child[2] != NULL) {
         emit_lab(L2);
         expression(s->child[2], FALSE);
@@ -967,6 +994,7 @@ void expression(ExecNode *e, int is_addr)
             /*
              * e1 ? e2 : e3
              */
+
             unsigned L1, L2;
 
             L1 = new_label();
@@ -1079,8 +1107,53 @@ void expression(ExecNode *e, int is_addr)
 
         case TOK_PRE_INC:
         case TOK_PRE_DEC:
+            expression(e->child[0], TRUE);
+            emit("dup;");
+            emit("dup;");
+            load(e);
+            if (is_integer(get_type_category(&e->type))) {
+                emit("ldi 1;");
+            } else { /* pointer */
+                Declaration pointed_to_ty;
+
+                pointed_to_ty.decl_specs = e->type.decl_specs;
+                pointed_to_ty.idl = e->type.idl->child;
+                emit("ldi %u;", compute_sizeof(&pointed_to_ty));
+            }
+            if (e->attr.op == TOK_PRE_INC)
+                emit("add;");
+            else
+                emit("sub;");
+            emit("swap;");
+            store(&e->type);
+            emit("pop;");
+            /* reload incremented/decremented value */
+            load(e);
+            break;
         case TOK_POS_INC:
         case TOK_POS_DEC:
+            expression(e->child[0], TRUE);
+            emit("dup;");
+            load(e);
+            emit("swap;");
+            emit("dup;");
+            load(e);
+            if (is_integer(get_type_category(&e->type))) {
+                emit("ldi 1;");
+            } else { /* pointer */
+                Declaration pointed_to_ty;
+
+                pointed_to_ty.decl_specs = e->type.decl_specs;
+                pointed_to_ty.idl = e->type.idl->child;
+                emit("ldi %u;", compute_sizeof(&pointed_to_ty));
+            }
+            if (e->attr.op == TOK_POS_INC)
+                emit("add;");
+            else
+                emit("sub;");
+            emit("swap;");
+            store(&e->type);
+            emit("pop;");
             break;
         case TOK_ADDRESS_OF:
             expression(e->child[0], TRUE);
