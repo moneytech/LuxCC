@@ -102,27 +102,6 @@ static void statement(ExecNode *s);
 
 static void expression(ExecNode *e, int is_addr);
 static void expr_convert(ExecNode *e, Declaration *dest);
-/*static unsigned ic_unary_arith_logic_op(ExecNode *e, OpKind op);
-static unsigned ic_function_call(ExecNode *e);
-static unsigned ic_sub(ExecNode *e);
-static unsigned ic_add(ExecNode *e);
-static unsigned ic_multiplicative(ExecNode *e, OpKind op);
-static unsigned ic_subscript(ExecNode *e, int is_addr);
-static unsigned ic_member_access(ExecNode *e, int is_addr);
-static unsigned ic_relational(ExecNode *e);
-static unsigned ic_equality(ExecNode *e);
-static unsigned ic_logical_AND(ExecNode *e);
-static unsigned ic_logical_OR(ExecNode *e);
-static unsigned ic_convert(ExecNode *e, Declaration *dest);
-static unsigned ic_simple_assignment(ExecNode *e);
-static unsigned ic_compound_assignment(ExecNode *e, Token op);
-static unsigned ic_expression(ExecNode *e, int is_addr);
-static unsigned ic_conditional(ExecNode *e);
-static unsigned ic_inc_dec(ExecNode *e);
-static unsigned ic_shift(ExecNode *e, OpKind op);
-static unsigned ic_bitwise(ExecNode *e, OpKind op);*/
-
-// #define emit(...) ( fprintf(stdout, __VA_ARGS__), printf("\n") )
 
 #define OUT_BUF_SIZE    2048
 static char output_buffer[OUT_BUF_SIZE];
@@ -1186,10 +1165,7 @@ relational_unsigned:
                 pointed_to_ty.idl = e->type.idl->child;
                 emit("ldi %u;", compute_sizeof(&pointed_to_ty));
             }
-            if (e->attr.op == TOK_PRE_INC)
-                emit("add;");
-            else
-                emit("sub;");
+            (e->attr.op == TOK_PRE_INC) ? emit("add;") : emit("sub;");
             emit("swap;");
             store(&e->type);
             emit("pop;");
@@ -1213,10 +1189,7 @@ relational_unsigned:
                 pointed_to_ty.idl = e->type.idl->child;
                 emit("ldi %u;", compute_sizeof(&pointed_to_ty));
             }
-            if (e->attr.op == TOK_POS_INC)
-                emit("add;");
-            else
-                emit("sub;");
+            (e->attr.op == TOK_POS_INC) ? emit("add;") : emit("sub;");
             emit("swap;");
             store(&e->type);
             emit("pop;");

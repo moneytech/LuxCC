@@ -31,92 +31,62 @@ int cmp_int(const void *p1, const void *p2)
         return 1;
 }
 
-#if 0
-void VMLibCall(int *sp,int *bp,int c)
-{
-	 int a;
-	 int *p;
-
-	 switch(c) {
-		case 0:
-			/* getvars */
-			p=(void *)bp[-3];
-			p[0]=(int)stdin;
-			p[1]=(int)stdout;
-			p[2]=(int)stderr;
-			p[3]=vm_argc;
-			p[4]=(int)vm_argv;
-			sp[0]=0;
-			break;
-		case 1:
-			/* malloc */
-			sp[0]=(int)malloc(bp[-3]);
-			break;
-		case 2:
-			/* free */
-			free((void *)bp[-3]);
-			sp[0]=0;
-			break;
-		case 3:
-			/* exit */
-			exit(bp[-3]);
-			break;
-		case 4:
-			/* realloc */
-			p=(void *)bp[-3];
-			a=bp[-4];
-			sp[0]=(int) realloc(p,a);
-			break;
-		case 5:
-			/* fputc */
-			sp[0]=fputc(bp[-3],(FILE *)bp[-4]);
-			break;
-		case 6:
-			/* fgetc */
-			sp[0]=fgetc((FILE *)bp[-3]);
-			break;
-		case 7:
-			/* fread */
-			sp[0]=fread((void *)bp[-3],bp[-4],bp[-5],(FILE *)bp[-6]);
-			break;
-		case 8:
-			/* fwrite */
-			sp[0]=fwrite((void *)bp[-3],bp[-4],bp[-5],(FILE *)bp[-6]);
-			break;
-		case 9:
-			/* ferror */
-			sp[0]=ferror((FILE *)bp[-3]);
-			break;
-		case 10:
-			/* fopen */
-			sp[0]=(int)fopen((char *)bp[-3],(char *)bp[-4]);
-			break;
-		case 11:
-			/* fclose */
-			sp[0]=fclose((FILE *)bp[-3]);
-			break;
-		default:
-			fprintf(stderr,"libcall %d non implémenté\n",c);
-			break;
-	 }
-}
-#endif
+int vm_argc;
+char **vm_argv;
 
 void do_libcall(int *sp, int *bp, int c)
 {
+    int a;
+    int *p;
+
     switch (c) {
-    case 0: break;
-    case 1: break;
-    case 2: break;
-    case 3: break;
-    case 4: break;
-    case 5: break;
-    case 6: break;
+    case 0: /* getvars */
+        p = (void *)bp[-3];
+        p[0] = (int)stdin;
+        p[1] = (int)stdout;
+        p[2] = (int)stderr;
+        p[3] = vm_argc;
+        p[4] = (int)vm_argv;
+        sp[0] = 0;
+        break;
+    case 1: /* malloc */
+        sp[0] = (int)malloc(bp[-3]);
+        break;
+    case 2: /* free */
+        free((void *)bp[-3]);
+        sp[0] = 0;
+        break;
+    case 3: /* exit */
+        exit(bp[-3]);
+        break;
+    case 4: /* realloc */
+        p = (void *)bp[-3];
+        a = bp[-4];
+        sp[0] = (int)realloc(p,a);
+        break;
+    case 5: /* fputc */
+        sp[0] = fputc(bp[-3], (FILE *)bp[-4]);
+        break;
+    case 6: /* fgetc */
+        sp[0] = fgetc((FILE *)bp[-3]);
+        break;
     case 7: /* fread */
         sp[0] = fread((void *)bp[-3], bp[-4], bp[-5], (FILE *)bp[-6]);
         break;
     case 8: /* fwrite */
         sp[0] = fwrite((void *)bp[-3], bp[-4], bp[-5], (FILE *)bp[-6]);
+        break;
+    case 9: /* ferror */
+        sp[0] = ferror((FILE *)bp[-3]);
+        break;
+    case 10: /* fopen */
+        sp[0] = (int)fopen((char *)bp[-3], (char *)bp[-4]);
+        break;
+    case 11: /* fclose */
+        sp[0] = fclose((FILE *)bp[-3]);
+        break;
+    default:
+        fprintf(stderr, "libcall %d not implemented\n", c);
         break;
     }
 }
@@ -521,6 +491,10 @@ int main(int argc,char *argv[])
     disassemble_text(text, text_size);
 
     stack = malloc(MAX_STACK_SIZE*sizeof(int));
+
+    vm_argc = argc-1;
+    vm_argv = argv+1;
+
     sp = exec();
     printf("result ==>%d\n", *sp);
     // printf("result ==>%s\n", *sp);
