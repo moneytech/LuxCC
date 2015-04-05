@@ -988,8 +988,29 @@ void expression(ExecNode *e, int is_addr)
         case TOK_RSHIFT_ASSIGN:
         case TOK_BW_AND_ASSIGN:
         case TOK_BW_XOR_ASSIGN:
-        case TOK_BW_OR_ASSIGN:
+        case TOK_BW_OR_ASSIGN: {
+            ExecNode new_e;
+
+            new_e = *e;
+            switch (e->attr.op) {
+                case TOK_MUL_ASSIGN:    new_e.attr.op = TOK_MUL;     break;
+                case TOK_DIV_ASSIGN:    new_e.attr.op = TOK_DIV;     break;
+                case TOK_MOD_ASSIGN:    new_e.attr.op = TOK_MOD;     break;
+                case TOK_PLUS_ASSIGN:   new_e.attr.op = TOK_PLUS;    break;
+                case TOK_MINUS_ASSIGN:  new_e.attr.op = TOK_MINUS;   break;
+                case TOK_LSHIFT_ASSIGN: new_e.attr.op = TOK_LSHIFT;  break;
+                case TOK_RSHIFT_ASSIGN: new_e.attr.op = TOK_RSHIFT;  break;
+                case TOK_BW_AND_ASSIGN: new_e.attr.op = TOK_BW_AND;  break;
+                case TOK_BW_XOR_ASSIGN: new_e.attr.op = TOK_BW_XOR;  break;
+                case TOK_BW_OR_ASSIGN:  new_e.attr.op = TOK_BW_OR;   break;
+            }
+            new_e.type.decl_specs = (TypeExp *)e->child[2];
+            new_e.type.idl = (TypeExp *)e->child[3];
+            expr_convert(&new_e, &e->type);
+            expression(e->child[0], TRUE);
+            store(&e->type);
             break;
+        }
 
         case TOK_CONDITIONAL: {
             /*
