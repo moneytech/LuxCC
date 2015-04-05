@@ -503,12 +503,19 @@ void compound_statement(ExecNode *s, int push_scope)
         for (dl = s->locals; dl != NULL; dl = dl->next) {
             TypeExp *dct, *scs;
 
-            /* check for static local variables */
-            if ((scs=get_sto_class_spec(dl->decl->decl_specs))!=NULL && scs->op==TOK_STATIC) {
-                for (dct = dl->decl->idl; dct != NULL; dct = dct->sibling)
-                    static_object_definition(dl->decl->decl_specs, dct, TRUE);
-                emit(".text");
-                continue;
+            /* check for extern/static local variables */
+            if ((scs=get_sto_class_spec(dl->decl->decl_specs)) != NULL) {
+                if (scs->op == TOK_STATIC) {
+                    for (dct = dl->decl->idl; dct != NULL; dct = dct->sibling)
+                        static_object_definition(dl->decl->decl_specs, dct, TRUE);
+                    emit(".text");
+                    continue;
+                } else if (scs->op == TOK_EXTERN) {
+                    emit(".extern %s", dl->decl->idl->str);
+                    continue;
+                } else if (scs->op == TOK_TYPEDEF) {
+                    continue;
+                }
             }
 
             /* traverse init declarator list */

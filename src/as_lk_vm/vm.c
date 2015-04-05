@@ -62,7 +62,7 @@ void do_libcall(int *sp, int *bp, int c)
     case 4: /* realloc */
         p = (void *)bp[-3];
         a = bp[-4];
-        sp[0] = (int)realloc(p,a);
+        sp[0] = (int)realloc(p, a);
         break;
     case 5: /* fputc */
         sp[0] = fputc(bp[-3], (FILE *)bp[-4]);
