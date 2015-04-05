@@ -1069,63 +1069,70 @@ void expression(ExecNode *e, int is_addr)
             break;
         }
 
+#define BIN_OPS() expression(e->child[0], FALSE), expression(e->child[1], FALSE)
         case TOK_BW_OR:
-            expression(e->child[0], FALSE);
-            expression(e->child[1], FALSE);
+            BIN_OPS();
             emit("or;");
             break;
         case TOK_BW_XOR:
-            expression(e->child[0], FALSE);
-            expression(e->child[1], FALSE);
+            BIN_OPS();
             emit("xor;");
             break;
         case TOK_BW_AND:
-            expression(e->child[0], FALSE);
-            expression(e->child[1], FALSE);
+            BIN_OPS();
             emit("and;");
             break;
 
         case TOK_EQ:
-            expression(e->child[0], FALSE);
-            expression(e->child[1], FALSE);
+            BIN_OPS();
             emit("eq;");
             break;
         case TOK_NEQ:
-            expression(e->child[0], FALSE);
-            expression(e->child[1], FALSE);
+            BIN_OPS();
             emit("neq;");
             break;
-        case TOK_LT: {
+        case TOK_LT:
+        case TOK_GT:
+        case TOK_LET:
+        case TOK_GET: {
             Token cat1, cat2;
 
-            expression(e->child[0], FALSE);
-            expression(e->child[1], FALSE);
+            BIN_OPS();
             cat1 = get_type_category(&e->child[0]->type);
             cat2 = get_type_category(&e->child[1]->type);
             if (is_integer(cat1) && is_integer(cat2)) {
                 if (is_unsigned_int(get_promoted_type(cat1))
                 || is_unsigned_int(get_promoted_type(cat2)))
-                    emit("ult;");
+                    goto relational_unsigned;
                 else
-                    emit("slt;");
+                    goto relational_signed;
             } else { /* at least one of the operands has pointer type */
-                emit("ult;");
+                goto relational_unsigned;
+            }
+relational_signed:
+            switch (e->attr.op) {
+            case TOK_LT: emit("slt;"); break;
+            case TOK_GT: emit("sgt;"); break;
+            case TOK_LET: emit("slet;"); break;
+            case TOK_GET: emit("sget;"); break;
+            }
+            break;
+relational_unsigned:
+            switch (e->attr.op) {
+            case TOK_LT: emit("ult;"); break;
+            case TOK_GT: emit("ugt;"); break;
+            case TOK_LET: emit("ulet;"); break;
+            case TOK_GET: emit("uget;"); break;
             }
             break;
         }
-        case TOK_GT:
-        case TOK_LET:
-        case TOK_GET:
-            break;
 
         case TOK_LSHIFT:
-            expression(e->child[0], FALSE);
-            expression(e->child[1], FALSE);
+            BIN_OPS();
             emit("sll;");
             break;
         case TOK_RSHIFT:
-            expression(e->child[0], FALSE);
-            expression(e->child[1], FALSE);
+            BIN_OPS();
             if (is_unsigned_int(get_type_category(&e->type)))
                 emit("srl;");
             else
@@ -1133,32 +1140,27 @@ void expression(ExecNode *e, int is_addr)
             break;
 
         case TOK_PLUS:
-            expression(e->child[0], FALSE);
-            expression(e->child[1], FALSE);
+            BIN_OPS();
             emit("add;");
             break;
         case TOK_MINUS:
-            expression(e->child[0], FALSE);
-            expression(e->child[1], FALSE);
+            BIN_OPS();
             emit("sub;");
             break;
 
         case TOK_MUL:
-            expression(e->child[0], FALSE);
-            expression(e->child[1], FALSE);
+            BIN_OPS();
             emit("mul;");
             break;
         case TOK_DIV:
-            expression(e->child[0], FALSE);
-            expression(e->child[1], FALSE);
+            BIN_OPS();
             if (is_unsigned_int(get_type_category(&e->type)))
                 emit("udiv;");
             else
                 emit("sdiv;");
             break;
         case TOK_MOD:
-            expression(e->child[0], FALSE);
-            expression(e->child[1], FALSE);
+            BIN_OPS();
             if (is_unsigned_int(get_type_category(&e->type)))
                 emit("umod;");
             else
