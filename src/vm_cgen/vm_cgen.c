@@ -563,6 +563,7 @@ void compound_statement(ExecNode *s, int push_scope)
 #define emit_lab(n)         (emit("@L%u:", n))
 #define emit_jmp(target)    (emit("jmp @L%u;", target))
 #define emit_jmpf(target)   (emit("jmpf @L%u;", target))
+#define emit_jmpt(target)   (emit("jmpt @L%u;", target))
 
 static unsigned new_label(void);
 unsigned new_label(void)
@@ -1012,9 +1013,40 @@ void expression(ExecNode *e, int is_addr)
             break;
         }
 
-        case TOK_OR:
-        case TOK_AND:
+        case TOK_OR: {
+            unsigned L1, L2;
+
+            L1 = new_label();
+            L2 = new_label();
+
+            expression(e->child[0], FALSE);
+            emit_jmpt(L1);
+            expression(e->child[1], FALSE);
+            emit_jmpt(L1);
+            emit("ldi 0;");
+            emit_jmp(L2);
+            emit_lab(L1);
+            emit("ldi 1;");
+            emit_lab(L2);
             break;
+        }
+        case TOK_AND: {
+            unsigned L1, L2;
+
+            L1 = new_label();
+            L2 = new_label();
+
+            expression(e->child[0], FALSE);
+            emit_jmpf(L1);
+            expression(e->child[1], FALSE);
+            emit_jmpf(L1);
+            emit("ldi 1;");
+            emit_jmp(L2);
+            emit_lab(L1);
+            emit("ldi 0;");
+            emit_lab(L2);
+            break;
+        }
 
         case TOK_BW_OR:
             expression(e->child[0], FALSE);
