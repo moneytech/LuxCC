@@ -122,10 +122,10 @@ void vm_cgen(void)
 
     init_location_arena();
 
-    emit(".text");
+    /*emit(".text");
     emit("ldi main;");
     emit("call 0;");
-    emit("halt;");
+    emit("halt;");*/
 
     for (ed = get_extern_symtab(); ed != NULL; ed = ed->next) {
         if (ed->status == REFERENCED) {

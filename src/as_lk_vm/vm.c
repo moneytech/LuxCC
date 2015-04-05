@@ -18,19 +18,6 @@ int *stack, *data, *bss;
 uchar text[MAX_TEXT_SIZE];
 int text_size, data_size, bss_size;
 
-int cmp_int(const void *p1, const void *p2)
-{
-    int v1 = *(int *)p1;
-    int v2 = *(int *)p2;
-
-    if (v1 < v2)
-        return -1;
-    else if (v1 == v2)
-        return 0;
-    else
-        return 1;
-}
-
 int vm_argc;
 char **vm_argv;
 
@@ -90,6 +77,8 @@ void do_libcall(int *sp, int *bp, int c)
         break;
     }
 }
+
+int cmp_int(const void *p1, const void *p2);
 
 int *exec(void)
 {
@@ -477,7 +466,7 @@ int main(int argc,char *argv[])
     int *sp;
 
     prog_name = argv[0];
-    if (argc != 2) {
+    if (argc < 2) {
         printf("usage: %s <program>\n", prog_name);
         exit(0);
     }
@@ -588,4 +577,17 @@ void disassemble_data(uchar *data, int data_size)
         printf("%x\n", *(int *)p);
         p += 4;
     }
+}
+
+int cmp_int(const void *p1, const void *p2)
+{
+    int v1 = *(int *)p1;
+    int v2 = *(int *)p2;
+
+    if (v1 < v2)
+        return -1;
+    else if (v1 == v2)
+        return 0;
+    else
+        return 1;
 }

@@ -215,6 +215,7 @@ int main(int argc, char *argv[])
 
     int i;
     FILE *fout;
+    char *out_file;
 
     prog_name = argv[0];
     if (argc < 3) {
@@ -225,7 +226,13 @@ int main(int argc, char *argv[])
 
     init_local_table();
 
-    for (i = 2; i < argc; i++) { /* object files */
+    /*
+     * `crt.o' must be the first file.
+     * It initializes some variables and call main.
+     */
+    out_file = argv[1];
+    argv[1] = "../../libsrc/crt.o";
+    for (i = 1; i < argc; i++) { /* object files */
         FILE *fin;
         char name[MAX_SYM_LEN], *cp;
         int j;
@@ -333,8 +340,8 @@ int main(int argc, char *argv[])
     /*
      * Write the final executable file.
      */
-    if ((fout=fopen(argv[1], "wb")) == NULL)
-        TERMINATE("%s: error while trying to write to file `%s'", prog_name, argv[1]);
+    if ((fout=fopen(out_file, "wb")) == NULL)
+        TERMINATE("%s: error while trying to write to file `%s'", prog_name, out_file);
     /* bss */
     fwrite(&bss_size, sizeof(int), 1, fout);
     /* data */
