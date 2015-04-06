@@ -63,6 +63,7 @@ Location *lookup_location(char *id)
             if (equal(id, np->id))
                 return np;
 
+    fprintf(stderr, "####id=%s, curr_scope=%d\n", id, curr_scope);
     my_assert(0, "lookup_location()");
 }
 static Location *new_location(char *id, int offset)
@@ -103,7 +104,7 @@ static void statement(ExecNode *s);
 static void expression(ExecNode *e, int is_addr);
 static void expr_convert(ExecNode *e, Declaration *dest);
 
-#define OUT_BUF_SIZE    2048
+#define OUT_BUF_SIZE    32768
 static char output_buffer[OUT_BUF_SIZE];
 static char *buf_curr = output_buffer;
 #define emit(...) ( buf_curr+=sprintf(buf_curr, __VA_ARGS__), buf_curr+=sprintf(buf_curr, "\n") )

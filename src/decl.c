@@ -1593,7 +1593,8 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
         if (is_initialized || is_func_def) {
             if (prev->status == DEFINED)
                 ERROR_R(declarator, "redefinition of `%s'", declarator->str);
-            prev->declarator->attr.e = declarator->attr.e;
+            // prev->declarator->attr.e = declarator->attr.e;
+            prev->declarator = declarator;
             prev->status = DEFINED;
         }
 
