@@ -63,7 +63,6 @@ Location *lookup_location(char *id)
             if (equal(id, np->id))
                 return np;
 
-    fprintf(stderr, "####id=%s, curr_scope=%d\n", id, curr_scope);
     my_assert(0, "lookup_location()");
 }
 static Location *new_location(char *id, int offset)

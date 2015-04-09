@@ -8,15 +8,12 @@
 #include "stmt.h"
 #include "arena.h"
 #include "imp_lim.h"
+#include "error.h"
 
-extern unsigned error_count, warning_count;
-extern int disable_warnings;
+extern unsigned error_count;
+extern int colored_diagnostics;
 
-#define ERROR(tok, ...)\
-    do {\
-        PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__);\
-        ++error_count;\
-    } while (0)
+#define ERROR(tok, ...) emit_error(FALSE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
 
 #define ERROR_R(tok, ...)\
     do {\
@@ -30,15 +27,8 @@ extern int disable_warnings;
         return FALSE;\
     } while (0)
 
-#define WARNING(tok, ...)\
-    ((!disable_warnings)?\
-    PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
-    ++warning_count:0)
-
-#define FATAL_ERROR(tok, ...)\
-    fprintf(stderr, "An unrecoverable error occurred\n"),\
-    PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
-    exit(EXIT_FAILURE)
+#define WARNING(tok, ...) emit_warning((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
+#define FATAL_ERROR(tok, ...) emit_error(TRUE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
 
 #define HASH_SIZE       4093
 #define FILE_SCOPE      0
@@ -192,8 +182,7 @@ TypeExp *get_type_spec(TypeExp *d)
         d = d->child;
     }
 
-    if (d == NULL)
-        my_assert(stderr, "get_type_spec()"); /* a type specifier is required */
+    my_assert(d != NULL, "get_type_spec()"); /* a type specifier is required */
 
     return d;
 }
@@ -216,8 +205,8 @@ static void delete_scope(void)
     Symbol *np, *temp;
     TypeTag *np2, *temp2;*/
 
-    if (curr_scope < 0) /* underflow */
-        my_assert(0, "delete_scope()");
+    /* test for underflow */
+    my_assert(curr_scope >= 0, "delete_scope()");
 
     memset(&ordinary_identifiers[curr_scope][0], 0, sizeof(Symbol *)*HASH_SIZE);
     arena_reset(oids_arena[curr_scope]);
@@ -435,8 +424,8 @@ void install(TypeExp *decl_specs, TypeExp *declarator, int is_param)
     return;
 redecl_as_diff_kind:
     /*
-     * This is the diagnostic given by gcc and clang when an ordinary
-     * identifier that denotes
+     * This is the diagnostic given by gcc and clang
+     * when an ordinary identifier that denotes
      * - A function,
      * - An enumeration constant,
      * - A typedef name, or
@@ -1363,12 +1352,21 @@ void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds
     ty1 = stringify_type_exp(&d1, FALSE);
     ty2 = stringify_type_exp(&d2, FALSE);
 
-    fprintf(stderr, INFO_COLOR "%s:%d:%d: " ERROR_COLOR "error: " RESET_ATTR,
-    dct->info->src_file, dct->info->src_line, dct->info->src_column);
-    fprintf(stderr, "conflicting types for `%s'\n", dct->str);
-    fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "previously declared with type `%s'\n", ty1);
-    fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "now redeclared with type      `%s'\n", ty2);
+    if (colored_diagnostics) {
+        fprintf(stderr, INFO_COLOR "%s:%d:%d: " ERROR_COLOR "error: " RESET_ATTR,
+        dct->info->src_file, dct->info->src_line, dct->info->src_column);
+        fprintf(stderr, "conflicting types for `%s'\n", dct->str);
+        fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "previously declared with type `%s'\n", ty1);
+        fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "now redeclared with type      `%s'\n", ty2);
+    } else {
+        fprintf(stderr, "%s:%d:%d: error: ", dct->info->src_file, dct->info->src_line, dct->info->src_column);
+        fprintf(stderr, "conflicting types for `%s'\n", dct->str);
+        fprintf(stderr, "previously declared with type `%s'\n", ty1);
+        fprintf(stderr, "now redeclared with type      `%s'\n", ty2);
+    }
     free(ty1), free(ty2);
+
+    ++error_count;
 }
 
 static
@@ -1805,8 +1803,7 @@ StructDescriptor *lookup_struct_descriptor(char *tag)
         if (tag == np->tag)
             break;
 
-    if (np == NULL)
-        my_assert(0, "lookup_struct_descriptor()");
+    my_assert(np != NULL, "lookup_struct_descriptor()");
 
     return np;
 }

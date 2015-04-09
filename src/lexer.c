@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "util.h"
+#include "error.h"
 
 static int get_esc_seq_val(char **c);
 static void check_integer_constant(char *ic);
@@ -11,10 +12,7 @@ static void check_integer_constant(char *ic);
 static PreTokenNode *pre_tok; /* declared global so ERROR can access it */
 unsigned number_of_c_tokens;
 
-#define ERROR(...)\
-    fprintf(stderr, "An unrecoverable error occurred\n"),\
-    PRINT_ERROR(pre_tok->src_file, pre_tok->src_line, pre_tok->src_column, __VA_ARGS__),\
-    exit(EXIT_FAILURE)
+#define ERROR(...) emit_error(TRUE, pre_tok->src_file, pre_tok->src_line, pre_tok->src_column, __VA_ARGS__)
 
 /*
  * Table that contains token-name/lexeme pairs.
@@ -316,8 +314,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
 
             key.str = pre_tok->lexeme;
             res = bsearch(&key, punctuators_table, NELEMS(punctuators_table), sizeof(punctuators_table[0]), cmp_punct);
-            if (res == NULL)
-                my_assert(0, "lexer()<1>");
+            my_assert(res != NULL, "lexer()<1>");
             tok->next = new_token(res->tok, pre_tok);
             break;
         }

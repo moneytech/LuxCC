@@ -5,15 +5,13 @@
 #include <ctype.h>
 #include "util.h"
 #include "imp_lim.h"
+#include "error.h"
 
 #define SRC_FILE    curr_source_file
 #define SRC_LINE    curr_line
 #define SRC_COLUMN  src_column
 
-#define ERROR(...)\
-    fprintf(stderr, "An unrecoverable error occurred\n"),\
-    PRINT_ERROR(SRC_FILE, SRC_LINE, SRC_COLUMN, __VA_ARGS__),\
-    exit(EXIT_FAILURE)
+#define ERROR(...) emit_error(TRUE, SRC_FILE, SRC_LINE, SRC_COLUMN, __VA_ARGS__)
 
 #define MACRO_TABLE_SIZE    4093
 #define HASH_VAL(s)         (hash(s)%MACRO_TABLE_SIZE)

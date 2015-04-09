@@ -7,16 +7,11 @@
 #include "util.h"
 #include "decl.h"
 #include "expr.h"
+#include "error.h"
 
-extern unsigned warning_count, error_count;
-extern int disable_warnings;
 // extern int label_counter;
 
-#define ERROR(tok, ...)\
-    do {\
-        PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__);\
-        ++error_count;\
-    } while (0)
+#define ERROR(tok, ...) emit_error(FALSE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
 
 #define ERROR_R(tok, ...)\
     do {\
@@ -24,10 +19,7 @@ extern int disable_warnings;
         return;\
     } while (0)
 
-#define WARNING(tok, ...)\
-    ((!disable_warnings)?\
-    PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
-    ++warning_count:0)
+#define WARNING(tok, ...) emit_warning((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
 
 #define HASH_SIZE           4093
 #define MAX_SWITCH_NEST     16

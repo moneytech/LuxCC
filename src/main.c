@@ -8,6 +8,7 @@
 
 unsigned warning_count, error_count;
 int disable_warnings;
+int colored_diagnostics = 1;
 
 
 static void usage(char *program_name)
@@ -24,6 +25,7 @@ static void print_options(void)
            "  -q, --quiet               Disable all warnings\n"
            "  -o, --ouput-file          Write ouput to specified file\n"
            "  -s, --show-stats          Show compilation stats\n"
+           "  -b, --boring              Print uncolored diagnostics\n"
            "  -h, --help                Print this help\n"
            );
 }
@@ -47,21 +49,22 @@ int main(int argc, char *argv[])
     };
 
     struct option compiler_options[] = {
-        {"preprocess",  no_argument,        NULL, 'E'},
-        {"dump-tokens", no_argument,        NULL, 'd'},
-        {"analyze",     no_argument,        NULL, 'a'},
-        {"quiet",       no_argument,        NULL, 'q'},
-        {"ouput-file",  required_argument,  0,    'o'},
-        {"help",        no_argument,        NULL, 'h'},
-        {"show-stats",  no_argument,        NULL, 's'},
-        {NULL,          0,                  NULL,  0}
+        {"preprocess",      no_argument,        NULL, 'E'},
+        {"dump-tokens",     no_argument,        NULL, 'd'},
+        {"analyze",         no_argument,        NULL, 'a'},
+        {"quiet",           no_argument,        NULL, 'q'},
+        {"ouput-file",      required_argument,  NULL, 'o'},
+        {"help",            no_argument,        NULL, 'h'},
+        {"show-stats",      no_argument,        NULL, 's'},
+        {"boring",          no_argument,        NULL, 'b'},
+        {NULL,              0,                  NULL,  0}
     };
 
     option_flags = 0;
     for (;;) {
         option_index = 0;
 
-        c = getopt_long(argc, argv, "Edaqo:h", compiler_options, &option_index);
+        c = getopt_long(argc, argv, "Edaqo:hsb", compiler_options, &option_index);
         if (c == -1)
             /* no more options */
             break;
@@ -81,6 +84,9 @@ int main(int argc, char *argv[])
                 break;
             case 'q':
                 disable_warnings = 1;
+                break;
+            case 'b':
+                colored_diagnostics = 0;
                 break;
             case 'o':
                 printf("redirect output to `%s'\n", optarg);

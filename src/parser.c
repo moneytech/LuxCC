@@ -7,19 +7,16 @@
 #include "decl.h"
 #include "expr.h"
 #include "stmt.h"
+#include "error.h"
 
 static TokenNode *curr_tok;
 unsigned number_of_ast_nodes;
-extern unsigned warning_count, error_count;
 
 /*
  * All syntax errors are fatal.
  * No attempt of recovery is made.
  */
-#define ERROR(...)\
-    fprintf(stderr, "An unrecoverable error occurred\n"),\
-    PRINT_ERROR(curr_tok->src_file, curr_tok->src_line, curr_tok->src_column, __VA_ARGS__),\
-    exit(EXIT_FAILURE)
+#define ERROR(...) emit_error(TRUE, curr_tok->src_file, curr_tok->src_line, curr_tok->src_column, __VA_ARGS__)
 
 /*
  * Recursive parsing functions.
@@ -1994,6 +1991,8 @@ ExecNode *postfix(void)
 
 char *extra_str[] = { "auto", "static", "none", "external", "internal" };
 
+#define NON_FATAL_ERROR(...) emit_error(FALSE, curr_tok->src_file, curr_tok->src_line, curr_tok->src_column, __VA_ARGS__)
+
 /*
  * primary_expression = identifier |
  *                      constant |
@@ -2028,16 +2027,12 @@ ExecNode *primary_expression(void)
                 n->extra[ATTR_SCOPE], extra_str[n->extra[ATTR_LINKAGE]], extra_str[n->extra[ATTR_DURATION]],
                 n->extra[ATTR_IS_PARAM]);*/
             } else {
-                PRINT_ERROR(curr_tok->src_file, curr_tok->src_line, curr_tok->src_column,
-                "expecting primary-expression; found typedef-name `%s'", n->attr.str);
+                NON_FATAL_ERROR("expecting primary-expression; found typedef-name `%s'", n->attr.str);
                 n->type.decl_specs = get_type_node(TOK_ERROR);
-                ++error_count;
             }
         } else {
-            PRINT_ERROR(curr_tok->src_file, curr_tok->src_line, curr_tok->src_column,
-            "undeclared identifier `%s'", n->attr.str);
+            NON_FATAL_ERROR("undeclared identifier `%s'", n->attr.str);
             n->type.decl_specs = get_type_node(TOK_ERROR);
-            ++error_count;
         }
         break;
     }

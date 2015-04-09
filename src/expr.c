@@ -7,9 +7,7 @@
 #include <limits.h>
 #include "util.h"
 #include "decl.h"
-
-extern unsigned error_count, warning_count;
-extern int disable_warnings;
+#include "error.h"
 
 /*
  * Print error, increase error count, and set to 'error'
@@ -18,8 +16,7 @@ extern int disable_warnings;
  */
 #define ERROR(tok, ...)\
     do {\
-        PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__);\
-        ++error_count;\
+        emit_error(FALSE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__);\
         (tok)->type.decl_specs = get_type_node(TOK_ERROR);\
     } while (0)
 
@@ -29,15 +26,8 @@ extern int disable_warnings;
         return;\
     } while (0)
 
-#define WARNING(tok, ...)\
-    ((!disable_warnings)?\
-    PRINT_WARNING((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
-    ++warning_count:0)
-
-#define FATAL_ERROR(tok, ...)\
-    fprintf(stderr, "An unrecoverable error occurred\n"),\
-    PRINT_ERROR((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__),\
-    exit(EXIT_FAILURE)
+#define WARNING(tok, ...) emit_warning((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
+#define FATAL_ERROR(tok, ...) emit_error(TRUE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
 
 /*
  * Macro used by functions that analyze binary operators. If any of the operands has
@@ -1601,11 +1591,10 @@ subs_incomp:
                 ty1 = stringify_type_exp(&p_ty, TRUE);
                 ty2 = stringify_type_exp(&a->type, TRUE);
                 // ERROR(e, "parameter/argument type mismatch (parameter #%d; expected `%s', given `%s')", n, ty1, ty2);
-                PRINT_ERROR(a->info->src_file, a->info->src_line, a->info->src_column,
+                emit_error(FALSE, a->info->src_file, a->info->src_line, a->info->src_column,
                 "parameter/argument type mismatch (parameter #%d; expected `%s', given `%s')",
                 n, ty1, ty2);
                 free(ty1), free(ty2);
-                ++error_count;
 
                 // return;
             }
