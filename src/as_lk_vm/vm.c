@@ -12,10 +12,11 @@ char *prog_name;
 typedef unsigned char uchar;
 typedef unsigned short ushort;
 
-#define MAX_STACK_SIZE  1024
-#define MAX_TEXT_SIZE   1024
+#define MAX_STACK_SIZE  32768
+// #define MAX_TEXT_SIZE   1024
 int *stack, *data, *bss;
-uchar text[MAX_TEXT_SIZE];
+// uchar text[MAX_TEXT_SIZE];
+uchar *text;
 int text_size, data_size, bss_size;
 
 int vm_argc;
@@ -87,11 +88,18 @@ int *exec(void)
     int opcode;
     int a, b;
 
+    // uchar *prev_ip;
+
     ip = text;
     sp = stack;
     bp = stack;
 
     while (1) {
+        // if (ip < 0xFFFF) {
+            // printf("prev_ip=%u, %u\n", *prev_ip, OpSwitch);
+        // }
+        // prev_ip = ip;
+
         opcode = *ip++;
         switch (opcode) {
                 /* memory read */
@@ -345,6 +353,9 @@ int *exec(void)
                 count = *p++;
                 p_end = tab+count;
 
+                // fprintf(stderr, "count=%u\n", count);
+                // fprintf(stderr, "%p\n", *(tab+count+3));
+
                 if ((res=bsearch(&val, p, count-1, sizeof(*p), cmp_int)) == NULL)
                     ip = (uchar *)*p_end; /* default */
                 else
@@ -397,19 +408,21 @@ void load_code(char *file_path)
     if ((fp=fopen(file_path, "rb")) == NULL)
         TERMINATE("%s: error reading file `%s'", prog_name, file_path);
 
-    /*
-     * Bss
-     */
+    /* header */
     fread(&bss_size, sizeof(int), 1, fp);
     bss = calloc(bss_size, 1);
-
-    /*
-     * Data
-     */
     fread(&data_size, sizeof(int), 1, fp);
+    fread(&text_size, sizeof(int), 1, fp);
+    fread(&ndreloc, sizeof(int), 1, fp);
+    fread(&ntreloc, sizeof(int), 1, fp);
+
+    /* data&text */
     data = malloc(data_size);
     fread(data, data_size, 1, fp);
-    fread(&ndreloc, sizeof(int), 1, fp);
+    text = malloc(text_size);
+    fread(text, text_size, 1, fp);
+
+    /* data relocation table */
     for (i = 0; i < ndreloc; i++) {
         int base;
         int segment, offset;
@@ -420,12 +433,7 @@ void load_code(char *file_path)
         *(int *)((char *)data+offset) += base;
     }
 
-    /*
-     * Text
-     */
-    fread(&text_size, sizeof(int), 1, fp);
-    fread(text, text_size, 1, fp);
-    fread(&ntreloc, sizeof(int), 1, fp);
+    /* text relocation table */
     for (i = 0; i < ntreloc; i++) {
         int base;
         int segment, offset;
@@ -472,12 +480,12 @@ int main(int argc,char *argv[])
     }
 
     load_code(argv[1]);
-    printf("Bss:\n");
+    /*printf("Bss:\n");
     disassemble_data(bss, bss_size);
     printf("Data:\n");
     disassemble_data(data, data_size);
     printf("Code:\n");
-    disassemble_text(text, text_size);
+    disassemble_text(text, text_size);*/
 
     stack = malloc(MAX_STACK_SIZE*sizeof(int));
 

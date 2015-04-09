@@ -104,6 +104,7 @@ static void statement(ExecNode *s);
 static void expression(ExecNode *e, int is_addr);
 static void expr_convert(ExecNode *e, Declaration *dest);
 
+// TODO: make this more flexible using a growable buffer.
 #define OUT_BUF_SIZE    32768
 static char output_buffer[OUT_BUF_SIZE];
 static char *buf_curr = output_buffer;

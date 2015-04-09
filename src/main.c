@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
 
     tree = parser(tok);
 
-    /*if (option_flags & OPT_SHOW_STATS) {
+    if (option_flags & OPT_SHOW_STATS) {
         extern unsigned number_of_pre_tokens;
         extern unsigned number_of_c_tokens;
         extern unsigned number_of_ast_nodes;
@@ -140,10 +140,10 @@ int main(int argc, char *argv[])
         printf("%u C tokens were created (aprox)\n", number_of_c_tokens);
         printf("%u AST nodes were created (aprox)\n", number_of_ast_nodes);
     }
-    printf("%d warning and %d error generated\n", warning_count, error_count);
+    // printf("%d warning and %d error generated\n", warning_count, error_count);
 
     if (option_flags & OPT_ANALYZE)
-        exit(EXIT_SUCCESS);*/
+        exit(EXIT_SUCCESS);
 
     if (error_count == 0)
         // ic_main(tree);

@@ -1832,10 +1832,14 @@ unsigned_ty:
         break;
     }
     case StrLitExp: {
-        static TypeExp lit_dct = { TOK_SUBSCRIPT };
+        // static TypeExp lit_dct = { TOK_SUBSCRIPT };
 
         e->type.decl_specs = get_type_node(TOK_CHAR);
-        e->type.idl = &lit_dct;
+        // e->type.idl = &lit_dct;
+        e->type.idl = calloc(1, sizeof(TypeExp));
+        e->type.idl->op = TOK_SUBSCRIPT;
+        e->type.idl->attr.e = calloc(1, sizeof(ExecNode));
+        e->type.idl->attr.e->attr.val = strlen(e->attr.str)+1;
         break;
     }
     }
@@ -1907,7 +1911,7 @@ unsigned compute_sizeof(Declaration *ty)
     case TOK_SUBSCRIPT:
         new_ty.decl_specs = ty->decl_specs;
         new_ty.idl = ty->idl->child;
-        size = ty->idl->attr.e->attr.val * compute_sizeof(&new_ty);
+        size = ty->idl->attr.e->attr.val*compute_sizeof(&new_ty);
         break;
     case TOK_STAR:
         size = 4;

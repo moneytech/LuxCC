@@ -71,8 +71,8 @@ unsigned long get_num(char *s)
 /*
  * Segments.
  */
-#define TEXT_SEG_MAX    1024
-#define DATA_SEG_MAX    1024
+#define TEXT_SEG_MAX    32768
+#define DATA_SEG_MAX    32768
 char text_seg[TEXT_SEG_MAX];
 char data_seg[DATA_SEG_MAX];
 int curr_segment = TEXT_SEG;
@@ -283,6 +283,11 @@ int main(int argc, char *argv[])
     }
 
     fclose(fout);
+
+    // fprintf(stderr, "text_size=%d\n", text_size);
+    // fprintf(stderr, "data_size=%d\n", data_size);
+    // fprintf(stderr, "bss_size=%d\n", bss_size);
+    // fprintf(stderr, "nreloc=%d\n", nreloc);
 
     return 0;
 }

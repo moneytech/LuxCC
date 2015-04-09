@@ -11,8 +11,8 @@ char *prog_name;
 /*
  * Segments.
  */
-#define TEXT_SEG_MAX    8192
-#define DATA_SEG_MAX    8192
+#define TEXT_SEG_MAX    65536
+#define DATA_SEG_MAX    32768
 char text_seg[TEXT_SEG_MAX];
 char data_seg[DATA_SEG_MAX];
 int text_size, data_size, bss_size;
@@ -187,24 +187,25 @@ int main(int argc, char *argv[])
                 [ Executable file format ]
 
     +-------------------------------------------------+ <-+
-    | Bss size in bytes (4 bytes)                     |   |-> Bss stuff
-    +-------------------------------------------------+ <-+
+    | Bss size in bytes (4 bytes)                     |   |
+    +-------------------------------------------------+   |
     | Data size in bytes (4 bytes)                    |   |
     +-------------------------------------------------+   |
-    | Data                                            |   |
-    +-------------------------------------------------+   |-> Data stuff
+    | Text size in bytes (4 bytes)                    |   |-> Header
+    +-------------------------------------------------+   |
     | Number of entries in data relocation table      |   |
     +-------------------------------------------------+   |
-    | Data relocation table                           |   |
-    +-------------------------------------------------+ <-+
-    | Text size in bytes (4 bytes)                    |   |
-    +-------------------------------------------------+   |
-    | Text                                            |   |
-    +-------------------------------------------------+   |-> Text stuff
     | Number of entries in text relocation table      |   |
-    +-------------------------------------------------+   |
-    | Text relocation table                           |   |
     +-------------------------------------------------+ <-+
+    | Data                                            |
+    +-------------------------------------------------+
+    | Text                                            |
+    +-------------------------------------------------+
+    | Data relocation table                           |
+    +-------------------------------------------------+
+    | Text relocation table                           |
+    +-------------------------------------------------+
+
 
     Each entry of the relocation tables:
         - offset: the offset from the start of the segment (data or text) where the fix
@@ -227,8 +228,11 @@ int main(int argc, char *argv[])
     init_local_table();
 
     /*
-     * `crt.o' must be the first file.
-     * It initializes some variables and call main.
+     * crt.o must be the first file (crt.o's code must be physically at the
+     * beginning of the resulting executable). An alternative would be to label
+     * crt.o's code as, say, `_start:' and emit an "jmp _start;" before the
+     * program's code.
+     * crt.o has code to initialize some variables and call main.
      */
     out_file = argv[1];
     argv[1] = "../../libsrc/crt.o";
@@ -311,6 +315,9 @@ int main(int argc, char *argv[])
         fclose(fin);
     }
 
+    // fprintf(stderr, "ntreloc=%d\n", ntreloc);
+    // fprintf(stderr, "ndreloc=%d\n", ndreloc);
+
     /*
      * Try to fix the relocs that couldn't be fixed before
      * because they depended on not-yet-defined extern symbols.
@@ -342,20 +349,21 @@ int main(int argc, char *argv[])
      */
     if ((fout=fopen(out_file, "wb")) == NULL)
         TERMINATE("%s: error while trying to write to file `%s'", prog_name, out_file);
-    /* bss */
+    /* header */
     fwrite(&bss_size, sizeof(int), 1, fout);
-    /* data */
     fwrite(&data_size, sizeof(int), 1, fout);
-    fwrite(data_seg, data_size, 1, fout);
+    fwrite(&text_size, sizeof(int), 1, fout);
     fwrite(&ndreloc, sizeof(int), 1, fout);
+    fwrite(&ntreloc, sizeof(int), 1, fout);
+    /* data&text */
+    fwrite(data_seg, data_size, 1, fout);
+    fwrite(text_seg, text_size, 1, fout);
+    /* data relocation table */
     for (i = 0; i < ndreloc; i++) {
         fwrite(&data_relocation_table[i].segment, sizeof(int), 1, fout);
         fwrite(&data_relocation_table[i].offset, sizeof(int), 1, fout);
     }
-    /* text */
-    fwrite(&text_size, sizeof(int), 1, fout);
-    fwrite(text_seg, text_size, 1, fout);
-    fwrite(&ntreloc, sizeof(int), 1, fout);
+    /* text relocation table */
     for (i = 0; i < ntreloc; i++) {
         fwrite(&text_relocation_table[i].segment, sizeof(int), 1, fout);
         fwrite(&text_relocation_table[i].offset, sizeof(int), 1, fout);
