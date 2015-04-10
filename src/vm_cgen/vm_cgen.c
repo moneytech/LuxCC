@@ -18,7 +18,6 @@
 
 static int curr_scope = 0;
 static char *curr_func; /* name of current function */
-static unsigned str_lit_count = 1;
 
 typedef struct Location Location;
 struct Location {
@@ -119,6 +118,37 @@ static void load(ExecNode *e);
 static void load_addr(ExecNode *e);
 static void store(Declaration *dest_ty);
 
+/*
+ * String literals.
+ */
+static char *string_literal_pool[512];
+static unsigned str_lit_count;
+
+static unsigned new_string_literal(char *s)
+{
+    /* TODO: search into the pool before add a new string */
+
+    string_literal_pool[str_lit_count] = s;
+
+    return str_lit_count++;
+}
+
+static void emit_string_literals(void)
+{
+    unsigned n;
+    unsigned char *c;
+
+    emit(".data");
+    for (n = 0; n < str_lit_count; n++) {
+        emit("@S%u:", n);
+        c = (unsigned char *)string_literal_pool[n];
+        do
+            emit(".byte %u", *c);
+        while (*c++ != '\0');
+    }
+    flush_output_buffer();
+}
+
 void vm_cgen(void)
 {
     ExternId *ed;
@@ -145,6 +175,8 @@ void vm_cgen(void)
 
         flush_output_buffer();
     }
+
+    emit_string_literals();
 }
 
 /*
@@ -226,7 +258,6 @@ void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
     TypeExp *ts;
 
     if (dct != NULL) {
-#if 0
         unsigned nelem;
 
         if (dct->op != TOK_SUBSCRIPT)
@@ -241,57 +272,37 @@ void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
              * Character array initialized by string literal.
              */
             unsigned n;
+            unsigned char *c;
 
-            emit("ldbp %u;", offset);
-            expression(e, FALSE);
-            n = strlen(e->attr.str)+1;
-            if (nelem == n) {
-                /* fits nicely */
-                emit("memcpy %u;", n);
-            } else if (nelem < n) {
-                /* no enough room; just copy the first nelem chars of the string */
-                emit("memcpy %u;", nelem);
-            } else {
-                /* copy all the string and zero the trailing elements */
-                emit("memcpy %u;", n);
-                emit("ldi %u;", n);
-                emit("add;");
-                emit("ldi 0;");
-                emit("fill %u;", nelem-n);
-            }
-            emit("pop;");
+            n = 0;
+            c = (unsigned char *)e->attr.str;
+            do
+                emit(".byte %u", *c), ++n;
+            while (n<nelem && *c++!='\0');
+
+            /* zero any trailing elements */
+            if (n < nelem)
+                emit(".zero %u", nelem-n);
         } else {
-            unsigned elem_size;
-            Declaration elem_ty;
-
-            /*
-             * Get element size.
-             */
-            elem_ty.decl_specs = ds;
-            elem_ty.idl = dct->child;
-            elem_size = compute_sizeof(&elem_ty);
-
             /*
              * Handle elements with explicit initializer.
              */
             e = e->child[0];
-            for (; e!=NULL && nelem!=0; e=e->sibling, --nelem) {
-                do_auto_init(ds, dct->child, e, offset);
-                offset += elem_size;
-            }
+            for (; e!=NULL && nelem!=0; e=e->sibling, --nelem)
+                do_static_init(ds, dct->child, e);
 
             /*
              * Handle elements without explicit initializer.
              */
             if (nelem != 0) {
-                /* there are nelem elements to zero */
-                emit("ldbp %u;", offset);
-                emit("ldi 0;");
-                emit("fill %u;", nelem*elem_size);
-                emit("pop;");
+                Declaration elem_ty;
+
+                elem_ty.decl_specs = ds;
+                elem_ty.idl = dct->child;
+                emit(".align %u", get_alignment(&elem_ty));
+                emit(".zero %u", nelem*compute_sizeof(&elem_ty));
             }
         }
-#endif
     } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
         /*
          * Struct.
@@ -299,9 +310,6 @@ void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
         DeclList *d;
         int full_init;
 
-
-        /*if (e->attr.op != TOK_INIT_LIST)
-            goto scalar;*/
         e = e->child[0];
 
         /*
@@ -348,18 +356,13 @@ void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
             }
         }
     } else if (ts->op == TOK_UNION) {
-#if 0
         /*
          * Union.
          */
-
-        if (e->attr.op != TOK_INIT_LIST)
-            goto scalar;
         e = e->child[0];
 
         /* initialize the first named member */
-        do_auto_init(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e, offset);
-#endif
+        do_static_init(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e);
     } else {
         /*
          * Scalar.
@@ -394,16 +397,7 @@ scalar:
             if (is_integer(get_type_category(&e->type))) {
                 emit(".dword %lu", eval_int_const_expr(e));
             } else if (e->kind.exp == StrLitExp) {
-                unsigned char *c;
-
-                emit(".dword @S%u", str_lit_count);
-                emit("@S%u:", str_lit_count);
-                c = (unsigned char *)e->attr.str;
-                do
-                    // emit(".byte %hhu", *c);
-                    emit(".byte %u", *c);
-                while (*c++ != '\0');
-                ++str_lit_count;
+                emit(".dword @S%u", new_string_literal(e->attr.str));
             } else {
                 emit(".dword 0");
                 goto bad_init;
@@ -1468,27 +1462,9 @@ relational_unsigned:
     case IConstExp:
         emit("ldi %lu;", e->attr.uval);
         break;
-    case StrLitExp: {
-        /*
-         * Note: strings that appear more than one in the source program will be
-         * duplicated in memory too. A more complex scheme with a symbol table for
-         * string literals may be more appropriate.
-         */
-        unsigned char *c;
-
-        emit(".data");
-        emit("@S%u:", str_lit_count);
-        c = (unsigned char *)e->attr.str;
-        do
-            // emit(".byte %hhu", *c);
-            emit(".byte %u", *c);
-        while (*c++ != '\0');
-
-        emit(".text");
-        emit("ldi @S%u;", str_lit_count);
-        ++str_lit_count;
+    case StrLitExp:
+        emit("ldi @S%u;", new_string_literal(e->attr.str));
         break;
-    }
     case IdExp:
         load_addr(e);
         if (!is_addr)
