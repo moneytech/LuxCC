@@ -1502,6 +1502,9 @@ scalar:
             /* make sure the initializer is computable at compile time */
             // (void)eval_const_expr(e, FALSE);
 
+        if (get_type_category(&e->type) == TOK_ERROR)
+            return;
+
         /* the same rules as for simple assignment apply */
         dest_ty.decl_specs = ds;
         dest_ty.idl = dct;
