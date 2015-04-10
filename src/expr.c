@@ -1925,6 +1925,128 @@ unsigned compute_sizeof(Declaration *ty)
     return size;
 }
 
+long eval_int_const_expr(ExecNode *e)
+{
+    /*
+        Integer constant expression
+
+    An integer constant expression shall have integer type and shall only have operands
+    that are
+        _ integer constants,
+        _ enumeration constants,
+        _ character constants,
+        _ sizeof expressions whose results are integer constants,
+        _ and floating constants that are the immediate operands of casts.
+    Cast operators in an integer constant expression shall only convert arithmetic types
+    to integer types, except as part of an operand to the sizeof operator.
+
+    An integer constant expression is used to specify
+        _ the size of a bit-field member of a structure,
+        _ the value of an enumeration constant,
+        _ the size of an array,
+        _ or the value of a case constant.
+    */
+    switch (e->kind.exp) {
+    case OpExp:
+        switch (e->attr.op) {
+        case TOK_SIZEOF:
+            if (e->child[1] != NULL)
+                return compute_sizeof((Declaration *)e->child[1]);
+            else
+                return compute_sizeof(&e->child[0]->type);
+        case TOK_UNARY_PLUS:
+            return +eval_int_const_expr(e->child[0]);
+        case TOK_UNARY_MINUS:
+            return -eval_int_const_expr(e->child[0]);
+        case TOK_COMPLEMENT:
+            return ~eval_int_const_expr(e->child[0]);
+        case TOK_NEGATION:
+            return !eval_int_const_expr(e->child[0]);
+
+        case TOK_CAST: {
+            Token dest_ty;
+
+            dest_ty = get_type_category((Declaration *)e->child[1]);
+            if (!is_integer(dest_ty))
+                break;
+            switch (dest_ty) {
+            case TOK_SHORT:
+                return (short)eval_int_const_expr(e->child[0]);
+            case TOK_UNSIGNED_SHORT:
+                return (unsigned short)eval_int_const_expr(e->child[0]);
+            case TOK_CHAR:
+            case TOK_SIGNED_CHAR:
+                return (char)eval_int_const_expr(e->child[0]);
+            case TOK_UNSIGNED_CHAR:
+                return (unsigned char)eval_int_const_expr(e->child[0]);
+            }
+            return eval_int_const_expr(e->child[0]); /* no conversion */
+        }
+
+#define L eval_int_const_expr(e->child[0])
+#define R eval_int_const_expr(e->child[1])
+        case TOK_MUL:
+            return L * R;
+        case TOK_DIV:
+            return L / R;
+        case TOK_MOD:
+            return L % R;
+        case TOK_PLUS:
+            return L + R;
+        case TOK_MINUS:
+            return L - R;
+        case TOK_LSHIFT:
+            return L << R;
+        case TOK_RSHIFT:
+            if (is_unsigned_int(get_type_category(&e->type)))
+                return (unsigned)L >> R;
+            else
+                return L >> R;
+        case TOK_LT:
+            return L < R;
+        case TOK_GT:
+            return L > R;
+        case TOK_LET:
+            return L <= R;
+        case TOK_GET:
+            return L >= R;
+        case TOK_EQ:
+            return L == R;
+        case TOK_NEQ:
+            return L != R;
+        case TOK_BW_AND:
+            return L & R;
+        case TOK_BW_XOR:
+            return L ^ R;
+        case TOK_BW_OR:
+            return L | R;
+        case TOK_AND:
+            return L && R;
+        case TOK_OR:
+            return L || R;
+        case TOK_CONDITIONAL:
+            if (eval_int_const_expr(e->child[0]))
+                return eval_int_const_expr(e->child[1]);
+            else
+                return eval_int_const_expr(e->child[2]);
+        }
+#undef L
+#undef R
+        break;
+    case IConstExp:
+        return e->attr.val;
+    case StrLitExp:
+        break;
+    case IdExp:
+        break;
+    }
+
+    FATAL_ERROR(e, "invalid integer constant expression");
+
+    return 0; /* unreachable */
+}
+
+#if 0
 long eval_const_expr(ExecNode *e, int is_addr)
 {
     /*
@@ -2121,6 +2243,7 @@ long eval_const_expr(ExecNode *e, int is_addr)
     // ERROR_R(e, "invalid constant expression");
     FATAL_ERROR(e, "invalid constant expression");
 }
+#endif
 
 void free_expression_tree(ExecNode *e)
 {

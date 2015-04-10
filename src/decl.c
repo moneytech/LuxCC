@@ -740,7 +740,7 @@ void analyze_enumerator(TypeExp *e)
             ERROR(e, "enumerator value is not an integer constant");
             goto error;
         }
-        en_val = eval_const_expr(e->attr.e, FALSE);
+        en_val = eval_int_const_expr(e->attr.e);
     } else {
         e->attr.e = calloc(1, sizeof(ExecNode));
         if (en_val+1 < en_val)
@@ -925,7 +925,7 @@ int examine_declarator(TypeExp *decl_specs, TypeExp *declarator)
             if (!is_integer(get_type_category(&declarator->attr.e->type)))
                 ERROR_RF(declarator, "size of array has non-integer type");
 
-            size = eval_const_expr(declarator->attr.e, FALSE);
+            size = eval_int_const_expr(declarator->attr.e);
             if (size <= 0)
                 ERROR_RF(declarator, "size of array not greater than zero");
 
@@ -1498,9 +1498,9 @@ scalar:
         if (e->attr.op == TOK_INIT_LIST)
             ERROR_R(e, "braces around scalar initializer");
 
-        if (const_expr)
+        // if (const_expr)
             /* make sure the initializer is computable at compile time */
-            (void)eval_const_expr(e, FALSE);
+            // (void)eval_const_expr(e, FALSE);
 
         /* the same rules as for simple assignment apply */
         dest_ty.decl_specs = ds;

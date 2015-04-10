@@ -18,7 +18,7 @@ void analyze_expression(ExecNode *e);
 
 void free_expression_tree(ExecNode *e);
 int can_assign_to(Declaration *dest_ty, ExecNode *e);
-long eval_const_expr(ExecNode *e, int is_addr);
+long eval_int_const_expr(ExecNode *e);
 Token get_type_category(Declaration *d);
 TypeExp *get_type_node(Token ty);
 void reset_enum_val(void);
