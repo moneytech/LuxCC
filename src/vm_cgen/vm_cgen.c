@@ -10,6 +10,7 @@
 #include "../decl.h"
 #include "../arena.h"
 #include "../imp_lim.h"
+#include "../error.h"
 
 #define HASH_SIZE       4093
 #define HASH_VAL(s)     (hash(s)%HASH_SIZE)
@@ -17,6 +18,7 @@
 
 static int curr_scope = 0;
 static char *curr_func; /* name of current function */
+static unsigned str_lit_count = 1;
 
 typedef struct Location Location;
 struct Location {
@@ -219,11 +221,208 @@ void function_definition(TypeExp *decl_specs, TypeExp *header)
     emit("ret;");
 }
 
+void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
+{
+    TypeExp *ts;
+
+    if (dct != NULL) {
+#if 0
+        unsigned nelem;
+
+        if (dct->op != TOK_SUBSCRIPT)
+            goto scalar; /* pointer */
+
+        /*
+         * Array.
+         */
+        nelem = dct->attr.e->attr.uval;
+        if (e->kind.exp == StrLitExp) {
+            /*
+             * Character array initialized by string literal.
+             */
+            unsigned n;
+
+            emit("ldbp %u;", offset);
+            expression(e, FALSE);
+            n = strlen(e->attr.str)+1;
+            if (nelem == n) {
+                /* fits nicely */
+                emit("memcpy %u;", n);
+            } else if (nelem < n) {
+                /* no enough room; just copy the first nelem chars of the string */
+                emit("memcpy %u;", nelem);
+            } else {
+                /* copy all the string and zero the trailing elements */
+                emit("memcpy %u;", n);
+                emit("ldi %u;", n);
+                emit("add;");
+                emit("ldi 0;");
+                emit("fill %u;", nelem-n);
+            }
+            emit("pop;");
+        } else {
+            unsigned elem_size;
+            Declaration elem_ty;
+
+            /*
+             * Get element size.
+             */
+            elem_ty.decl_specs = ds;
+            elem_ty.idl = dct->child;
+            elem_size = compute_sizeof(&elem_ty);
+
+            /*
+             * Handle elements with explicit initializer.
+             */
+            e = e->child[0];
+            for (; e!=NULL && nelem!=0; e=e->sibling, --nelem) {
+                do_auto_init(ds, dct->child, e, offset);
+                offset += elem_size;
+            }
+
+            /*
+             * Handle elements without explicit initializer.
+             */
+            if (nelem != 0) {
+                /* there are nelem elements to zero */
+                emit("ldbp %u;", offset);
+                emit("ldi 0;");
+                emit("fill %u;", nelem*elem_size);
+                emit("pop;");
+            }
+        }
+#endif
+    } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
+        /*
+         * Struct.
+         */
+        DeclList *d;
+        int full_init;
+
+
+        /*if (e->attr.op != TOK_INIT_LIST)
+            goto scalar;*/
+        e = e->child[0];
+
+        /*
+         * Handle members with explicit initializer.
+         */
+        d = ts->attr.dl;
+        full_init = FALSE;
+        for (; d != NULL; d = d->next) {
+            dct = d->decl->idl;
+            for (; e!=NULL && dct!=NULL; e=e->sibling, dct=dct->sibling)
+                do_static_init(d->decl->decl_specs, dct->child, e);
+
+            if (e == NULL) {
+                if (dct==NULL && d->next==NULL)
+                    full_init = TRUE;
+                break;
+            }
+        }
+
+        /*
+         * Handle members without explicit initializer.
+         */
+        if (!full_init) {
+            if (dct == NULL) {
+                d = d->next;
+                dct = d->decl->idl;
+            }
+            while (TRUE) {
+                while (dct != NULL) {
+                    Declaration ty;
+
+                    ty.decl_specs = d->decl->decl_specs;
+                    ty.idl = dct->child;
+                    emit(".align %u", get_alignment(&ty));
+                    emit(".zero %u", compute_sizeof(&ty));
+
+                    dct = dct->sibling;
+                }
+                d = d->next;
+                if (d != NULL)
+                    dct = d->decl->idl;
+                else
+                    break;
+            }
+        }
+    } else if (ts->op == TOK_UNION) {
+#if 0
+        /*
+         * Union.
+         */
+
+        if (e->attr.op != TOK_INIT_LIST)
+            goto scalar;
+        e = e->child[0];
+
+        /* initialize the first named member */
+        do_auto_init(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e, offset);
+#endif
+    } else {
+        /*
+         * Scalar.
+         */
+        Declaration dest_ty;
+scalar:
+        dest_ty.decl_specs = ds;
+        dest_ty.idl = dct;
+        switch (get_type_category(&dest_ty)) {
+        case TOK_CHAR: case TOK_UNSIGNED_CHAR: case TOK_SIGNED_CHAR:
+            if (is_integer(get_type_category(&e->type))) {
+                emit(".byte %lu", eval_int_const_expr(e));
+            } else {
+                emit(".byte 0");
+                goto bad_init;
+            }
+            break;
+        case TOK_SHORT: case TOK_UNSIGNED_SHORT:
+            emit(".align 2");
+            if (is_integer(get_type_category(&e->type))) {
+                emit(".word %lu", eval_int_const_expr(e));
+            } else {
+                emit(".word 0");
+                goto bad_init;
+            }
+            break;
+        case TOK_INT: case TOK_UNSIGNED:
+        case TOK_LONG: case TOK_UNSIGNED_LONG:
+        case TOK_ENUM:
+        case TOK_STAR:
+            emit(".align 4");
+            if (is_integer(get_type_category(&e->type))) {
+                emit(".dword %lu", eval_int_const_expr(e));
+            } else if (e->kind.exp == StrLitExp) {
+                unsigned char *c;
+
+                emit(".dword @S%u", str_lit_count);
+                emit("@S%u:", str_lit_count);
+                c = (unsigned char *)e->attr.str;
+                do
+                    // emit(".byte %hhu", *c);
+                    emit(".byte %u", *c);
+                while (*c++ != '\0');
+                ++str_lit_count;
+            } else {
+                emit(".dword 0");
+                goto bad_init;
+            }
+            break;
+        }
+        return; /* OK */
+bad_init:
+        emit_warning(e->info->src_file, e->info->src_line, e->info->src_column,
+        "initializer form not supported, defaulting to zero");
+    }
+}
+
 void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mangle_name)
 {
     TypeExp *scs;
     Declaration ty;
     ExecNode *initializer;
+    unsigned alignment;
 
     ty.decl_specs = decl_specs;
     ty.idl = declarator->child;
@@ -235,8 +434,9 @@ void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mang
     else
         emit(".bss");
 
-    /* alignment */
-    emit(".align %u", get_alignment(&ty));
+    /* alignment (only for .bss) */
+    if (initializer==NULL && (alignment=get_alignment(&ty))>1)
+        emit(".align %u", alignment);
 
     /* label */
     if (mangle_name)
@@ -247,7 +447,7 @@ void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mang
 
     /* allocation/initialization */
     if (initializer != NULL)
-        ; // TODO (the assembler needs improvements)
+        do_static_init(ty.decl_specs, ty.idl, initializer);
     else
         emit(".res %u", compute_sizeof(&ty));
 
@@ -1275,13 +1475,13 @@ relational_unsigned:
          * string literals may be more appropriate.
          */
         unsigned char *c;
-        static unsigned str_lit_count = 1;
 
         emit(".data");
         emit("@S%u:", str_lit_count);
         c = (unsigned char *)e->attr.str;
         do
-            emit(".byte %hhu", *c);
+            // emit(".byte %hhu", *c);
+            emit(".byte %u", *c);
         while (*c++ != '\0');
 
         emit(".text");

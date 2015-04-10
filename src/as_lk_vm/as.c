@@ -14,7 +14,8 @@
                 "." "word"  number |
                 "." "dword" ( id | number ) |
                 "." "res"   number |
-                "." "align" number
+                "." "align" number |
+                "." "zero"  number
         TOKENS
     id = ( '_' | '@' | [A-Za-z] ) ( '_' | '@' | [0-9A-Za-z] )*
     number = [0-9]+
@@ -375,7 +376,8 @@ void globalize_symbol(char *name)
  *             "." "word"  number |
  *             "." "dword" ( id | number ) |
  *             "." "res"   number |
- *             "." "align" number
+ *             "." "align" number |
+ *             "." "zero"  number
  */
 void directive(void)
 {
@@ -454,6 +456,15 @@ void directive(void)
             new_size = round_up(curr_size, get_num(lexeme));
             while (curr_size++ < new_size)
                 write_char(OpNop);
+        }
+        match(TOK_NUM);
+    } else if (equal(lexeme, "zero")) {
+        match(TOK_ID);
+        if (curr_tok == TOK_NUM) {
+            unsigned long n;
+
+            for (n = get_num(lexeme); n != 0; n--)
+                write_char(0);
         }
         match(TOK_NUM);
     } else {

@@ -1498,9 +1498,10 @@ scalar:
         if (e->attr.op == TOK_INIT_LIST)
             ERROR_R(e, "braces around scalar initializer");
 
-        // if (const_expr)
+        if (const_expr)
             /* make sure the initializer is computable at compile time */
             // (void)eval_const_expr(e, FALSE);
+            analyze_static_initializer(e, FALSE);
 
         if (get_type_category(&e->type) == TOK_ERROR)
             return;

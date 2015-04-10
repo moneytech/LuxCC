@@ -29,5 +29,5 @@ stmt.o: stmt.h parser.h lexer.h pre.h util.h decl.h expr.h error.h
 ic.o: ic.h parser.h lexer.h pre.h util.h decl.h expr.h
 arena.o: arena.h
 error.o: error.h
-vm_cgen.o: vm_cgen/vm_cgen.h vm_cgen/vm_cgen.c decl.h parser.h lexer.h pre.h util.h expr.h stmt.h arena.h imp_lim.h
+vm_cgen.o: vm_cgen/vm_cgen.h vm_cgen/vm_cgen.c decl.h parser.h lexer.h pre.h util.h expr.h stmt.h arena.h imp_lim.h error.h
 	$(CC) $(CFLAGS) vm_cgen/vm_cgen.c
