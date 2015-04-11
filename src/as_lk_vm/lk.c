@@ -290,10 +290,10 @@ int main(int argc, char *argv[])
             s = lookup_symbol(name);
             if (s->kind != EXTERN_SYM) {
                 if (segment == TEXT_SEG) {
-                    *(int *)&text_seg[SEG_SIZ(segment)+offset] = s->offset;
+                    *(int *)&text_seg[SEG_SIZ(segment)+offset] += s->offset;
                     append_text_reloc(s->segment, SEG_SIZ(segment)+offset, NULL);
                 } else {
-                    *(int *)&data_seg[SEG_SIZ(segment)+offset] = s->offset;
+                    *(int *)&data_seg[SEG_SIZ(segment)+offset] += s->offset;
                     append_data_reloc(s->segment, SEG_SIZ(segment)+offset, NULL);
                 }
             } else {
@@ -329,7 +329,7 @@ int main(int argc, char *argv[])
 
             if ((s=lookup_global_symbol(text_relocation_table[i].symbol))->kind == EXTERN_SYM)
                 TERMINATE("%s: undefined reference to `%s'", prog_name, s->name);
-            *(int *)&text_seg[text_relocation_table[i].offset] = s->offset;
+            *(int *)&text_seg[text_relocation_table[i].offset] += s->offset;
             text_relocation_table[i].segment = s->segment;
         }
     }
@@ -339,7 +339,7 @@ int main(int argc, char *argv[])
 
             if ((s=lookup_global_symbol(data_relocation_table[i].symbol))->kind == EXTERN_SYM)
                 TERMINATE("%s: undefined reference to `%s'", prog_name, s->name);
-            *(int *)&data_seg[data_relocation_table[i].offset] = s->offset;
+            *(int *)&data_seg[data_relocation_table[i].offset] += s->offset;
             data_relocation_table[i].segment = s->segment;
         }
     }

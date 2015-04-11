@@ -12,7 +12,7 @@
                 "." "extern" id { "," id } |
                 "." "byte"  number |
                 "." "word"  number |
-                "." "dword" ( id | number ) |
+                "." "dword" ( id [ "+" number ] | number ) |
                 "." "res"   number |
                 "." "align" number |
                 "." "zero"  number
@@ -37,6 +37,7 @@ typedef enum {
     TOK_COLON,
     TOK_DOT,
     TOK_SEMI,
+    TOK_PLUS,
     TOK_EOF
 } Token;
 
@@ -374,7 +375,7 @@ void globalize_symbol(char *name)
  *             "." "extern" id { "," id } |
  *             "." "byte"  number |
  *             "." "word"  number |
- *             "." "dword" ( id | number ) |
+ *             "." "dword" ( id [ "+" number ] | number ) |
  *             "." "res"   number |
  *             "." "align" number |
  *             "." "zero"  number
@@ -432,7 +433,14 @@ void directive(void)
         if (curr_tok == TOK_ID) {
             append_reloc(curr_segment, CURR_OFFS(), lexeme);
             match(TOK_ID);
-            write_int(0);
+            if (curr_tok == TOK_PLUS) {
+                match(TOK_PLUS);
+                if (curr_tok == TOK_NUM)
+                    write_int(get_num(lexeme));
+                match(TOK_NUM);
+            } else {
+                write_int(0);
+            }
         } else if (curr_tok == TOK_NUM) {
             write_int(get_num(lexeme));
             match(TOK_NUM);
@@ -526,6 +534,9 @@ Token get_token(void)
                     break;
                 case '.':
                     tok = TOK_DOT;
+                    break;
+                case '+':
+                    tok = TOK_PLUS;
                     break;
                 default:
                     /* ignore stray character */

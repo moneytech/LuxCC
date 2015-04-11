@@ -253,7 +253,7 @@ void function_definition(TypeExp *decl_specs, TypeExp *header)
     emit("ret;");
 }
 
-void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
+void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e/*, int align*/)
 {
     TypeExp *ts;
 
@@ -289,7 +289,7 @@ void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
              */
             e = e->child[0];
             for (; e!=NULL && nelem!=0; e=e->sibling, --nelem)
-                do_static_init(ds, dct->child, e);
+                do_static_init(ds, dct->child, e)/*, align=TRUE*/;
 
             /*
              * Handle elements without explicit initializer.
@@ -372,35 +372,96 @@ scalar:
         dest_ty.decl_specs = ds;
         dest_ty.idl = dct;
         switch (get_type_category(&dest_ty)) {
-        case TOK_CHAR: case TOK_UNSIGNED_CHAR: case TOK_SIGNED_CHAR:
-            if (is_integer(get_type_category(&e->type))) {
+#define BAD_INIT(n) do { emit(".zero %u", n); goto bad_init; } while (0)
+        case TOK_CHAR:
+        case TOK_SIGNED_CHAR:
+        case TOK_UNSIGNED_CHAR:
+            if (is_integer(get_type_category(&e->type)))
                 emit(".byte %lu", eval_int_const_expr(e));
-            } else {
-                emit(".byte 0");
-                goto bad_init;
-            }
+            else
+                BAD_INIT(1);
             break;
-        case TOK_SHORT: case TOK_UNSIGNED_SHORT:
+        case TOK_SHORT:
+        case TOK_UNSIGNED_SHORT:
+            // if (align)
             emit(".align 2");
-            if (is_integer(get_type_category(&e->type))) {
+            if (is_integer(get_type_category(&e->type)))
                 emit(".word %lu", eval_int_const_expr(e));
-            } else {
-                emit(".word 0");
-                goto bad_init;
-            }
+            else
+                BAD_INIT(2);
             break;
-        case TOK_INT: case TOK_UNSIGNED:
-        case TOK_LONG: case TOK_UNSIGNED_LONG:
+        case TOK_INT:
+        case TOK_UNSIGNED:
+        case TOK_LONG:
+        case TOK_UNSIGNED_LONG:
         case TOK_ENUM:
         case TOK_STAR:
+            // if (align)
             emit(".align 4");
+            /*
+             * The only supported expressions are:
+             * 1) any-integer-constant-expression; e.g. 1+2*3
+             * 2) any-string-literal; e.g. "abc"
+             * 2) x   // if x has array or function type
+             * 3) &x
+             * 4) &x+1, 1+&x, or &x-1
+             * 5) x+1, 1+x, or x-1 // if x has array type
+             */
             if (is_integer(get_type_category(&e->type))) {
                 emit(".dword %lu", eval_int_const_expr(e));
             } else if (e->kind.exp == StrLitExp) {
                 emit(".dword @S%u", new_string_literal(e->attr.str));
+            } else if (e->kind.exp == IdExp) {
+                Token cat;
+
+                if ((cat=get_type_category(&e->type))==TOK_SUBSCRIPT || cat==TOK_FUNCTION)
+                    emit(".dword %s", e->attr.str);
+                else
+                    BAD_INIT(4);
+            } else if (e->kind.exp == OpExp) {
+                switch (e->attr.op) {
+                case TOK_ADDRESS_OF:
+                    if (e->child[0]->kind.exp == IdExp)
+                        emit(".dword %s", e->child[0]->attr.str);
+                    else
+                        BAD_INIT(4);
+                    break;
+                case TOK_PLUS:
+                case TOK_MINUS: {
+                    Token cat;
+                    Declaration ty;
+                    int i, j;
+                    unsigned size;
+
+                    for (i=0, j=1; i < 2; i++, j--) {
+                        /* &x+1, &x-1, 1+&x */
+                        if (e->child[j]->kind.exp == IConstExp
+                        &&  e->child[i]->kind.exp == OpExp
+                        &&  e->child[i]->attr.op == TOK_ADDRESS_OF
+                        &&  e->child[i]->child[0]->kind.exp == IdExp) {
+                            size = e->child[j]->attr.uval*compute_sizeof(&e->child[i]->child[0]->type);
+                            emit(".dword %s+%u", e->child[i]->child[0]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
+                            return;
+                        /* x+1, x-1, 1+x */
+                        } else if (e->child[j]->kind.exp == IConstExp
+                        && e->child[i]->kind.exp == IdExp
+                        && (cat=get_type_category(&e->child[i]->type)) == TOK_SUBSCRIPT) {
+                            ty.decl_specs = e->child[i]->type.decl_specs;
+                            ty.idl = e->child[i]->type.idl->child;
+                            size = e->child[j]->attr.uval*compute_sizeof(&ty);
+                            emit(".dword %s+%u", e->child[i]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
+                            return;
+                        }
+                    }
+                    BAD_INIT(4);
+                    break;
+                }
+                default:
+                    BAD_INIT(4);
+                    break;
+                }
             } else {
-                emit(".dword 0");
-                goto bad_init;
+                BAD_INIT(4);
             }
             break;
         }
@@ -428,8 +489,8 @@ void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mang
     else
         emit(".bss");
 
-    /* alignment (only for .bss) */
-    if (initializer==NULL && (alignment=get_alignment(&ty))>1)
+    /* alignment */
+    if ((alignment=get_alignment(&ty)) > 1)
         emit(".align %u", alignment);
 
     /* label */
@@ -441,7 +502,7 @@ void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mang
 
     /* allocation/initialization */
     if (initializer != NULL)
-        do_static_init(ty.decl_specs, ty.idl, initializer);
+        do_static_init(ty.decl_specs, ty.idl, initializer/*, FALSE*/);
     else
         emit(".res %u", compute_sizeof(&ty));
 
@@ -1321,12 +1382,20 @@ relational_unsigned:
             break;
 
         case TOK_PLUS:
-            BIN_OPS();
+            if (is_integer(get_type_category(&e->type))) {
+                BIN_OPS();
+            } else {
+                ;
+            }
             emit("add;");
             break;
         case TOK_MINUS:
-            BIN_OPS();
-            emit("sub;");
+            if (is_integer(get_type_category(&e->child[0]->type))) {
+                BIN_OPS();
+                emit("sub;");
+            } else {
+                ;
+            }
             break;
 
         case TOK_MUL:
