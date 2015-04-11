@@ -493,16 +493,16 @@ int main(int argc,char *argv[])
     vm_argv = argv+1;
 
     sp = exec();
-    printf("result ==>%d\n", *sp);
+    // printf("result ==>%d\n", *sp);
     // printf("result ==>%s\n", *sp);
     // printf("stack[7](%p)=%d (%x)\n", &stack[7], stack[7], stack[7]);
     // printf("stack[6](%p)=%d (%x)\n", &stack[6], stack[6], stack[6]);
     // printf("stack[5](%p)=%d (%x)\n", &stack[5], stack[5], stack[5]);
     // printf("stack[4](%p)=%d (%x)\n", &stack[4], stack[4], stack[4]);
     // printf("stack[3](%p)=%d (%x)\n", &stack[3], stack[3], stack[3]);
-    printf("stack[2](%p)=%d (%x)\n", &stack[2], stack[2], stack[2]);
-    printf("stack[1](%p)=%d (%x)\n", &stack[1], stack[1], stack[1]);
-    printf("stack[0](%p)=%d (%x)\n", &stack[0], stack[0], stack[0]);
+    // printf("stack[2](%p)=%d (%x)\n", &stack[2], stack[2], stack[2]);
+    // printf("stack[1](%p)=%d (%x)\n", &stack[1], stack[1], stack[1]);
+    // printf("stack[0](%p)=%d (%x)\n", &stack[0], stack[0], stack[0]);
 
     return 0;
 }

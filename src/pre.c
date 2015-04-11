@@ -812,6 +812,7 @@ void control_line(int skip)
             match2(lookahead(1)); /* filename */
         } else if (equal(get_lexeme(1), "<")) {
             char path[128] = "include/";
+            // char path[128] = "/usr/local/lib/mycomp/include/";
 
             match2(PRE_TOK_PUNCTUATOR);
             if (equal(get_lexeme(1), ">"))

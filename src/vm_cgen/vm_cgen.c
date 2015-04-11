@@ -1188,9 +1188,12 @@ unsigned function_argument(ExecNode *arg, DeclList *param)
          * This and the follow arguments match the `...'.
          */
         arg_area_size = function_argument(arg->sibling, param);
-        ty = arg->type;
         expression(arg, FALSE);
-        real_arg_size = compute_sizeof(&arg->type);
+        ty = arg->type;
+        if (ty.idl!=NULL && (ty.idl->op==TOK_SUBSCRIPT || ty.idl->op==TOK_FUNCTION))
+            real_arg_size = 4;
+        else
+            real_arg_size = compute_sizeof(&arg->type);
     }
     aligned_arg_size = round_up(real_arg_size, VM_STACK_ALIGN);
     arg_area_size += aligned_arg_size;
