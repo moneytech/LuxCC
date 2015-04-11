@@ -1385,7 +1385,20 @@ relational_unsigned:
             if (is_integer(get_type_category(&e->type))) {
                 BIN_OPS();
             } else {
-                ;
+                int i, j;
+                Declaration ty;
+
+                if (is_integer(get_type_category(&e->child[0]->type)))
+                    i = 0, j = 1;
+                else
+                    i = 1, j = 0;
+                ty.decl_specs = e->child[j]->type.decl_specs;
+                ty.idl = e->child[j]->type.idl->child;
+
+                expression(e->child[j], FALSE);
+                expression(e->child[i], FALSE);
+                emit("ldi %u;", compute_sizeof(&ty));
+                emit("mul;");
             }
             emit("add;");
             break;
@@ -1394,7 +1407,23 @@ relational_unsigned:
                 BIN_OPS();
                 emit("sub;");
             } else {
-                ;
+                Declaration ty;
+
+                ty.decl_specs = e->child[0]->type.decl_specs;
+                ty.idl = e->child[0]->type.idl->child;
+                expression(e->child[0], FALSE);
+                expression(e->child[1], FALSE);
+                if (is_integer(get_type_category(&e->child[1]->type))) {
+                    /* pointer - integer */
+                    emit("ldi %u;", compute_sizeof(&ty));
+                    emit("mul;");
+                    emit("sub;");
+                } else {
+                    /* pointer - pointer */
+                    emit("sub;");
+                    emit("ldi %u;", compute_sizeof(&ty));
+                    emit("sdiv;");
+                }
             }
             break;
 
