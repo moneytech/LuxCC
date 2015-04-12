@@ -11,9 +11,9 @@ int disable_warnings;
 int colored_diagnostics = 1;
 
 
-static void usage(char *program_name)
+static void usage(FILE *f, char *program_name)
 {
-    printf("USAGE: %s [-Edaqhs] [-o <path>] <file>\n", program_name);
+    fprintf(f, "USAGE: %s [-Edaqhs] [-o <path>] <file>\n", program_name);
 }
 
 static void print_options(void)
@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
                 printf("redirect output to `%s'\n", optarg);
                 break;
             case 'h':
-                usage(argv[0]);
+                usage(stdout, argv[0]);
                 print_options();
                 exit(EXIT_SUCCESS);
             case '?':
@@ -105,7 +105,7 @@ int main(int argc, char *argv[])
 
     if (optind >= argc) {
         /* the input file is missing */
-        usage(argv[0]);
+        usage(stderr, argv[0]);
         exit(EXIT_FAILURE);
     }
 

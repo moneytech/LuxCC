@@ -12,6 +12,7 @@
 #define SRC_COLUMN  src_column
 
 #define ERROR(...) emit_error(TRUE, SRC_FILE, SRC_LINE, SRC_COLUMN, __VA_ARGS__)
+#define TERMINATE(...) fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n"), exit(EXIT_FAILURE)
 
 #define MACRO_TABLE_SIZE    4093
 #define HASH_VAL(s)         (hash(s)%MACRO_TABLE_SIZE)

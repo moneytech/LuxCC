@@ -4,8 +4,6 @@
 #define TRUE  1
 #define FALSE 0
 
-#define TERMINATE(...) fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n"), exit(EXIT_FAILURE)
-
 #if DEBUG
 #define DEBUG_PRINTF(...) fprintf(stderr, __VA_ARGS__)
 #else
