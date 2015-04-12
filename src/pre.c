@@ -16,6 +16,9 @@
 #define MACRO_TABLE_SIZE    4093
 #define HASH_VAL(s)         (hash(s)%MACRO_TABLE_SIZE)
 
+// #define STD_INCLUDE_PATH "/usr/local/lib/mycomp/include/"
+#define STD_INCLUDE_PATH "include/";
+
 typedef enum {
     SIMPLE,
     PARAMETERIZED
@@ -811,8 +814,7 @@ void control_line(int skip)
             }
             match2(lookahead(1)); /* filename */
         } else if (equal(get_lexeme(1), "<")) {
-            char path[128] = "include/";
-            // char path[128] = "/usr/local/lib/mycomp/include/";
+            char path[128] = STD_INCLUDE_PATH;
 
             match2(PRE_TOK_PUNCTUATOR);
             if (equal(get_lexeme(1), ">"))

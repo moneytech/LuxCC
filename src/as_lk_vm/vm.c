@@ -278,11 +278,11 @@ int *exec(void)
                 --sp;
                 break;
             case OpSRL:
-                sp[-1] >>= sp[0];
+                sp[-1] = (unsigned)sp[-1] >> sp[0];
                 --sp;
                 break;
             case OpSRA:
-                sp[-1] = (unsigned)sp[-1] >> sp[0];
+                sp[-1] >>= sp[0];
                 --sp;
                 break;
 
