@@ -680,7 +680,7 @@ TypeExp *struct_declarator(TypeExp *sql)
 }
 
 /*
- * enum_specifier = "enum" [ identifier ] "{" enumerator_list "}" |
+ * enum_specifier = "enum" [ identifier ] "{" enumerator_list [ "," ] "}" |
  *                  "enum" identifier
  */
 TypeExp *enum_specifier(void)
@@ -731,6 +731,8 @@ TypeExp *enum_specifier(void)
                 ERROR("redefinition of `enum %s'", n->str);
             match(TOK_LBRACE);
             n->attr.el = enumerator_list();
+            if (lookahead(1) == TOK_COMMA)
+                match(TOK_COMMA);
             match(TOK_RBRACE);
             if (cur!=NULL && cur->type!=n)
                 cur->type = n;
@@ -740,6 +742,8 @@ TypeExp *enum_specifier(void)
         n->str = strdup("<anonymous>");
         match(TOK_LBRACE);
         n->attr.el = enumerator_list();
+        if (lookahead(1) == TOK_COMMA)
+            match(TOK_COMMA);
         match(TOK_RBRACE);
     } else {
         ERROR("expecting identifier or enumerator-list");
@@ -756,7 +760,7 @@ TypeExp *enumerator_list(void)
     TypeExp *n, *temp;
 
     n = temp = enumerator();
-    while (lookahead(1) == TOK_COMMA) {
+    while (lookahead(1)==TOK_COMMA && lookahead(2)!=TOK_RBRACE) {
         match(TOK_COMMA);
         temp->sibling = enumerator();
         temp = temp->sibling;

@@ -6,6 +6,8 @@
 #include "../arena.h"
 #include "../util.h"
 
+#define TERMINATE(...) fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n"), exit(EXIT_FAILURE)
+
 char *prog_name;
 
 /*
@@ -156,8 +158,8 @@ Symbol *lookup_symbol(char *name)
 /*
  * Relocations.
  */
-#define TEXT_RELOC_TABLE_SIZE   1024
-#define DATA_RELOC_TABLE_SIZE   1024
+#define TEXT_RELOC_TABLE_SIZE   4096
+#define DATA_RELOC_TABLE_SIZE   4096
 typedef struct Reloc Reloc;
 struct Reloc {
     int segment, offset;
@@ -235,8 +237,8 @@ int main(int argc, char *argv[])
      * crt.o has code to initialize some variables and call main.
      */
     out_file = argv[1];
-    argv[1] = "../../libsrc/crt.o";
-    // argv[1] = "libsrc/crt.o";
+    // argv[1] = "../../libsrc/crt.o";
+    argv[1] = "libsrc/crt.o";
     for (i = 1; i < argc; i++) { /* object files */
         FILE *fin;
         char name[MAX_SYM_LEN], *cp;

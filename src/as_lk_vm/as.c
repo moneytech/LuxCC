@@ -30,6 +30,8 @@
 #include "../util.h"
 #include "operations.h"
 
+#define TERMINATE(...) fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n"), exit(EXIT_FAILURE)
+
 typedef enum {
     TOK_ID,
     TOK_NUM,
@@ -179,7 +181,7 @@ Symbol *define_symbol(char *name, int kind, int segment, int offset)
 /*
  * Relocations.
  */
-#define RELOC_TABLE_SIZE    512
+#define RELOC_TABLE_SIZE    4096
 typedef struct Reloc Reloc;
 struct Reloc {
     int segment, offset; /* segment+offset is where the fix must be made */
