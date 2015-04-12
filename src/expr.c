@@ -149,29 +149,10 @@ static int is_modif_struct_union(TypeExp *type)
     TypeExp *dct;
 
     for (d = type->attr.dl; d != NULL; d = d->next) {
-        int modifiable;
         TypeExp *ts, *tq;
 
         tq = get_type_qual(d->decl->decl_specs);
         ts = get_type_spec(d->decl->decl_specs);
-
-        modifiable = TRUE;
-        if (ts->op == TOK_STRUCT) {
-            if (ts->attr.dl == NULL)
-                ts = lookup_tag(ts->str, TRUE)->type;
-
-            /*
-             * Make sure to not fall into an infinite loop.
-             * The following example was causing crashes without
-             * the test before recurse:
-             *      struct A {
-             *          struct A *x;
-             *      } *p, *q;
-             *      *p = *q;
-             */
-            if (type->str != ts->str)
-                modifiable = is_modif_struct_union(ts);
-        }
 
         for (dct = d->decl->idl; dct != NULL; dct = dct->sibling) {
             TypeExp *p;
@@ -183,9 +164,15 @@ static int is_modif_struct_union(TypeExp *type)
 
             if (p == NULL) {
                 /* the member type is not a derived declarator type */
-                if ((tq!=NULL && (tq->op==TOK_CONST||tq->op==TOK_CONST_VOLATILE))
-                || !modifiable)
+                if (tq!=NULL && (tq->op==TOK_CONST||tq->op==TOK_CONST_VOLATILE)) {
                     return FALSE;
+                } else if (ts->op==TOK_STRUCT || ts->op==TOK_UNION) {
+                    /* see if one of the members is non-modifiable */
+                    if (ts->attr.dl == NULL)
+                        ts = lookup_tag(ts->str, TRUE)->type;
+                    if (!is_modif_struct_union(ts))
+                        return FALSE;
+                }
             } else if (p->op == TOK_STAR) {
                 if (p->attr.el!=NULL
                 && (p->attr.el->op==TOK_CONST||p->attr.el->op==TOK_CONST_VOLATILE))

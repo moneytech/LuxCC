@@ -1824,7 +1824,7 @@ void new_struct_member(TypeExp *decl_specs, TypeExp *declarator)
     /* before add, check for duplicate */
     for (p = descriptor_stack[descr_stack_top]->members; p != NULL; p = p->next)
         if (equal(declarator->str, p->id))
-            FATAL_ERROR(declarator, "duplicate member `%s'", declarator->str); // TOFIX
+            FATAL_ERROR(declarator, "duplicate member `%s'", declarator->str);
 
     n = malloc(sizeof(StructMember));
     /* set tag and type */
@@ -1865,7 +1865,7 @@ void push_struct_descriptor(TypeExp *ty)
      */
     for (i = descr_stack_top; i >= 0; i--)
         if (*tag!='<' && equal(tag, descriptor_stack[i]->tag))
-            FATAL_ERROR(ty, "nested redefinition of `%s %s'", token_table[ty->op*2+1], tag); // TOFIX
+            FATAL_ERROR(ty, "nested redefinition of `%s %s'", token_table[ty->op*2+1], tag);
 
     /* push new descriptor */
     n = malloc(sizeof(StructDescriptor));
@@ -1935,7 +1935,7 @@ void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)
      * of itself) [we don't support flexible array members, so what follows is not important to us]
      */
     if (!analyze_declarator(sql, declarator, FALSE))
-        FATAL_ERROR(declarator, "faulty struct/union member"); // TOFIX
+        FATAL_ERROR(declarator, "faulty struct/union member");
     if (declarator->child == NULL) {
         /* not a derived declarator type */
         TypeExp *ts;
@@ -1948,12 +1948,12 @@ void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)
         if (declarator->child->attr.e == NULL)
             goto incomp_error;
     } else if (declarator->child->op == TOK_FUNCTION) {
-        FATAL_ERROR(declarator, "member `%s' declared as a function", declarator->str); // TOFIX
+        FATAL_ERROR(declarator, "member `%s' declared as a function", declarator->str);
     }
     new_struct_member(sql, declarator);
     return; /* OK */
 incomp_error:
-    FATAL_ERROR(declarator, "member `%s' has incomplete type", declarator->str); // TOFIX
+    FATAL_ERROR(declarator, "member `%s' has incomplete type", declarator->str);
 }
 
 /*
