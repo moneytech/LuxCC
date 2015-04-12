@@ -463,7 +463,10 @@ void directive(void)
             curr_size = CURR_OFFS();
             new_size = round_up(curr_size, get_num(lexeme));
             while (curr_size++ < new_size)
-                write_char(OpNop);
+                if (curr_segment == BSS_SEG)
+                    ++bss_size;
+                else
+                    write_char(OpNop);
         }
         match(TOK_NUM);
     } else if (equal(lexeme, "zero")) {
