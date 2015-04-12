@@ -151,9 +151,9 @@ int main(int argc, char *argv[])
     if (option_flags & OPT_ANALYZE)
         exit(EXIT_SUCCESS);
 
-    // if (error_count == 0)
+    if (error_count == 0)
         // ic_main(tree);
-        // vm_cgen();
+        vm_cgen();
 
 	return 0;
 }

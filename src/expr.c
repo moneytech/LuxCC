@@ -159,7 +159,18 @@ static int is_modif_struct_union(TypeExp *type)
         if (ts->op == TOK_STRUCT) {
             if (ts->attr.dl == NULL)
                 ts = lookup_tag(ts->str, TRUE)->type;
-            modifiable = is_modif_struct_union(ts);
+
+            /*
+             * Make sure to not fall into an infinite loop.
+             * The following example was causing crashes without
+             * the test before recurse:
+             *      struct A {
+             *          struct A *x;
+             *      } *p, *q;
+             *      *p = *q;
+             */
+            if (type->str != ts->str)
+                modifiable = is_modif_struct_union(ts);
         }
 
         for (dct = d->decl->idl; dct != NULL; dct = dct->sibling) {
