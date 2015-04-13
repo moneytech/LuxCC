@@ -13,12 +13,13 @@ char *prog_name;
 /*
  * Segments.
  */
-#define TEXT_SEG_MAX    65536
-#define DATA_SEG_MAX    32768
+#define TEXT_SEG_MAX    524288
+#define DATA_SEG_MAX    65536
 char text_seg[TEXT_SEG_MAX];
 char data_seg[DATA_SEG_MAX];
 int text_size, data_size, bss_size;
 #define SEG_SIZ(seg) ((seg==DATA_SEG)?data_size:(seg==TEXT_SEG)?text_size:bss_size)
+#define MAX_ALIGN       4 /* most restrictive alignment */
 
 /*
  * Symbols.
@@ -95,12 +96,17 @@ Arena *local_arena;
 
 void init_local_table(void)
 {
-    local_arena = arena_new(8192);
+    local_arena = arena_new(32768);
 }
 
 void *new_local_symbol(void)
 {
-    return arena_alloc(local_arena, sizeof(Symbol));
+    void *p;
+
+    p = arena_alloc(local_arena, sizeof(Symbol));
+    my_assert(p != NULL, "new_local_symbol()");
+
+    return p;
 }
 
 void reset_local_table(void)
@@ -158,8 +164,8 @@ Symbol *lookup_symbol(char *name)
 /*
  * Relocations.
  */
-#define TEXT_RELOC_TABLE_SIZE   4096
-#define DATA_RELOC_TABLE_SIZE   4096
+#define TEXT_RELOC_TABLE_SIZE   16384
+#define DATA_RELOC_TABLE_SIZE   16384
 typedef struct Reloc Reloc;
 struct Reloc {
     int segment, offset;
@@ -311,9 +317,9 @@ int main(int argc, char *argv[])
             }
         }
 
-        bss_size += curr_bss_size;
-        data_size += curr_data_size;
-        text_size += curr_text_size;
+        bss_size  += round_up(curr_bss_size,  MAX_ALIGN);
+        data_size += round_up(curr_data_size, MAX_ALIGN);
+        text_size += round_up(curr_text_size, MAX_ALIGN);
         reset_local_table();
         fclose(fin);
     }

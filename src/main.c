@@ -3,7 +3,7 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include "parser.h"
-#include "ic.h"
+// #include "ic.h"
 #include "vm_cgen/vm_cgen.h"
 
 unsigned warning_count, error_count;

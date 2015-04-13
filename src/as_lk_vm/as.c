@@ -75,8 +75,8 @@ unsigned long get_num(char *s)
 /*
  * Segments.
  */
-#define TEXT_SEG_MAX    32768
-#define DATA_SEG_MAX    32768
+#define TEXT_SEG_MAX    65536
+#define DATA_SEG_MAX    65536
 char text_seg[TEXT_SEG_MAX];
 char data_seg[DATA_SEG_MAX];
 int curr_segment = TEXT_SEG;

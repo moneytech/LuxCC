@@ -7,6 +7,8 @@
 #include "operations.h"
 #include "../util.h"
 
+#define TERMINATE(...) fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n"), exit(EXIT_FAILURE)
+
 char *prog_name;
 
 typedef unsigned char uchar;
@@ -73,6 +75,9 @@ void do_libcall(int *sp, int *bp, int c)
     case 11: /* fclose */
         sp[0] = fclose((FILE *)bp[-3]);
         break;
+    case 12: /* fgets */
+        sp[0] = (int)fgets((char *)bp[-3], bp[-4], (FILE *)bp[-5]);
+        break;
     default:
         fprintf(stderr, "libcall %d not implemented\n", c);
         break;
@@ -88,18 +93,11 @@ int *exec(void)
     int opcode;
     int a, b;
 
-    // uchar *prev_ip;
-
     ip = text;
     sp = stack;
     bp = stack;
 
     while (1) {
-        // if (ip < 0xFFFF) {
-            // printf("prev_ip=%u, %u\n", *prev_ip, OpSwitch);
-        // }
-        // prev_ip = ip;
-
         opcode = *ip++;
         switch (opcode) {
                 /* memory read */
@@ -353,9 +351,6 @@ int *exec(void)
                 count = *p++;
                 p_end = tab+count;
 
-                // fprintf(stderr, "count=%u\n", count);
-                // fprintf(stderr, "%p\n", *(tab+count+3));
-
                 if ((res=bsearch(&val, p, count-1, sizeof(*p), cmp_int)) == NULL)
                     ip = (uchar *)*p_end; /* default */
                 else
@@ -410,7 +405,7 @@ void load_code(char *file_path)
 
     /* header */
     fread(&bss_size, sizeof(int), 1, fp);
-    bss = calloc(bss_size, 1);
+    bss = calloc(1, bss_size);
     fread(&data_size, sizeof(int), 1, fp);
     fread(&text_size, sizeof(int), 1, fp);
     fread(&ndreloc, sizeof(int), 1, fp);
@@ -504,7 +499,7 @@ int main(int argc,char *argv[])
     // printf("stack[1](%p)=%d (%x)\n", &stack[1], stack[1], stack[1]);
     // printf("stack[0](%p)=%d (%x)\n", &stack[0], stack[0], stack[0]);
 
-    return 0;
+    return *sp;
 }
 
 
