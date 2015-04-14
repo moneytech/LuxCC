@@ -243,8 +243,8 @@ int main(int argc, char *argv[])
      * crt.o has code to initialize some variables and call main.
      */
     out_file = argv[1];
-    // argv[1] = "../../libsrc/crt.o";
-    argv[1] = "libsrc/crt.o";
+    argv[1] = "../../libsrc/crt.o";
+    // argv[1] = "libsrc/crt.o";
     for (i = 1; i < argc; i++) { /* object files */
         FILE *fin;
         char name[MAX_SYM_LEN], *cp;

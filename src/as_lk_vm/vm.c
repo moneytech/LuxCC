@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#include <getopt.h>
 #include "as.h"
 #include "operations.h"
 #include "../util.h"
@@ -37,6 +38,8 @@ void do_libcall(int *sp, int *bp, int c)
         p[2] = (int)stderr;
         p[3] = vm_argc;
         p[4] = (int)vm_argv;
+        p[5] = (int)&optarg;
+        p[6] = (int)&optind;
         sp[0] = 0;
         break;
     case 1: /* malloc */
@@ -84,6 +87,10 @@ void do_libcall(int *sp, int *bp, int c)
     case 14: /* rewind */
         rewind((FILE *)bp[-3]);
         sp[0] = 0;
+        break;
+    case 15: /* getopt_long */
+        sp[0] = getopt_long(bp[-3], (char *const *)bp[-4], (const char *)bp[-5],
+        (const struct option *)bp[-6], (int *)bp[-7]);
         break;
     // case 12: /* fgets */
         // sp[0] = (int)fgets((char *)bp[-3], bp[-4], (FILE *)bp[-5]);

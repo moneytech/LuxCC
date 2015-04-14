@@ -21,6 +21,12 @@ _argc:
     .res 4
 _argv:
     .res 4
+optarg:
+.global optarg
+    .res 4
+optind:
+.global optind
+    .res 4
 
 #
 # Entry point.
@@ -106,13 +112,7 @@ rewind:
 .global rewind
     libcall 14;
     ret;
-# missing
-getopt_long: .global getopt_long
-optarg: .global optarg
-optind: .global optind
-calloc: .global calloc
-strtol: .global strtol
-strtoul: .global strtoul
-sscanf: .global sscanf
-strdup: .global strdup
-strrchr: .global strrchr
+getopt_long:
+.global getopt_long
+    libcall 15;
+    ret;
