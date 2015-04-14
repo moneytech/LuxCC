@@ -92,9 +92,9 @@ void do_libcall(int *sp, int *bp, int c)
         sp[0] = getopt_long(bp[-3], (char *const *)bp[-4], (const char *)bp[-5],
         (const struct option *)bp[-6], (int *)bp[-7]);
         break;
-    // case 12: /* fgets */
-        // sp[0] = (int)fgets((char *)bp[-3], bp[-4], (FILE *)bp[-5]);
-        // break;
+    case 16: /* fgets */
+        sp[0] = (int)fgets((char *)bp[-3], bp[-4], (FILE *)bp[-5]);
+        break;
     default:
         fprintf(stderr, "libcall %d not implemented\n", c);
         break;

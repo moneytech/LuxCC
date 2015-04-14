@@ -116,3 +116,7 @@ getopt_long:
 .global getopt_long
     libcall 15;
     ret;
+fgets:
+.global fgets
+    libcall 16;
+    ret;
