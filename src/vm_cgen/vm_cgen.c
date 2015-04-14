@@ -1022,7 +1022,7 @@ void switch_statement(ExecNode *s)
 {
     int i, st_size;
     unsigned ST, EXIT;
-    SwitchLabel *search_table[128], *np;
+    SwitchLabel *search_table[256], *np;
 
     /*
      * Controlling expression.
@@ -1056,7 +1056,7 @@ void switch_statement(ExecNode *s)
     --switch_nesting_level;
     if (st_size != 0)
         qsort(search_table, st_size, sizeof(search_table[0]), cmp_switch_label);
-
+    // fprintf(stderr, "st_size=%d\n", st_size);
     /*
      * Emit search table.
      */
@@ -1622,6 +1622,7 @@ void load(ExecNode *e)
     case TOK_UNSIGNED_LONG:
     case TOK_INT:
     case TOK_UNSIGNED:
+    case TOK_ENUM:
         emit("lddw;");
         break;
     case TOK_SHORT:
