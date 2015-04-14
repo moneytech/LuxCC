@@ -94,23 +94,25 @@ fclose:
 .global fclose
     libcall 11;
     ret;
-fgets:
-.global fgets
+fseek:
+.global fseek
     libcall 12;
+    ret;
+ftell:
+.global ftell
+    libcall 13;
+    ret;
+rewind:
+.global rewind
+    libcall 14;
     ret;
 # missing
 getopt_long: .global getopt_long
 optarg: .global optarg
 optind: .global optind
-qsort: .global qsort
-bsearch: .global bsearch
 calloc: .global calloc
-errno: .global errno
 strtol: .global strtol
 strtoul: .global strtoul
 sscanf: .global sscanf
 strdup: .global strdup
 strrchr: .global strrchr
-fseek: .global fseek
-ftell: .global ftell
-rewind: .global rewind

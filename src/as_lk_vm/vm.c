@@ -75,9 +75,19 @@ void do_libcall(int *sp, int *bp, int c)
     case 11: /* fclose */
         sp[0] = fclose((FILE *)bp[-3]);
         break;
-    case 12: /* fgets */
-        sp[0] = (int)fgets((char *)bp[-3], bp[-4], (FILE *)bp[-5]);
+    case 12: /* fseek */
+        sp[0] = fseek((FILE *)bp[-3], bp[-4], bp[-5]);
         break;
+    case 13: /* ftell */
+        sp[0] = (int)ftell((FILE *)bp[-3]);
+        break;
+    case 14: /* rewind */
+        rewind((FILE *)bp[-3]);
+        sp[0] = 0;
+        break;
+    // case 12: /* fgets */
+        // sp[0] = (int)fgets((char *)bp[-3], bp[-4], (FILE *)bp[-5]);
+        // break;
     default:
         fprintf(stderr, "libcall %d not implemented\n", c);
         break;
