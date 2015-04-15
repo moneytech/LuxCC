@@ -154,6 +154,8 @@ int main(int argc, char *argv[])
     if (error_count == 0)
         // ic_main(tree);
         vm_cgen();
+    else
+        return 1;
 
 	return 0;
 }
