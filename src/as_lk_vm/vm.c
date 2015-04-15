@@ -25,6 +25,8 @@ int text_size, data_size, bss_size;
 int vm_argc;
 char **vm_argv;
 
+int max_stack_size;
+
 void do_libcall(int *sp, int *bp, int c)
 {
     int a;
@@ -325,6 +327,10 @@ int *exec(void)
                 sp += 2;
                 ip = ip1;
                 bp = sp;
+                //
+                // if (sp-stack > max_stack_size)
+                    // max_stack_size = sp-stack;
+                //
                 break;
             case OpRet:
                 a = sp[0]; /* return value */
@@ -434,6 +440,9 @@ void load_code(char *file_path)
     text = malloc(text_size);
     fread(text, text_size, 1, fp);
 
+    // fprintf(stderr, "data_size=%d\n", data_size);
+    // fprintf(stderr, "text_size=%d\n", text_size);
+
     /* data relocation table */
     for (i = 0; i < ndreloc; i++) {
         int base;
@@ -515,6 +524,8 @@ int main(int argc,char *argv[])
     // printf("stack[2](%p)=%d (%x)\n", &stack[2], stack[2], stack[2]);
     // printf("stack[1](%p)=%d (%x)\n", &stack[1], stack[1], stack[1]);
     // printf("stack[0](%p)=%d (%x)\n", &stack[0], stack[0], stack[0]);
+
+    // fprintf(stderr, "max_stack_size=%d\n", max_stack_size);
 
     return *sp;
 }

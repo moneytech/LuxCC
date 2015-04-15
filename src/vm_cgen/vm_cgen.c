@@ -210,7 +210,7 @@ void function_definition(TypeExp *decl_specs, TypeExp *header)
         emit(".global %s", curr_func);
 
     addsp_param = buf_curr+strlen("addsp")+1; /* for later fix up */
-    emit("addsp \x20\x20\x20\x20"); /* allow at most 9999 bytes of local storage */
+    emit("addsp \x20\x20\x20\x20\x20"); /* allow at most 99999 bytes of local storage */
 
     cgen_push_scope();
 
@@ -1548,12 +1548,21 @@ relational_unsigned:
         }
         case TOK_DOT:
         case TOK_ARROW: {
-            StructMember *m;
+            int is_union;
+
+            if (e->attr.op == TOK_DOT)
+                is_union = get_type_category(&e->child[0]->type) == TOK_UNION;
+            else
+                is_union = get_type_spec(e->child[0]->type.decl_specs)->op == TOK_UNION;
 
             expression(e->child[0], FALSE);
-            m = get_member_descriptor(get_type_spec(e->child[0]->type.decl_specs), e->child[1]->attr.str);
-            emit("ldi %u;", m->offset);
-            emit("add;");
+            if (!is_union) {
+                StructMember *m;
+
+                m = get_member_descriptor(get_type_spec(e->child[0]->type.decl_specs), e->child[1]->attr.str);
+                emit("ldi %u;", m->offset);
+                emit("add;");
+            }
             if (!is_addr)
                 load(e);
             break;
