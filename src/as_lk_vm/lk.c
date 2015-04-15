@@ -244,7 +244,8 @@ int main(int argc, char *argv[])
      */
     out_file = argv[1];
     // argv[1] = "../../libsrc/crt.o";
-    argv[1] = "libsrc/crt.o";
+    // argv[1] = "libsrc/crt.o";
+    argv[1] = "/usr/local/lib/luxcc/crt.o";
     for (i = 1; i < argc; i++) { /* object files */
         FILE *fin;
         char name[MAX_SYM_LEN], *cp;

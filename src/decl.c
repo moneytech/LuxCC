@@ -1697,7 +1697,7 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
             if (prev->status == DEFINED)
                 ERROR_R(declarator, "redefinition of `%s'", declarator->str);
             // prev->declarator->attr.e = declarator->attr.e;
-            prev->declarator = declarator;
+            // prev->declarator = declarator;
             prev->status = DEFINED;
         }
 
@@ -1724,6 +1724,10 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
 
         /* check type compatibility */
         enforce_type_compatibility(prev->decl_specs, prev->declarator, decl_specs, declarator);
+
+        /* update previous declaration */
+        if (is_initialized || is_func_def)
+            prev->declarator = declarator;
     }
 
     /*
