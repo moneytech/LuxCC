@@ -16,6 +16,8 @@
 #define HASH_VAL(s)     (hash(s)%HASH_SIZE)
 #define HASH_VAL2(x)    (hash2(x)%HASH_SIZE)
 
+static FILE *output_file;
+
 static int curr_scope = 0;
 static char *curr_func; /* name of current function */
 
@@ -109,7 +111,7 @@ static void expr_convert(ExecNode *e, Declaration *dest);
 static char output_buffer[OUT_BUF_SIZE];
 static char *buf_curr = output_buffer;
 #define emit(...) ( buf_curr+=sprintf(buf_curr, __VA_ARGS__), buf_curr+=sprintf(buf_curr, "\n") )
-#define flush_output_buffer() ( fprintf(stdout, "%s", output_buffer), buf_curr=output_buffer )
+#define flush_output_buffer() ( fprintf(output_file, "%s", output_buffer), buf_curr=output_buffer )
 
 static void function_definition(TypeExp *decl_specs, TypeExp *header);
 static void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mangle_name);
@@ -149,16 +151,12 @@ static void emit_string_literals(void)
     flush_output_buffer();
 }
 
-void vm_cgen(void)
+void vm_cgen(FILE *outf)
 {
     ExternId *ed;
 
     init_location_arena();
-
-    /*emit(".text");
-    emit("ldi main;");
-    emit("call 0;");
-    emit("halt;");*/
+    output_file = outf;
 
     for (ed = get_extern_symtab(); ed != NULL; ed = ed->next) {
         if (ed->status == REFERENCED) {

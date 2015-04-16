@@ -41,6 +41,7 @@ int main(int argc, char *argv[])
      */
     int option_index, c;
     unsigned option_flags;
+    char *output_file_arg = NULL;
     enum {
         OPT_PREPROCESS_ONLY = 0x1,
         OPT_DUMP_TOKENS     = 0x2,
@@ -89,7 +90,7 @@ int main(int argc, char *argv[])
                 colored_diagnostics = 0;
                 break;
             case 'o':
-                printf("redirect output to `%s'\n", optarg);
+                output_file_arg = optarg;
                 break;
             case 'h':
                 usage(stdout, argv[0]);
@@ -153,7 +154,7 @@ int main(int argc, char *argv[])
 
     if (error_count == 0)
         // ic_main(tree);
-        vm_cgen();
+        vm_cgen((output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb"));
     else
         return 1;
 
