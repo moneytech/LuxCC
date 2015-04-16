@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 #include "util.h"
 #include "decl.h"
 #include "expr.h"
@@ -423,7 +424,7 @@ TypeExp *storage_class_specifier(void)
         match(TOK_REGISTER);
         break;
     default:
-        my_assert(0, "storage_class_specifier()");
+        assert(0);
         break;
     }
 
@@ -491,7 +492,7 @@ TypeExp *type_specifier(void)
         n = typedef_name();
         break;
     default:
-        my_assert(0, "type_specifier()");
+        assert(0);
         break;
     }
 
@@ -576,8 +577,6 @@ TypeExp *struct_or_union(void)
         match(TOK_STRUCT);
     else if (lookahead(1) == TOK_UNION)
         match(TOK_UNION);
-    else
-        my_assert(0, "struct_or_union()");
 
     return n;
 }
@@ -817,8 +816,6 @@ TypeExp *type_qualifier(void)
         match(TOK_CONST);
     else if (lookahead(1) == TOK_VOLATILE)
         match(TOK_VOLATILE);
-    else
-        my_assert(0, "type_qualifier()");
 
     return n;
 }
@@ -954,7 +951,7 @@ TypeExp *direct_declarator_postfix(void)
         /*}*/
         match(TOK_RPAREN);
     } else {
-        my_assert(0, "direct_declarator_postfix()");
+        assert(0);
     }
 
     return n;

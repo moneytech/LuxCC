@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <assert.h>
 #include "util.h"
 #include "imp_lim.h"
 #include "error.h"
@@ -12,7 +13,6 @@
 #define SRC_COLUMN  src_column
 
 #define ERROR(...) emit_error(TRUE, SRC_FILE, SRC_LINE, SRC_COLUMN, __VA_ARGS__)
-#define TERMINATE(...) fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n"), exit(EXIT_FAILURE)
 
 #define MACRO_TABLE_SIZE    4093
 #define HASH_VAL(s)         (hash(s)%MACRO_TABLE_SIZE)
@@ -480,7 +480,7 @@ PreToken get_token(void)
             break;
         case STATE_DONE:
         default:
-            my_assert(0, "get_token()");
+            assert(0);
             break;
         } /* switch (state) */
 

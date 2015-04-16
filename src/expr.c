@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <limits.h>
+#include <assert.h>
 #include "util.h"
 #include "decl.h"
 #include "error.h"
@@ -140,7 +141,7 @@ static int is_lvalue(ExecNode *e)
         return FALSE;
     }
 
-    my_assert(0, "is_lvalue()");
+    assert(0);
 }
 
 static int is_modif_struct_union(TypeExp *type)
@@ -268,7 +269,7 @@ int get_rank(Token ty)
         return 1;
     }
 
-    my_assert(0, "get_rank()");
+    assert(0);
 }
 
 int is_signed_int(Token ty)
@@ -384,7 +385,7 @@ TypeExp *get_type_node(Token ty)
     case TOK_ERROR:                 return &ty_error;
     }
 
-    my_assert(0, "get_type_node()");
+    assert(0);
 }
 
 /*
@@ -500,7 +501,7 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
                     }
                     return TRUE;
                 default:
-                    my_assert(0, "can_assign_to()");
+                    assert(0);
                 }
 
                 WARNING(e, "implicit conversion from `%s' to `%s' changes value from %lu to %ld",

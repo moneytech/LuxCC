@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 #include "util.h"
 #include "expr.h"
 #include "stmt.h"
@@ -92,7 +93,7 @@ static Symbol *new_symbol(void)
     void *p;
 
     if ((p=arena_alloc(oids_arena[curr_scope], sizeof(Symbol))) == NULL)
-        my_assert(0, "new_symbol()");
+        assert(0);
 
     return p;
 }
@@ -102,7 +103,7 @@ static TypeTag *new_tag(void)
     void *p;
 
     if ((p=arena_alloc(tags_arena[curr_scope], sizeof(TypeTag))) == NULL)
-        my_assert(0, "new_tag()");
+        assert(0);
 
     return p;
 }
@@ -182,7 +183,7 @@ TypeExp *get_type_spec(TypeExp *d)
         d = d->child;
     }
 
-    my_assert(d != NULL, "get_type_spec()"); /* a type specifier is required */
+    assert(d != NULL); /* a type specifier is required */
 
     return d;
 }
@@ -206,7 +207,7 @@ static void delete_scope(void)
     TypeTag *np2, *temp2;*/
 
     /* test for underflow */
-    my_assert(curr_scope >= 0, "delete_scope()");
+    assert(curr_scope >= 0);
 
     memset(&ordinary_identifiers[curr_scope][0], 0, sizeof(Symbol *)*HASH_SIZE);
     arena_reset(oids_arena[curr_scope]);
@@ -247,7 +248,7 @@ void push_scope(void)
         delete_scope();
 
     if (++curr_scope == MAX_NEST) /* overflow */
-        my_assert(0, "push_scope()");
+        TERMINATE("Error: too many nested scopes (>= %d)", MAX_NEST);
 }
 
 void pop_scope(void)
@@ -865,7 +866,7 @@ int is_complete(char *tag)
         else
             return tp->type->attr.dl!=NULL;
     } else {
-        my_assert(0, "is_complete()");
+        assert(0);
     }
 }
 
@@ -1271,7 +1272,7 @@ void analyze_function_definition(Declaration *f)
     }
     current_function_name = f->idl->str;
 
-    my_assert(curr_scope == FILE_SCOPE+1, "analyze_function_definition()");
+    assert(curr_scope == FILE_SCOPE+1);
 
     /* temporally switch to file scope */
     curr_scope=FILE_SCOPE, delayed_delete=FALSE;
@@ -1920,7 +1921,7 @@ StructDescriptor *lookup_struct_descriptor(char *tag)
         if (tag == np->tag)
             break;
 
-    my_assert(np != NULL, "lookup_struct_descriptor()");
+    assert(np != NULL);
 
     return np;
 }
@@ -1936,7 +1937,7 @@ StructMember *get_member_descriptor(TypeExp *ty, char *id)
         m = m->next;
     }
 
-    my_assert(0, "ic_member_offset()");
+    assert(0);
 }
 
 void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)

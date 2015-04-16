@@ -6,9 +6,9 @@ OBJS = main.o pre.o lexer.o parser.o util.o decl.o expr.o stmt.o ic.o arena.o er
 SRCS = main.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c error.c
 LFLAGS = -lm
 
-all: main
+all: $(PROG)
 
-main: $(OBJS) vm_cgen.o
+$(PROG): $(OBJS) vm_cgen.o
 	$(CC) -pg -o $(PROG) $(OBJS) vm_cgen.o $(LFLAGS)
 .c.o:
 	$(CC) $(CFLAGS) $*.c

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#include <assert.h>
 #include "../as_lk_vm/vm.h"
 #include "../util.h"
 #include "../decl.h"
@@ -40,7 +41,7 @@ static Location *alloc_location(void)
     void *p;
 
     if ((p=arena_alloc(location_arena[curr_scope], sizeof(Location))) == NULL)
-        my_assert(0, "alloc_location()");
+        assert(0);
 
     return p;
 }
@@ -66,7 +67,7 @@ Location *lookup_location(char *id)
             if (equal(id, np->id))
                 return np;
 
-    my_assert(0, "lookup_location()");
+    assert(0);
 }
 static Location *new_location(char *id, int offset)
 {

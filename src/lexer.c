@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 #include "util.h"
 #include "error.h"
 
@@ -316,7 +317,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
 
             key.str = pre_tok->lexeme;
             res = bsearch(&key, punctuators_table, NELEMS(punctuators_table), sizeof(punctuators_table[0]), cmp_punct);
-            my_assert(res != NULL, "lexer()<1>");
+            assert(res != NULL);
             tok->next = new_token(res->tok, pre_tok);
             break;
         }
@@ -396,7 +397,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
         }
         case PRE_TOK_NL:
             /* new-line token not deleted during preprocessing */
-            my_assert(0, "lexer()<2>");
+            assert(0);
             break;
         case PRE_TOK_OTHER:
             /*
