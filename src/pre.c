@@ -941,19 +941,52 @@ void reenable_macro(char *name);
  */
 void preprocessing_token(int skip)
 {
-    Macro *m;
-
     if (skip) {
         match2(lookahead(1));
         return;
     }
 
-    if (lookahead(1)==PRE_TOK_ID && (m=lookup(get_lexeme(1)))!=NULL) {
-        DEBUG_PRINTF("found macro `%s'\n", get_lexeme(1));
-        if (m->kind == SIMPLE)
-            expand_simple_macro(m);
-        else
-            expand_parameterized_macro(m);
+    if (lookahead(1) == PRE_TOK_ID) {
+        Macro *m;
+
+        if (equal(curr_tok->lexeme, "__FILE__")) {
+            /*
+             * Note: __FILE__ depends on the compiler's working directory.
+             * Example invocations and __FILE__'s value:
+             *      (1) luxcc test.c         -> __FILE__="test.c"
+             *      (2) luxcc src/test.c     -> __FILE__="src/test.c"
+             *      (3) luxcc ../test_file.c -> __FILE__="../test_file.c"
+             */
+            unsigned n;
+
+            n = strlen(curr_tok->src_file);
+            free(curr_tok->lexeme);
+            curr_tok->lexeme = malloc(n+2+1); /* +2 for "", +1 for '\0' */
+            curr_tok->lexeme[0] = '\"';
+            strcpy(curr_tok->lexeme+1, curr_tok->src_file);
+            curr_tok->lexeme[n+1] = '\"';
+            curr_tok->lexeme[n+2] = '\0';
+            curr_tok->token = PRE_TOK_STRLIT;
+
+            match(lookahead(1));
+        } else if (equal(curr_tok->lexeme, "__LINE__")) {
+            char n[11];
+
+            free(curr_tok->lexeme);
+            sprintf(n, "%d", curr_tok->src_line);
+            curr_tok->lexeme = strdup(n);
+            curr_tok->token = PRE_TOK_NUM;
+
+            match(lookahead(1));
+        } else if ((m=lookup(get_lexeme(1))) != NULL) {
+            DEBUG_PRINTF("found macro `%s'\n", get_lexeme(1));
+            if (m->kind == SIMPLE)
+                expand_simple_macro(m);
+            else
+                expand_parameterized_macro(m);
+        } else {
+            match(lookahead(1));
+        }
     } else if (lookahead(1) == PRE_TOK_MACRO_REENABLER) {
         DEBUG_PRINTF("reenabling macro `%s'\n", get_lexeme(1));
         reenable_macro(get_lexeme(1));
