@@ -1244,6 +1244,13 @@ void analyze_parameter_declaration(Declaration *d)
     }
 }
 
+/*
+ * Variable used to implement __func__.
+ * Modified only by analyze_function_definition().
+ * Used only by primary_expression().
+ */
+char *current_function_name;
+
 void analyze_function_definition(Declaration *f)
 {
     int good;
@@ -1262,6 +1269,7 @@ void analyze_function_definition(Declaration *f)
         set_return_type(get_type_node(TOK_ERROR), NULL);
         ERROR_R(f->idl, "declarator of function definition does not specify a function type");
     }
+    current_function_name = f->idl->str;
 
     my_assert(curr_scope == FILE_SCOPE+1, "analyze_function_definition()");
 

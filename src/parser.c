@@ -2050,6 +2050,14 @@ ExecNode *primary_expression(void)
         n->attr.str = get_lexeme(1);
         match(TOK_STRLIT);
         break;
+    case TOK_FUNC_NAME: {
+        extern char *current_function_name;
+
+        n = new_pri_exp_node(StrLitExp);
+        n->attr.str = strdup(current_function_name);
+        match(TOK_FUNC_NAME);
+        break;
+    }
     case TOK_LPAREN:
         match(TOK_LPAREN);
         n = expression();

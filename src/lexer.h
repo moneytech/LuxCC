@@ -138,7 +138,8 @@ typedef enum {
     TOK_CONST_VOLATILE,
     /* --- */
     TOK_ENUM_CONST,
-    TOK_INIT_LIST
+    TOK_INIT_LIST,
+    TOK_FUNC_NAME,
 } Token;
 
 typedef struct TokenNode TokenNode;
