@@ -457,7 +457,7 @@ int get_esc_seq_val(char **c)
             while (isxdigit(**c));
             *p = '\0';
             sscanf(buf, "%x", &val);
-            return (char)val;
+            return (char)val; /* See: 6.4.4.4#10 & #12 */
         } else {
             ERROR("expecting hexadecimal digits after \\x");
         }
@@ -473,7 +473,7 @@ int get_esc_seq_val(char **c)
             while (isodigit(**c));
             *p = '\0';
             sscanf(buf, "%o", &val);
-            return (char)val;
+            return (char)val; /* See: 6.4.4.4#10 & #12 */
         } else {
             return *(*c)++; /* unknown escape sequence, the backslash is ignored */
         }
