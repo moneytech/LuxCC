@@ -30,8 +30,6 @@
 #include "../util.h"
 #include "operations.h"
 
-#define TERMINATE(...) fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n"), exit(EXIT_FAILURE)
-
 typedef enum {
     TOK_ID,
     TOK_NUM,

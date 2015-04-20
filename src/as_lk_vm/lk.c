@@ -2,11 +2,10 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#include <assert.h>
 #include "as.h"
 #include "../arena.h"
 #include "../util.h"
-
-#define TERMINATE(...) fprintf(stderr, __VA_ARGS__), fprintf(stderr, "\n"), exit(EXIT_FAILURE)
 
 char *prog_name;
 
@@ -84,7 +83,7 @@ Symbol *lookup_global_symbol(char *name)
         if (equal(np->name, name))
              return np;
 
-    my_assert(0, "lookup_global_symbol()");
+    assert(0);
 }
 
 /*
@@ -104,7 +103,7 @@ void *new_local_symbol(void)
     void *p;
 
     p = arena_alloc(local_arena, sizeof(Symbol));
-    my_assert(p != NULL, "new_local_symbol()");
+    assert(p != NULL);
 
     return p;
 }
@@ -137,7 +136,7 @@ Symbol *define_local_symbol(char *name, int segment, int offset)
         local_symbols[h] = np;
     } else {
         /* assembler bug: it should have detected this redefinition */
-        my_assert(0, "define_local_symbol()");
+        assert(0);
     }
 
     return np;
@@ -158,7 +157,7 @@ Symbol *lookup_symbol(char *name)
         if (equal(np->name, name))
              return np;
 
-    my_assert(0, "lookup_symbol()");
+    assert(0);
 }
 
 /*

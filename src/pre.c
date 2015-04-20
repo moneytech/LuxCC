@@ -153,8 +153,7 @@ void init(char *file_path)
 
     while (fgets(curr, 0x7FFFFFFF, fp) != NULL) {
         int line_len = strlen(curr);
-#if WIN_LINE_ENDING
-        /* replace CRLFs for LFs */
+#if DOS_LINE_ENDING
         if (line_len>1 && curr[line_len-2]=='\r') {
             curr[line_len-2]='\n', curr[line_len-1]='\0';
             --line_len;
@@ -165,9 +164,8 @@ void init(char *file_path)
             line_len -= 2; /* removes '\\' and '\n' */
             fgets(curr+line_len, 0x7FFFFFFF, fp);
             line_len += strlen(curr+line_len);
-#if WIN_LINE_ENDING
-            /* again, replace CRLFs for LFs */
-            if (curr[line_len-2]=='\r') {
+#if DOS_LINE_ENDING
+            if (line_len>1 && curr[line_len-2]=='\r') {
                 curr[line_len-2]='\n', curr[line_len-1]='\0';
                 --line_len;
             }
@@ -1075,7 +1073,6 @@ PreTokenNode *copy_arg(PreTokenNode **a, ParaListKind kind)
     if (equal((*a)->lexeme, "("))
         ++pn;
     copy = temp = new_node((*a)->token, (*a)->lexeme);
-    // copy_node_info(copy, (*a));
     (*a) = (*a)->next;
 
     while (pn>0 || ((kind==VAR_LIST||not_equal((*a)->lexeme, ",")) && not_equal((*a)->lexeme, ")"))) {
@@ -1083,7 +1080,6 @@ PreTokenNode *copy_arg(PreTokenNode **a, ParaListKind kind)
         else if (equal((*a)->lexeme, ")")) pn--;
         else if ((*a)->token == PRE_TOK_EOF) ERROR("missing `)' in macro call");
         temp->next = new_node((*a)->token, (*a)->lexeme);
-        // copy_node_info(temp->next, (*a));
         temp = temp->next;
         *a = (*a)->next;
     }
@@ -1100,12 +1096,10 @@ PreTokenNode *copy_arg2(PreTokenNode *a, PreTokenNode **last)
     PreTokenNode *copy;
 
     copy = *last = new_node(a->token, a->lexeme);
-    // copy_node_info(copy, a);
     a = a->next;
 
     while (a != NULL) {
         (*last)->next = new_node(a->token, a->lexeme);
-        // copy_node_info((*last)->next, a);
         *last = (*last)->next;
         a = a->next;
     }
