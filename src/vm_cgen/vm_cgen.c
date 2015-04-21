@@ -41,7 +41,7 @@ static Location *alloc_location(void)
     void *p;
 
     if ((p=arena_alloc(location_arena[curr_scope], sizeof(Location))) == NULL)
-        assert(0);
+        assert(0); /* TODO: print "out of memory" or something */
 
     return p;
 }
@@ -141,6 +141,9 @@ static void emit_string_literals(void)
     unsigned n;
     unsigned char *c;
 
+    if (str_lit_count == 0)
+        return;
+
     emit(".data");
     for (n = 0; n < str_lit_count; n++) {
         emit("@S%u:", n);
@@ -159,6 +162,7 @@ void vm_cgen(FILE *outf)
     init_location_arena();
     output_file = outf;
 
+    emit(".extern malloc"); /* for return of structs */
     for (ed = get_extern_symtab(); ed != NULL; ed = ed->next) {
         if (ed->status == REFERENCED) {
             TypeExp *scs;
@@ -199,7 +203,7 @@ void function_definition(TypeExp *decl_specs, TypeExp *header)
     DeclList *p;
     TypeExp *scs;
     int param_offs;
-    char *addsp_param, num[16];
+    char *addsp_param, num[11];
 
     curr_func = header->str;
     emit("# ==== start of definition of function `%s' ====", curr_func);
@@ -209,7 +213,7 @@ void function_definition(TypeExp *decl_specs, TypeExp *header)
         emit(".global %s", curr_func);
 
     addsp_param = buf_curr+strlen("addsp")+1; /* for later fix up */
-    emit("addsp \x20\x20\x20\x20\x20"); /* allow at most 99999 bytes of local storage */
+    emit("addsp XXXXXXXXXXX"); /* space for 10 digits + ';' */
 
     cgen_push_scope();
 
@@ -242,8 +246,11 @@ void function_definition(TypeExp *decl_specs, TypeExp *header)
 
     /* fix up the amount of storage to allocate for locals */
     sprintf(num, "%d", round_up(size_of_local_area-VM_LOCAL_START, VM_STACK_ALIGN));
-    strncpy(addsp_param, num, strlen(num));
-    addsp_param[strlen(num)] = ';';
+    strncpy(addsp_param, num, 10);
+    addsp_param += strlen(num);
+    *addsp_param++ = ';';
+    while (*addsp_param != '\n')
+        *addsp_param++ = ' ';
 
     size_of_local_area = 0;
     local_offset = VM_LOCAL_START;
@@ -953,10 +960,27 @@ void break_statement(void)
 
 void return_statement(ExecNode *s)
 {
-    if (s->child[0] != NULL)
+    if (s->child[0] != NULL) {
+        Token cat;
+
         expr_convert(s->child[0], &ret_ty);
-    else
+
+        /* take care of structs/unions returned by value */
+        if ((cat=get_type_category(&ret_ty))==TOK_STRUCT || cat==TOK_UNION) {
+            unsigned size;
+
+            /* allocate space on the heap and copy the struct/union there */
+            size = compute_sizeof(&ret_ty);
+            emit("ldi %u;", size);
+            emit("ldi malloc;");
+            emit("call 4;");
+            emit("swap;");
+            emit("memcpy %u;", size);
+            /* TODO: free the returned struct/union when it's not used anymore */
+        }
+    } else {
         emit("ldi 0;");
+    }
     emit("ret;");
 }
 

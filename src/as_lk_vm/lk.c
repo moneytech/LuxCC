@@ -102,8 +102,8 @@ void *new_local_symbol(void)
 {
     void *p;
 
-    p = arena_alloc(local_arena, sizeof(Symbol));
-    assert(p != NULL);
+    if ((p=arena_alloc(local_arena, sizeof(Symbol))) == NULL)
+        TERMINATE("%s: out of memory", prog_name);
 
     return p;
 }

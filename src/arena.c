@@ -63,9 +63,8 @@ void *allocate(Arena *a, unsigned n)
             unsigned m;
 
             m = round_up(n, MULTIPLE)+MEMINCR*1024+sizeof(Block);
-            ap->next = malloc(m);
-            if (ap->next == NULL)
-                TERMINATE("Out of memory");
+            if ((ap->next=malloc(m)) == NULL)
+                return NULL;
             ap = ap->next;
             ap->limit = (char *)ap+m;
             ap->avail = (char *)ap+sizeof(Block);

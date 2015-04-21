@@ -93,7 +93,7 @@ static Symbol *new_symbol(void)
     void *p;
 
     if ((p=arena_alloc(oids_arena[curr_scope], sizeof(Symbol))) == NULL)
-        assert(0);
+        assert(0); /* TODO: print "out of memory" or something */
 
     return p;
 }
@@ -103,7 +103,7 @@ static TypeTag *new_tag(void)
     void *p;
 
     if ((p=arena_alloc(tags_arena[curr_scope], sizeof(TypeTag))) == NULL)
-        assert(0);
+        assert(0); /* TODO: print "out of memory" or something */
 
     return p;
 }

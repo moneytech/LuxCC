@@ -153,8 +153,8 @@ int main(int argc, char *argv[])
         exit(EXIT_SUCCESS);
 
     if (error_count == 0)
-        ic_main(tree);
-        // vm_cgen((output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb"));
+        // ic_main(tree);
+        vm_cgen((output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb"));
     else
         return 1;
 
