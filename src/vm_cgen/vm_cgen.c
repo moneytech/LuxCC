@@ -21,6 +21,7 @@ static FILE *output_file;
 
 static int curr_scope = 0;
 static char *curr_func; /* name of current function */
+static unsigned temp_struct_size;
 
 typedef struct Location Location;
 struct Location {
@@ -176,6 +177,13 @@ void vm_cgen(FILE *outf)
                 static_object_definition(ed->decl_specs, ed->declarator, FALSE);
         }
 
+        flush_output_buffer();
+    }
+    if (temp_struct_size > 0) {
+        emit(".bss");
+        emit(".align 4");
+        emit("__temp_struct:");
+        emit(".res %u", temp_struct_size);
         flush_output_buffer();
     }
 
@@ -969,14 +977,56 @@ void return_statement(ExecNode *s)
         if ((cat=get_type_category(&ret_ty))==TOK_STRUCT || cat==TOK_UNION) {
             unsigned size;
 
-            /* allocate space on the heap and copy the struct/union there */
             size = compute_sizeof(&ret_ty);
+#if 0
+            /* allocate space on the heap and copy the struct/union there */
             emit("ldi %u;", size);
             emit("ldi malloc;");
             emit("call 4;");
             emit("swap;");
             emit("memcpy %u;", size);
             /* TODO: free the returned struct/union when it's not used anymore */
+#endif
+            /*
+            Note that the following program doesn't work with this scheme (it works using
+            the heap to return the struct/union, as the above commented out code does):
+
+            typedef struct { int x[3]; } A;
+            A bar(void)
+            {
+                A r = { { 11, 22, 33 } };
+                return r;
+            }
+            A foo(void)
+            {
+                A r = { { 1 } };
+                return r;
+            }
+            int main(void)
+            {
+                printf("%d\n", bar().x[foo().x[0]]); // 22?
+
+                return 0;
+            }
+
+             But the C99 standard says (6.5.2.2#5):
+            [...] If an attempt is made to modify the result of a function call or to access
+            it after the next sequence point, the behavior is undefined.
+
+            In the above example, there is a sequence point at the call site of foo.
+            So it may be interpreted as a program invoking undefined behavior. In this case,
+            it doesn't work because foo overwrites the static location that contains bar's
+            return value (__temp_struct).
+            Seems like C11 has addressed this issue with the inclusion of objects with
+            'temporary lifetime'.
+            More about all this here:
+            https://stackoverflow.com/questions/7963813/printing-a-member-of-a-returned-struct.
+             */
+            if (size > temp_struct_size)
+                temp_struct_size = size;
+            emit("ldi __temp_struct;");
+            emit("swap;");
+            emit("memcpy %u;", size);
         }
     } else {
         emit("ldi 0;");
