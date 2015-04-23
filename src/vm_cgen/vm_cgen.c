@@ -163,7 +163,9 @@ void vm_cgen(FILE *outf)
     init_location_arena();
     output_file = outf;
 
+#if 0
     emit(".extern malloc"); /* for return of structs */
+#endif
     for (ed = get_extern_symtab(); ed != NULL; ed = ed->next) {
         if (ed->status == REFERENCED) {
             TypeExp *scs;
@@ -1218,11 +1220,13 @@ void expr_convert(ExecNode *e, Declaration *dest)
             emit("dw2ub;");
         break;
     case TOK_SHORT:
-        if (cat_src != TOK_SHORT)
+        // if (cat_src != TOK_SHORT)
+        if (cat_src!=TOK_CHAR && cat_src!=TOK_SIGNED_CHAR && cat_src!=TOK_SHORT)
             emit("dw2w;");
         break;
     case TOK_UNSIGNED_SHORT:
-        if (cat_src != TOK_UNSIGNED_SHORT)
+        // if (cat_src != TOK_UNSIGNED_SHORT)
+        if (cat_src!=TOK_UNSIGNED_CHAR && cat_src!=TOK_UNSIGNED_SHORT)
             emit("dw2uw;");
         break;
     default: /* no conversion required */

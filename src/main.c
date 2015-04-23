@@ -34,7 +34,7 @@ int main(int argc, char *argv[])
 {
     static PreTokenNode *pre;
     static TokenNode *tok;
-    static ExternDecl *tree;
+    // static ExternDecl *tree;
 
     /*
      * Handle command line options.
@@ -136,7 +136,8 @@ int main(int argc, char *argv[])
         exit(EXIT_SUCCESS);
     }
 
-    tree = parser(tok);
+    // tree = parser(tok);
+    parser(tok);
 
     if (option_flags & OPT_SHOW_STATS) {
         extern unsigned number_of_pre_tokens;
@@ -153,7 +154,7 @@ int main(int argc, char *argv[])
         exit(EXIT_SUCCESS);
 
     if (error_count == 0)
-        // ic_main(tree);
+        // ic_main();
         vm_cgen((output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb"));
     else
         return 1;
