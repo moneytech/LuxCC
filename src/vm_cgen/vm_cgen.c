@@ -1058,13 +1058,15 @@ static struct SwitchLabel {
 } *switch_labels[MAX_SWITCH_NEST][HASH_SIZE];
 
 static int switch_nesting_level = -1;
+static int cmp_switch_label(const void *p1, const void *p2);
+static void install_switch_label(int val, int is_default, unsigned lab);
 
-static
 int cmp_switch_label(const void *p1, const void *p2)
 {
     SwitchLabel *x1 = *(SwitchLabel **)p1;
     SwitchLabel *x2 = *(SwitchLabel **)p2;
 
+    /* the default label is always at the beginning */
     if (x1->is_default)
         return -1;
     if (x2->is_default)
@@ -1078,7 +1080,6 @@ int cmp_switch_label(const void *p1, const void *p2)
         return 1;
 }
 
-static
 void install_switch_label(int val, int is_default, unsigned lab)
 {
     unsigned h;
@@ -1097,7 +1098,7 @@ void switch_statement(ExecNode *s)
 {
     int i, st_size;
     unsigned ST, EXIT;
-    SwitchLabel *search_table[256], *np;
+    SwitchLabel *search_table[MAX_CASE_LABELS], *np;
 
     /*
      * Controlling expression.
@@ -1209,7 +1210,7 @@ void expr_convert(ExecNode *e, Declaration *dest)
     cat_src  = get_type_category(&e->type);
     cat_dest = get_type_category(dest);
 
-    switch(cat_dest) {
+    switch (cat_dest) {
     case TOK_CHAR:
     case TOK_SIGNED_CHAR:
         if (cat_src!=TOK_CHAR && cat_src!=TOK_SIGNED_CHAR)
@@ -1220,12 +1221,13 @@ void expr_convert(ExecNode *e, Declaration *dest)
             emit("dw2ub;");
         break;
     case TOK_SHORT:
-        // if (cat_src != TOK_SHORT)
-        if (cat_src!=TOK_CHAR && cat_src!=TOK_SIGNED_CHAR && cat_src!=TOK_SHORT)
+        if (cat_src != TOK_CHAR
+        &&  cat_src != TOK_SIGNED_CHAR
+        &&  cat_src != TOK_UNSIGNED_CHAR
+        &&  cat_src != TOK_SHORT)
             emit("dw2w;");
         break;
     case TOK_UNSIGNED_SHORT:
-        // if (cat_src != TOK_UNSIGNED_SHORT)
         if (cat_src!=TOK_UNSIGNED_CHAR && cat_src!=TOK_UNSIGNED_SHORT)
             emit("dw2uw;");
         break;

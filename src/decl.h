@@ -62,6 +62,7 @@ void analyze_type_name(Declaration *tn);
 void push_scope(void);
 void pop_scope(void);
 void restore_scope(void);
+void reset_enum_val(void);
 Symbol *lookup(char *id, int all);
 void install_tag(TypeExp *ty);
 TypeTag *lookup_tag(char *id, int all);

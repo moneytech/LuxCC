@@ -5,8 +5,9 @@
  * Some implementation limits.
  */
 
-#define MAX_NEST            16  /* maximum block nesting level (blocks without locals don't count) */
+#define MAX_NEST            16   /* maximum block nesting level (blocks without locals don't count) */
 #define MAX_SWITCH_NEST     16
 #define MAX_LOG_LINE_LEN    4095
+#define MAX_CASE_LABELS     1024 /* for a single switch statement */
 
 #endif
