@@ -33,6 +33,7 @@ extern int colored_diagnostics;
 
 #define HASH_SIZE       4093
 #define FILE_SCOPE      0
+#define OUTERMOST_LEVEL 0
 #define HASH_VAL(s)     (hash(s)%HASH_SIZE)
 #define HASH_VAL2(x)    (hash2(x)%HASH_SIZE)
 
@@ -60,15 +61,17 @@ ExternId *get_extern_symtab(void)
 }
 
 /*
- * Hash tables that implement ordinary identifiers and tags name spaces.
- * The hash tabla that implements label names is in stmt.c.
+ * Lexically scoped symbol tables that implement ordinary
+ * identifiers and tags name spaces.
+ * The symbol table that implements label names is in stmt.c.
  * Structure and union members are handled in a special way.
  */
 static Symbol *ordinary_identifiers[MAX_NEST][HASH_SIZE];
 static TypeTag *tags[MAX_NEST][HASH_SIZE];
 
-static int curr_scope = 0;
+static int nesting_level = OUTERMOST_LEVEL;
 static int delayed_delete = FALSE;
+static int scope_id;
 
 /* memory arenas used to maintain identifier and tag scopes */
 static Arena *oids_arena[MAX_NEST];
@@ -92,7 +95,7 @@ static Symbol *new_symbol(void)
 {
     void *p;
 
-    if ((p=arena_alloc(oids_arena[curr_scope], sizeof(Symbol))) == NULL)
+    if ((p=arena_alloc(oids_arena[nesting_level], sizeof(Symbol))) == NULL)
         assert(0); /* TODO: print "out of memory" or something */
 
     return p;
@@ -102,7 +105,7 @@ static TypeTag *new_tag(void)
 {
     void *p;
 
-    if ((p=arena_alloc(tags_arena[curr_scope], sizeof(TypeTag))) == NULL)
+    if ((p=arena_alloc(tags_arena[nesting_level], sizeof(TypeTag))) == NULL)
         assert(0); /* TODO: print "out of memory" or something */
 
     return p;
@@ -207,33 +210,33 @@ static void delete_scope(void)
     TypeTag *np2, *temp2;*/
 
     /* test for underflow */
-    assert(curr_scope >= 0);
+    assert(nesting_level >= 0);
 
-    memset(&ordinary_identifiers[curr_scope][0], 0, sizeof(Symbol *)*HASH_SIZE);
-    arena_reset(oids_arena[curr_scope]);
+    memset(&ordinary_identifiers[nesting_level][0], 0, sizeof(Symbol *)*HASH_SIZE);
+    arena_reset(oids_arena[nesting_level]);
 
-    memset(&tags[curr_scope][0], 0, sizeof(TypeTag *)*HASH_SIZE);
-    arena_reset(tags_arena[curr_scope]);
+    memset(&tags[nesting_level][0], 0, sizeof(TypeTag *)*HASH_SIZE);
+    arena_reset(tags_arena[nesting_level]);
 
     /*for (i = 0; i < HASH_SIZE; i++) {
-        if (ordinary_identifiers[curr_scope][i] != NULL) {
-            for (np = ordinary_identifiers[curr_scope][i]; np != NULL;) {
+        if (ordinary_identifiers[nesting_level][i] != NULL) {
+            for (np = ordinary_identifiers[nesting_level][i]; np != NULL;) {
                 temp = np;
                 np = np->next;
                 free(temp);
             }
-            ordinary_identifiers[curr_scope][i] = NULL;
+            ordinary_identifiers[nesting_level][i] = NULL;
         }
-        if (tags[curr_scope][i] != NULL) {
-            for (np2 = tags[curr_scope][i]; np2 != NULL;) {
+        if (tags[nesting_level][i] != NULL) {
+            for (np2 = tags[nesting_level][i]; np2 != NULL;) {
                 temp2 = np2;
                 np2 = np2->next;
                 free(temp2);
             }
-            tags[curr_scope][i] = NULL;
+            tags[nesting_level][i] = NULL;
         }
     }*/
-    --curr_scope;
+    --nesting_level;
     delayed_delete = FALSE;
 }
 
@@ -247,8 +250,10 @@ void push_scope(void)
     if (delayed_delete)
         delete_scope();
 
-    if (++curr_scope == MAX_NEST) /* overflow */
+    if (++nesting_level == MAX_NEST) /* overflow */
         TERMINATE("Error: too many nested scopes (>= %d)", MAX_NEST);
+
+    ++scope_id; /* create a new ID for this scope */
 }
 
 void pop_scope(void)
@@ -269,7 +274,7 @@ TypeTag *lookup_tag(char *id, int all)
     if (delayed_delete)
         delete_scope();
 
-    n = curr_scope;
+    n = nesting_level;
     h = HASH_VAL(id);
     if (all == TRUE) {
         for (; n >= 0; n--)
@@ -292,7 +297,7 @@ void install_tag(TypeExp *ty)
     unsigned h;
     TypeTag *np;
 
-    DEBUG_PRINTF("new tag `%s', scope: %d\n", ty->str, curr_scope);
+    DEBUG_PRINTF("new tag `%s', nesting level: %d\n", ty->str, nesting_level);
 
     if (delayed_delete)
         delete_scope();
@@ -301,8 +306,8 @@ void install_tag(TypeExp *ty)
     np = new_tag();
     np->type = ty;
     h = HASH_VAL(ty->str);
-    np->next = tags[curr_scope][h];
-    tags[curr_scope][h] = np;
+    np->next = tags[nesting_level][h];
+    tags[nesting_level][h] = np;
 }
 
 
@@ -315,7 +320,7 @@ Symbol *lookup(char *id, int all)
     if (delayed_delete)
         delete_scope();
 
-    n = curr_scope;
+    n = nesting_level;
     h = HASH_VAL(id);
     if (all == TRUE) {
         for (; n >= 0; n--)
@@ -343,7 +348,7 @@ void install(TypeExp *decl_specs, TypeExp *declarator, int is_param)
         delete_scope();
 
     h = HASH_VAL(declarator->str);
-    for (np = ordinary_identifiers[curr_scope][h]; np != NULL; np = np->next)
+    for (np = ordinary_identifiers[nesting_level][h]; np != NULL; np = np->next)
         if (equal(declarator->str, np->declarator->str))
             break;
 
@@ -354,9 +359,10 @@ void install(TypeExp *decl_specs, TypeExp *declarator, int is_param)
         np->decl_specs = decl_specs;
         np->declarator = declarator;
         np->is_param = (short)is_param;
-        np->scope = (short)curr_scope;
-        np->next = ordinary_identifiers[curr_scope][h];
-        ordinary_identifiers[curr_scope][h] = np;
+        np->nesting_level = (short)nesting_level;
+        np->scope = scope_id;
+        np->next = ordinary_identifiers[nesting_level][h];
+        ordinary_identifiers[nesting_level][h] = np;
         return;
     }
 
@@ -388,7 +394,7 @@ void install(TypeExp *decl_specs, TypeExp *declarator, int is_param)
          * Clash with previously declared enumeration constant or typedef name.
          */
         goto redecl_as_diff_kind;
-    } else if (curr_scope != FILE_SCOPE) {
+    } else if (nesting_level != OUTERMOST_LEVEL) {
         int curr_is_func, prev_is_func;
 
         /*
@@ -476,32 +482,35 @@ void set_attributes(ExecNode *e, Symbol *sym)
     e->type.decl_specs = sym->decl_specs;
     e->type.idl = (sym->declarator->op!=TOK_ENUM_CONST)?sym->declarator->child:sym->declarator;
 
-    /* set scope */
-    e->extra[ATTR_SCOPE] = (char)sym->scope;
+    /* set scope (the identifier/scope pair is used to unambiguously identify the object) */
+    if (sym->nesting_level != OUTERMOST_LEVEL)
+        e->attr.var.scope = sym->scope;
+    else
+        e->attr.var.scope = FILE_SCOPE;
 
     scs = get_sto_class_spec(e->type.decl_specs);
 
     /* set storage duration */
-    if (sym->scope==FILE_SCOPE || scs!=NULL&&(scs->op==TOK_EXTERN||scs->op==TOK_STATIC))
-        e->extra[ATTR_DURATION] = DURATION_STATIC;
+    if (sym->nesting_level==OUTERMOST_LEVEL || scs!=NULL&&(scs->op==TOK_EXTERN||scs->op==TOK_STATIC))
+        e->attr.var.duration = DURATION_STATIC;
     else
-        e->extra[ATTR_DURATION] = DURATION_AUTO;
+        e->attr.var.duration = DURATION_AUTO;
 
     /* set linkage */
     if (scs == NULL) {
-        if (sym->scope==FILE_SCOPE || get_type_category(&e->type)==TOK_FUNCTION)
-            e->extra[ATTR_LINKAGE] = LINKAGE_EXTERNAL;
+        if (sym->nesting_level==OUTERMOST_LEVEL || get_type_category(&e->type)==TOK_FUNCTION)
+            e->attr.var.linkage = LINKAGE_EXTERNAL;
         else
-            e->extra[ATTR_LINKAGE] = LINKAGE_NONE;
+            e->attr.var.linkage = LINKAGE_NONE;
     } else if (scs->op == TOK_EXTERN) {
-        e->extra[ATTR_LINKAGE] = LINKAGE_EXTERNAL;
-    } else if (scs->op==TOK_STATIC && sym->scope==FILE_SCOPE) {
-        e->extra[ATTR_LINKAGE] = LINKAGE_INTERNAL;
+        e->attr.var.linkage = LINKAGE_EXTERNAL;
+    } else if (scs->op==TOK_STATIC && sym->nesting_level==OUTERMOST_LEVEL) {
+        e->attr.var.linkage = LINKAGE_INTERNAL;
     } else {
-        e->extra[ATTR_LINKAGE] = LINKAGE_NONE;
+        e->attr.var.linkage = LINKAGE_NONE;
     }
 
-    e->extra[ATTR_IS_PARAM] = (char)sym->is_param;
+    e->attr.var.is_param = (char)sym->is_param;
 }
 
 
@@ -1272,17 +1281,17 @@ void analyze_function_definition(Declaration *f)
     }
     current_function_name = f->idl->str;
 
-    assert(curr_scope == FILE_SCOPE+1);
+    assert(nesting_level == OUTERMOST_LEVEL+1);
 
     /* temporally switch to file scope */
-    curr_scope=FILE_SCOPE, delayed_delete=FALSE;
+    nesting_level=OUTERMOST_LEVEL, delayed_delete=FALSE;
 
     good = analyze_declarator(f->decl_specs, f->idl, TRUE);
     if (good)
         analyze_init_declarator(f->decl_specs, f->idl, TRUE);
 
     /* switch back */
-    curr_scope = FILE_SCOPE+1;
+    nesting_level = OUTERMOST_LEVEL+1;
 
     if (!good)
         return;
@@ -1664,7 +1673,7 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
     if (scs!=NULL && scs->op==TOK_TYPEDEF)
         return; /* OK */
 
-    if (curr_scope != FILE_SCOPE)
+    if (nesting_level != OUTERMOST_LEVEL)
         goto block_scope;
 
     /*

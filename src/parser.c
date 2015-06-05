@@ -2024,9 +2024,14 @@ ExecNode *primary_expression(void)
 
             if ((scs=get_sto_class_spec(s->decl_specs))==NULL || scs->op!=TOK_TYPEDEF) {
                 set_attributes(n, s);
-                /*printf("identifier `%s', scope=%d, linkage=%s, storage=%s, is_param=%d\n", n->attr.str,
-                n->extra[ATTR_SCOPE], extra_str[n->extra[ATTR_LINKAGE]], extra_str[n->extra[ATTR_DURATION]],
-                n->extra[ATTR_IS_PARAM]);*/
+#if 0
+                printf("Id Attributes:\n");
+                printf("\tidentifier `%s'\n", n->attr.str);
+                printf("\tscope=%d\n", n->attr.var.scope);
+                printf("\tlinkage=%s\n", extra_str[n->attr.var.linkage]);
+                printf("\tstorage duration=%s\n", extra_str[n->attr.var.duration]);
+                printf("\tis_param=%d\n", n->attr.var.is_param);
+#endif
             } else {
                 NON_FATAL_ERROR("expecting primary-expression; found typedef-name `%s'", n->attr.str);
                 n->type.decl_specs = get_type_node(TOK_ERROR);

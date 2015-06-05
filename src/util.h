@@ -21,4 +21,8 @@ unsigned long hash2(unsigned long k);
 unsigned hash(char *s);
 int round_up(int num, int multiple);
 
+#define GET_BIT(a, b)     (a[b/(8*sizeof(unsigned))] & (1 << (b%(8*sizeof(unsigned)))))
+#define SET_BIT(a, b)     (a[b/(8*sizeof(unsigned))] |= (1 << (b%(8*sizeof(unsigned)))))
+#define CLEAR_BIT(a, b)   (a[b/(8*sizeof(unsigned))] &= ~(1 << (b%(8*sizeof(unsigned)))))
+
 #endif

@@ -12,82 +12,15 @@
 #include "../arena.h"
 #include "../imp_lim.h"
 #include "../error.h"
+#include "../loc.h"
 
 #define HASH_SIZE       4093
 #define HASH_VAL(s)     (hash(s)%HASH_SIZE)
 #define HASH_VAL2(x)    (hash2(x)%HASH_SIZE)
 
 static FILE *output_file;
-
-static int curr_scope = 0;
 static char *curr_func; /* name of current function */
 static unsigned temp_struct_size;
-
-typedef struct Location Location;
-struct Location {
-    char *id;
-    int offset;
-    Location *next;
-} *location_table[MAX_NEST][HASH_SIZE]; /* location_table[0] unused */
-static Arena *location_arena[MAX_NEST];
-static void init_location_arena(void)
-{
-    int i;
-
-    for (i = 0; i < MAX_NEST; i++)
-        location_arena[i] = arena_new(8192);
-}
-static Location *alloc_location(void)
-{
-    void *p;
-
-    if ((p=arena_alloc(location_arena[curr_scope], sizeof(Location))) == NULL)
-        assert(0); /* TODO: print "out of memory" or something */
-
-    return p;
-}
-static void cgen_pop_scope(void)
-{
-    memset(&location_table[curr_scope][0], 0, sizeof(Location *)*HASH_SIZE);
-    arena_reset(location_arena[curr_scope]);
-    --curr_scope;
-}
-static void cgen_push_scope(void)
-{
-    ++curr_scope;
-}
-Location *lookup_location(char *id)
-{
-    int n;
-    unsigned h;
-    Location *np;
-
-    h = HASH_VAL(id);
-    for (n = curr_scope; n >= 0; n--)
-        for (np = location_table[n][h]; np != NULL; np = np->next)
-            if (equal(id, np->id))
-                return np;
-
-    assert(0);
-}
-static Location *new_location(char *id, int offset)
-{
-    unsigned h;
-    Location *np;
-
-    h = HASH_VAL(id);
-    /*for (np = location_table[curr_scope][h]; np != NULL; np = np->next)
-        if (equal(id, np->id))
-            break;*/
-
-    np = alloc_location();
-    np->id = id;
-    np->offset = offset;
-    np->next = location_table[curr_scope][h];
-    location_table[curr_scope][h] = np;
-
-    return np;
-}
 
 static void compound_statement(ExecNode *s, int push_scope);
 static void if_statement(ExecNode *s);
@@ -225,7 +158,7 @@ void function_definition(TypeExp *decl_specs, TypeExp *header)
     addsp_param = buf_curr+strlen("addsp")+1; /* for later fix up */
     emit("addsp XXXXXXXXXXX"); /* space for 10 digits + ';' */
 
-    cgen_push_scope();
+    location_push_scope();
 
     p = header->child->attr.dl;
     if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID && p->decl->idl==NULL)
@@ -252,7 +185,7 @@ void function_definition(TypeExp *decl_specs, TypeExp *header)
     ret_ty.idl = header->child->child;
 
     compound_statement(header->attr.e, FALSE);
-    cgen_pop_scope();
+    location_pop_scope();
 
     /* fix up the amount of storage to allocate for locals */
     sprintf(num, "%d", round_up(size_of_local_area-VM_LOCAL_START, VM_STACK_ALIGN));
@@ -769,7 +702,7 @@ void compound_statement(ExecNode *s, int push_scope)
 
         old_local_offset = local_offset;
         if (push_scope)
-            cgen_push_scope();
+            location_push_scope();
 
         /* traverse declaration list */
         for (dl = s->locals; dl != NULL; dl = dl->next) {
@@ -783,7 +716,7 @@ void compound_statement(ExecNode *s, int push_scope)
                     emit(".text");
                     continue;
                 } else if (scs->op == TOK_EXTERN) {
-                    emit(".extern %s", dl->decl->idl->str);
+                    /*emit(".extern %s", dl->decl->idl->str);*/
                     continue;
                 } else if (scs->op == TOK_TYPEDEF) {
                     continue;
@@ -813,7 +746,7 @@ void compound_statement(ExecNode *s, int push_scope)
 
     if (push_scope && s->locals!=NULL) {
         local_offset = old_local_offset;
-        cgen_pop_scope();
+        location_pop_scope();
     }
 }
 
@@ -1731,8 +1664,8 @@ void load(ExecNode *e)
 
 void load_addr(ExecNode *e)
 {
-    if (e->extra[ATTR_DURATION] == DURATION_STATIC) {
-        if (e->extra[ATTR_LINKAGE] == LINKAGE_NONE) /* static local */
+    if (e->attr.var.duration == DURATION_STATIC) {
+        if (e->attr.var.linkage == LINKAGE_NONE) /* static local */
             emit("ldi @%s_%s;", curr_func, e->attr.str); /* use the mangled name */
         else /* external */
             emit("ldi %s;", e->attr.str);

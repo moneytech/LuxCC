@@ -127,7 +127,7 @@ const char *token_table[] = {
     "CONST_VOLATILE", "const volatile",
     "ENUM_CONST", "enumeration constant",
     "INIT_LIST", "initializer list",
-    "TOK_FUNC_NAME", "__func__",
+    "FUNC_NAME", "__func__",
 };
 
 static const struct Keyword {

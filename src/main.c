@@ -5,6 +5,7 @@
 #include "parser.h"
 #include "ic.h"
 #include "vm_cgen/vm_cgen.h"
+#include "x86_cgen/x86_cgen.h"
 
 unsigned warning_count, error_count;
 int disable_warnings;
@@ -155,7 +156,8 @@ int main(int argc, char *argv[])
 
     if (error_count == 0)
         // ic_main();
-        vm_cgen((output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb"));
+        // vm_cgen((output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb"));
+        x86_cgen();
     else
         return 1;
 

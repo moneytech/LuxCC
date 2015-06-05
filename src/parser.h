@@ -85,13 +85,6 @@ enum {
     LINKAGE_INTERNAL
 };
 
-enum { /* ExecNode.extra[] */
-    ATTR_SCOPE,     /* extra[ATTR_SCOPE]: 0-127 */
-    ATTR_LINKAGE,   /* extra[ATTR_LINKAGE]: none/external/internal */
-    ATTR_DURATION,  /* extra[ATTR_DURATION]: auto/static */
-    ATTR_IS_PARAM   /* extra[ATTR_IS_PARAM]: true/false */
-};
-
 struct ExecNode {
     ExecNode *child[4];
     ExecNode *sibling;
@@ -103,12 +96,18 @@ struct ExecNode {
     } kind;
     union {
         Token op;
-        char *str;
+        char *str; /* common to vars and string literals */
+        struct {
+            char *id;
+            int scope;
+            char linkage;
+            char duration;
+            char is_param;
+        } var;
         long val;
         unsigned long uval;
     } attr;
     Declaration type;
-    char extra[4]; /* extra attributes */
     int nreg; /* number of registers needed to evaluate the expression represented by this node */
     TokenNode *info;
 };

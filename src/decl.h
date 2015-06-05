@@ -41,7 +41,8 @@ struct StructDescriptor {
 struct Symbol {
     TypeExp *decl_specs;
     TypeExp *declarator;
-    short is_param, scope;
+    short is_param, nesting_level;
+    int scope;
     Symbol *next;
 };
 
