@@ -62,8 +62,6 @@ static char *x86_lbreg_str[] = {
     "??",
 };
 
-#define nid(a)  (address(a).cont.com.nid)
-
 extern int size_of_local_area;
 static char *curr_func;
 static Declaration ret_ty;
@@ -87,13 +85,13 @@ int get_temp_offs(unsigned a)
 
     /* see if it was already allocated */
     for (p = temp_list; p != NULL; p = p->next)
-        if (p->used && p->nid==nid(a))
+        if (p->used && p->nid==address_nid(a))
             return p->offs;
 
     /* try to find an unused temp */
     for (p = temp_list; p != NULL; p = p->next) {
         if (!p->used) {
-            p->nid = nid(a);
+            p->nid = address_nid(a);
             p->used = TRUE;
             return p->offs;
         }
@@ -101,7 +99,7 @@ int get_temp_offs(unsigned a)
 
     /* allocate a new temp */
     p = malloc(sizeof(Temp));
-    p->nid = nid(a);
+    p->nid = address_nid(a);
     size_of_local_area -= 4;
     p->offs = size_of_local_area;
     p->used = TRUE;
@@ -115,7 +113,7 @@ void free_temp(unsigned a)
     Temp *p;
 
     for (p = temp_list; p != NULL; p = p->next) {
-        if (p->used && p->nid==nid(a)) {
+        if (p->used && p->nid==address_nid(a)) {
             p->used = FALSE;
             break;
         }
@@ -134,8 +132,8 @@ void init_addr_descr_tab(void)
     addr_descr_tab = calloc(nid_counter, sizeof(AddrDescr));
 }
 
-#define addr_in_reg(a)  (addr_descr_tab[nid(a)].in_reg)
-#define addr_reg(a)     (addr_descr_tab[nid(a)].r)
+#define addr_in_reg(a)  (addr_descr_tab[address_nid(a)].in_reg)
+#define addr_reg(a)     (addr_descr_tab[address_nid(a)].r)
 
 #define MAX_ADDRS_PER_REG 10
 typedef struct RegDescr RegDescr;
@@ -173,7 +171,7 @@ void reg_descr_rem_addr(X86_Reg r, unsigned a)
 
         if ((a2=reg_descr_tab[r].addrs[i]) != 0) {
             --naddrs;
-            if (nid(a) == nid(a2)) {
+            if (address_nid(a) == address_nid(a2)) {
                 reg_descr_tab[r].addrs[i] = 0;
                 reg_descr_tab[r].naddrs--;
                 break;
@@ -818,12 +816,12 @@ void x86_ind(int i, unsigned tar, unsigned arg1, unsigned arg2)
     char *reg_str;
 
     /* spill any target currently in a register */
-    if ((s=get_pointer_targets(i, nid(arg1))) != NULL) {
-        int i;
+    if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
+        int j;
 
-        for (i = bset_iterate(s); i != -1; i = bset_iterate(NULL))
-            if (addr_in_reg(i))
-                spill_reg(addr_reg(i));
+        for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
+            if (addr_descr_tab[j].in_reg)
+                spill_reg(addr_descr_tab[j].r);
     } else {
         spill_all();
     }
@@ -918,12 +916,12 @@ void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
     char *siz_str, *reg_str;
 
     /* force the reload of any target currently in a register */
-    if ((s=get_pointer_targets(i, nid(tar))) != NULL) {
-        int i;
+    if ((s=get_pointer_targets(i, address_nid(tar))) != NULL) {
+        int j;
 
-        for (i = bset_iterate(s); i != -1; i = bset_iterate(NULL))
-            if (addr_in_reg(i))
-                spill_reg(addr_reg(i));
+        for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
+            if (addr_descr_tab[j].in_reg)
+                spill_reg(addr_descr_tab[j].r);
     } else {
         spill_all();
     }
@@ -1231,4 +1229,5 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     memset(modified, 0, sizeof(int)*X86_NREG);
     free(addr_descr_tab);
     ic_reset();
+    // memset(reg_descr_tab, 0, sizeof(RegDescr)*X86_NREG);
 }

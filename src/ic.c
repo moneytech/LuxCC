@@ -39,7 +39,6 @@ CFGNode *cfg_nodes;
 
 static int label_counter = 1;
 static unsigned true_addr, false_addr;
-static Arena *name_arena;
 /*static TypeExp int_expr = { TOK_INT };
 static Declaration int_ty = { &int_expr };*/
 
@@ -53,45 +52,21 @@ int size_of_local_area = 0;
 static int local_offset;
 /* ---- */
 
+static Arena *id_table_arena;
+static Arena *temp_names_arena;
 
 #define ID_TABLE_SIZE 1009
-typedef struct SNId SNId;
-static struct SNId {
+typedef struct IDNode IDNode;
+static struct IDNode {
     char *sid;
+    int scope;
     int nid;
-    SNId *next;
+    IDNode *next;
 } *id_table[ID_TABLE_SIZE];
 
 int nid_counter;
 static int nid_max;
-char **nid2sid;
-
-static
-int get_nid(char *sid)
-{
-    SNId *np;
-    unsigned h;
-
-    h = hash(sid)%ID_TABLE_SIZE;
-    for (np = id_table[h]; np != NULL; np = np->next)
-        if (equal(np->sid, sid))
-            return np->nid;
-    np = malloc(sizeof(SNId));
-    np->sid = sid;
-    np->nid = nid_counter;
-    np->next = id_table[h];
-    id_table[h] = np;
-    if (nid_counter >= nid_max) {
-        char **p;
-
-        p = realloc(nid2sid, 2*nid_max*sizeof(char *));
-        assert(p != NULL);
-        nid_max *= 2;
-        nid2sid = p;
-    }
-    nid2sid[nid_counter++] = sid;
-    return np->nid;
-}
+char **nid2sid_tab;
 
 void ic_reset(void);
 static void disassemble(void);
@@ -101,6 +76,40 @@ static unsigned new_address(AddrKind kind);
 static unsigned new_temp_addr(void);
 static unsigned new_label(void);
 static void ic_compound_statement(ExecNode *s, int push_scope);
+static void new_nid(char *sid);
+static int get_var_nid(char *sid, int scope);
+
+void new_nid(char *sid)
+{
+    if (nid_counter >= nid_max) {
+        char **p;
+
+        p = realloc(nid2sid_tab, 2*nid_max*sizeof(char *));
+        assert(p != NULL);
+        nid_max *= 2;
+        nid2sid_tab = p;
+    }
+    nid2sid_tab[nid_counter++] = sid;
+}
+
+int get_var_nid(char *sid, int scope)
+{
+    IDNode *np;
+    unsigned h;
+
+    h = hash(sid)%ID_TABLE_SIZE;
+    for (np = id_table[h]; np != NULL; np = np->next)
+        if (equal(np->sid, sid) && np->scope==scope)
+            return np->nid;
+    np = arena_alloc(id_table_arena, sizeof(IDNode));
+    np->sid = sid;
+    np->scope = scope;
+    np->nid = nid_counter;
+    np->next = id_table[h];
+    id_table[h] = np;
+    new_nid(sid);
+    return np->nid;
+}
 
 void new_cfg_node(unsigned leader)
 {
@@ -165,9 +174,9 @@ unsigned new_temp_addr(void)
     static unsigned t_counter = 1;
 
     n = new_address(TempKind);
-    p = malloc(sprintf(s, "t%u", t_counter++)+1);
-    address(n).cont.id = strcpy(p, s);
-    address(n).cont.com.nid = get_nid(address(n).cont.id);
+    p = arena_alloc(temp_names_arena, sprintf(s, "t%u", t_counter++)+1);
+    address(n).cont.nid = nid_counter;
+    new_nid(strcpy(p, s));
 
     return n;
 }
@@ -211,13 +220,13 @@ void ic_init(void)
     cfg_nodes_counter = 1; /* 0 reserved for null node */
 
     /* init nid -> sid table */
-    nid2sid = malloc(128*sizeof(char *));
-    assert(nid2sid != NULL);
+    nid2sid_tab = malloc(128*sizeof(char *));
+    assert(nid2sid_tab != NULL);
     nid_max = 128;
     nid_counter = 0;
 
-    /* mangled names arena */
-    name_arena = arena_new(1024);
+    id_table_arena = arena_new(256);
+    temp_names_arena = arena_new(256);
 }
 
 void ic_reset(void)
@@ -244,7 +253,9 @@ void ic_reset(void)
 
     free_PointOut();
     nid_counter = 0;
-    arena_reset(name_arena);
+    arena_reset(id_table_arena);
+    memset(id_table, 0, sizeof(IDNode *)*ID_TABLE_SIZE);
+    arena_reset(temp_names_arena);
 }
 
 static void build_CFG(void);
@@ -791,7 +802,6 @@ void ic_expression_statement(ExecNode *s)
 // Expressions
 // =============================================================================
 static int is_binary(Token op);
-static char *get_mangled_name(char *name, int scope);
 static int number_expression_tree(ExecNode *e);
 static void print_addr(unsigned addr);
 static void function_argument(ExecNode *arg, DeclList *param);
@@ -841,15 +851,6 @@ unsigned ic_expression2(ExecNode *e)
 {
     number_expression_tree(e);
     return ic_expression(e, FALSE);
-}
-
-char *get_mangled_name(char *name, int scope)
-{
-    char buf[128], *p;
-
-    p = arena_alloc(name_arena, sprintf(buf, "%s:%d", name, scope)+1);
-    strcpy(p, buf);
-    return p;
 }
 
 unsigned ic_dereference(unsigned ptr, Declaration *ty)
@@ -1170,18 +1171,16 @@ unsigned ic_expression(ExecNode *e, int is_addr)
 #endif
         assert(0);
     case IdExp: {
-        unsigned a1, a2;
+        unsigned a1;
 
         a1 = new_address(IdKind);
-        if (e->attr.var.is_param)
-            address(a1).cont.var.var_id = e->attr.str;
-        else
-            address(a1).cont.var.var_id = get_mangled_name(e->attr.str, e->attr.var.scope);
         address(a1).cont.var.e = e;
+        address(a1).cont.nid = get_var_nid(e->attr.str, e->attr.var.scope);
         if (e->attr.var.duration == DURATION_AUTO)
             address(a1).cont.var.offset = location_get_offset(e->attr.str);
-        address(a1).cont.com.nid = get_nid(address(a1).cont.var.var_id);
         if (is_addr) {
+            unsigned a2;
+
             a2 = new_temp_addr();
             emit_i(OpAddrOf, NULL, a2, a1, 0);
             return a2;
@@ -1351,7 +1350,7 @@ void print_addr(unsigned addr)
     case TempKind:
     case IdKind:
         // printf("%s (nid = %d)", address(addr).cont.id, address(addr).cont.com.nid);
-        printf("%s", address(addr).cont.id);
+        printf("%s", address_sid(addr));
         break;
     /*case StrLitKind:
         printf("%s", address(addr).cont.str);

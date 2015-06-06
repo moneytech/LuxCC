@@ -100,7 +100,7 @@ void live_print_set(BSet *s)
 
     c = bset_card(s);
     for (i = bset_iterate(s); i != -1; i = bset_iterate(NULL))
-        printf("%s%s", nid2sid[i], (c--!=1)?", ":"");
+        printf("%s%s", nid2sid_tab[i], (c--!=1)?", ":"");
 }
 
 /* compute UEVar(b) and VarKill(b) */
@@ -128,10 +128,10 @@ void live_init_block(int b)
 
         switch (instruction(i).op) {
 #define add_UEVar(e)\
-    if (!bset_member(VarKill, address(e).cont.com.nid))\
-        bset_insert(UEVar, address(e).cont.com.nid)
+    if (!bset_member(VarKill, address_nid(e)))\
+        bset_insert(UEVar, address_nid(e))
 #define add_VarKill(e)\
-    bset_insert(VarKill, address(e).cont.com.nid)
+    bset_insert(VarKill, address_nid(e))
 
         case OpAdd: case OpSub: case OpMul: case OpDiv:
         case OpRem: case OpSHL: case OpSHR: case OpAnd:
@@ -153,7 +153,7 @@ void live_init_block(int b)
             /* keep track of modified static objects */
             if ((instruction(i).op == OpAsn)
             && (address(tar).cont.var.e->attr.var.duration == DURATION_STATIC))
-                bset_insert(modified_static_objects, address(tar).cont.com.nid);
+                bset_insert(modified_static_objects, address_nid(tar));
             continue;
 
         case OpArg:
@@ -174,7 +174,7 @@ void live_init_block(int b)
              * references (assume every variable the pointer
              * may point to is referenced).
              */
-            if ((s=get_pointer_targets(i, address(arg1).cont.com.nid)) != NULL) {
+            if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
                 BSet *temp;
 
                 temp = bset_new(nid_counter);
@@ -289,13 +289,13 @@ void dflow_LiveOut(void)
     }
     bset_free(temp), bset_free(new_out);
 
-#if DEBUG
+// #if DEBUG
     for (i = ENTRY_NODE; i < cfg_nodes_counter; i++) {
         printf("LiveOut[%d]=", i);
         live_print_set(cfg_node(i).LiveOut);
         printf("\n\n");
     }
-#endif
+// #endif
 }
 
 
@@ -356,22 +356,21 @@ void compute_liveness_and_next_use(void)
             next_use = instruction(i).next_use;
 
             switch (instruction(i).op) {
-#define nid(a) (address(a).cont.com.nid)
 #define update_tar()\
-        liveness[0] = operand_table[nid(tar)].liveness,\
-        next_use[0] = operand_table[nid(tar)].next_use,\
-        operand_table[nid(tar)].liveness = DEAD,\
-        operand_table[nid(tar)].next_use = NO_NEXT_USE
+        liveness[0] = operand_table[address_nid(tar)].liveness,\
+        next_use[0] = operand_table[address_nid(tar)].next_use,\
+        operand_table[address_nid(tar)].liveness = DEAD,\
+        operand_table[address_nid(tar)].next_use = NO_NEXT_USE
 #define update_arg1()\
-        liveness[1] = operand_table[nid(arg1)].liveness,\
-        next_use[1] = operand_table[nid(arg1)].next_use,\
-        operand_table[nid(arg1)].liveness = LIVE,\
-        operand_table[nid(arg1)].next_use = i
+        liveness[1] = operand_table[address_nid(arg1)].liveness,\
+        next_use[1] = operand_table[address_nid(arg1)].next_use,\
+        operand_table[address_nid(arg1)].liveness = LIVE,\
+        operand_table[address_nid(arg1)].next_use = i
 #define update_arg2()\
-        liveness[2] = operand_table[nid(arg2)].liveness,\
-        next_use[2] = operand_table[nid(arg2)].next_use,\
-        operand_table[nid(arg2)].liveness = LIVE,\
-        operand_table[nid(arg2)].next_use = i
+        liveness[2] = operand_table[address_nid(arg2)].liveness,\
+        next_use[2] = operand_table[address_nid(arg2)].next_use,\
+        operand_table[address_nid(arg2)].liveness = LIVE,\
+        operand_table[address_nid(arg2)].next_use = i
 
             case OpAdd: case OpSub: case OpMul: case OpDiv:
             case OpRem: case OpSHL: case OpSHR: case OpAnd:
@@ -408,7 +407,7 @@ void compute_liveness_and_next_use(void)
                 update_tar();
                 update_arg1();
 
-                if ((s=get_pointer_targets(i, nid(arg1))) != NULL) {
+                if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
                     for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
                         operand_table[j].liveness = LIVE;
                 } else {
@@ -423,10 +422,10 @@ void compute_liveness_and_next_use(void)
                 continue;
 
             case OpIndAsn:
-                liveness[0] = operand_table[nid(tar)].liveness;
-                next_use[0] = operand_table[nid(tar)].next_use;
-                operand_table[nid(tar)].liveness = LIVE;
-                operand_table[nid(tar)].next_use = i;
+                liveness[0] = operand_table[address_nid(tar)].liveness;
+                next_use[0] = operand_table[address_nid(tar)].next_use;
+                operand_table[address_nid(tar)].liveness = LIVE;
+                operand_table[address_nid(tar)].next_use = i;
                 if (address(arg1).kind != IConstKind)
                     update_arg1();
                 continue;
@@ -440,10 +439,10 @@ void compute_liveness_and_next_use(void)
 
             case OpCBr:
                 if (address(tar).kind != IConstKind) {
-                    liveness[0] = operand_table[nid(tar)].liveness;
-                    next_use[0] = operand_table[nid(tar)].next_use;
-                    operand_table[nid(tar)].liveness = LIVE;
-                    operand_table[nid(tar)].next_use = i;
+                    liveness[0] = operand_table[address_nid(tar)].liveness;
+                    next_use[0] = operand_table[address_nid(tar)].next_use;
+                    operand_table[address_nid(tar)].liveness = LIVE;
+                    operand_table[address_nid(tar)].next_use = i;
                 }
                 continue;
 
@@ -454,9 +453,9 @@ void compute_liveness_and_next_use(void)
     } /* basic blocks */
 
     free(operand_table);
-#if DEBUG
+// #if DEBUG
     print_liveness_and_next_use();
-#endif
+// #endif
 }
 
 void print_liveness_and_next_use(void)
@@ -477,15 +476,15 @@ void print_liveness_and_next_use(void)
 
             switch (instruction(i).op) {
 #define print_tar()\
-        printf("name=%s, ", address(tar).cont.id),\
+        printf("name=%s, ", address_sid(tar)),\
         printf("status=%s, ", instruction(i).liveness[0]?"LIVE":"DEAD"),\
         printf("next use=%d", instruction(i).next_use[0])
 #define print_arg1()\
-        printf("name=%s, ", address(arg1).cont.id),\
+        printf("name=%s, ", address_sid(arg1)),\
         printf("status=%s, ", instruction(i).liveness[1]?"LIVE":"DEAD"),\
         printf("next use=%d", instruction(i).next_use[1])
 #define print_arg2()\
-        printf("name=%s, ", address(arg2).cont.id),\
+        printf("name=%s, ", address_sid(arg2)),\
         printf("status=%s, ", instruction(i).liveness[2]?"LIVE":"DEAD"),\
         printf("next use=%d", instruction(i).next_use[2])
 
@@ -657,13 +656,13 @@ void ptr_print_set(BSet *s)
 
     c = bset_card(s);
     for (i = bset_iterate(s); i != -1; i = bset_iterate(NULL))
-        printf("%s%s", nid2sid[i], (c--!=1)?", ":"");
+        printf("%s%s", nid2sid_tab[i], (c--!=1)?", ":"");
 }
 
 void print_point_to_set(PointToSet *setp)
 {
     for (; setp != NULL; setp = setp->next) {
-        printf("%s -> {", nid2sid[setp->ptr]);
+        printf("%s -> {", nid2sid_tab[setp->ptr]);
         ptr_print_set(setp->tl);
         if (setp->next != NULL)
             printf("}, ");
@@ -704,13 +703,12 @@ void ptr_iteration(void)
             /*arg2 = instruction(i).arg2;*/
 
             switch (instruction(i).op) {
-#define nid(a) (address(a).cont.com.nid)
             case OpAddrOf: { /* x = &y */
                 PointToSet *s;
 
-                add_point_to(i, nid(tar), nid(arg1));
+                add_point_to(i, address_nid(tar), address_nid(arg1));
                 for (s = point_OUT[i-1]; s != NULL; s = s->next) {
-                    if (s->ptr == nid(tar))
+                    if (s->ptr == address_nid(tar))
                         continue;
                     cpy_point_to(i, s->ptr, s->tl);
                 }
@@ -721,15 +719,15 @@ void ptr_iteration(void)
                 PointToSet *s;
 
                 if ((address(arg1).kind==TempKind || address(arg1).kind==IdKind)
-                && (s=search_point_to(point_OUT[i-1], nid(arg1))) != NULL) { /* y -> {...} */
-                    cpy_point_to(i, nid(tar), s->tl);
-                } else if ((s=search_point_to(point_OUT[i-1], nid(tar))) != NULL) { /* x -> {...} */
+                && (s=search_point_to(point_OUT[i-1], address_nid(arg1))) != NULL) { /* y -> {...} */
+                    cpy_point_to(i, address_nid(tar), s->tl);
+                } else if ((s=search_point_to(point_OUT[i-1], address_nid(tar))) != NULL) { /* x -> {...} */
                     ;
                 } else {
                     break;
                 }
                 for (s = point_OUT[i-1]; s != NULL; s = s->next) {
-                    if (s->ptr == nid(tar))
+                    if (s->ptr == address_nid(tar))
                         continue;
                     cpy_point_to(i, s->ptr, s->tl);
                 }
@@ -741,8 +739,8 @@ void ptr_iteration(void)
 
                 s2 = NULL;
                 if (address(arg1).kind==TempKind || address(arg1).kind==IdKind)
-                    s2 = search_point_to(point_OUT[i-1], nid(arg1));
-                if ((s1=search_point_to(point_OUT[i-1], nid(tar))) != NULL) { /* x -> {...} */
+                    s2 = search_point_to(point_OUT[i-1], address_nid(arg1));
+                if ((s1=search_point_to(point_OUT[i-1], address_nid(tar))) != NULL) { /* x -> {...} */
                     if (s2 != NULL) { /* and y -> {...} */
                         int p;
 
@@ -766,24 +764,24 @@ void ptr_iteration(void)
             case OpInd: { /* x = *y */
                 PointToSet *s1, *s2;
 
-                if ((s1=search_point_to(point_OUT[i-1], nid(arg1))) != NULL) { /* y -> {...} */
+                if ((s1=search_point_to(point_OUT[i-1], address_nid(arg1))) != NULL) { /* y -> {...} */
                     int p;
 
 #if 1 /* p U ? = p (less safe) */
                     for (p = bset_iterate(s1->tl); p != -1; p = bset_iterate(NULL))
                         if ((s2=search_point_to(point_OUT[i-1], p)) != NULL)
-                            union_point_to(i, nid(tar), s2->tl);
+                            union_point_to(i, address_nid(tar), s2->tl);
 #else /* p U ? = ? (more safe) */
                     for (p = bset_iterate(s1->tl); p != -1; p = bset_iterate(NULL))
                         if (search_point_to(point_OUT[i-1], p) == NULL)
                             break;
                     if (p == -1)
                         for (p = bset_iterate(s1->tl); p != -1; p = bset_iterate(NULL))
-                            union_point_to(i, nid(tar), search_point_to(point_OUT[i-1], p)->tl);
+                            union_point_to(i, address_nid(tar), search_point_to(point_OUT[i-1], p)->tl);
 #endif
                 }
                 for (s1 = point_OUT[i-1]; s1 != NULL; s1 = s1->next) {
-                    if (s1->ptr == nid(tar))
+                    if (s1->ptr == address_nid(tar))
                         continue;
                     cpy_point_to(i, s1->ptr, s1->tl);
                 }
@@ -796,12 +794,12 @@ void ptr_iteration(void)
                 /* assume front-end normalized the code
                    so only the first arg can be a pointer */
                 if ((address(arg1).kind==TempKind || address(arg1).kind==IdKind)
-                && (s=search_point_to(point_OUT[i-1], nid(arg1))) != NULL)
-                    cpy_point_to(i, nid(tar), s->tl);
+                && (s=search_point_to(point_OUT[i-1], address_nid(arg1))) != NULL)
+                    cpy_point_to(i, address_nid(tar), s->tl);
                 else
                     break;
                 for (s = point_OUT[i-1]; s != NULL; s = s->next) {
-                    if (s->ptr == nid(tar))
+                    if (s->ptr == address_nid(tar))
                         continue;
                     cpy_point_to(i, s->ptr, s->tl);
                 }
@@ -887,9 +885,9 @@ void dflow_PointOut(void)
         ptr_iteration();
     }
     bset_free(ptr_tmp);
-#if DEBUG
+// #if DEBUG
     print_point_OUT();
-#endif
+// #endif
 }
 
 BSet *get_pointer_targets(int i, int p)

@@ -71,14 +71,9 @@ struct Address {
         long val;
         unsigned long uval;
         char *str;
-        char *id; /* common to vars and temps */
+        int nid;
         struct {
-            char *id;
-            int nid;
-        } com;
-        struct {
-            char *var_id;
-            int nid;
+            int vnid;
             ExecNode *e;
             int offset;
         } var;
@@ -115,9 +110,6 @@ extern unsigned *CFG_RPO;
 extern unsigned *RCFG_PO;
 extern unsigned *RCFG_RPO;
 
-extern int nid_counter;
-extern char **nid2sid;
-
 #define instruction(n)  (ic_instructions[n])
 #define address(n)      (ic_addresses[n])
 #define cfg_node(n)     (cfg_nodes[n])
@@ -126,6 +118,11 @@ extern Address *ic_addresses;
 extern CFGNode *cfg_nodes;
 extern unsigned cfg_nodes_counter;
 extern unsigned ic_instructions_counter;
+
+extern int nid_counter;
+extern char **nid2sid_tab;
+#define address_nid(a)   (address(a).cont.nid)
+#define address_sid(a)   (nid2sid_tab[address_nid(a)])
 
 void ic_main(void);
 void ic_init(void);
