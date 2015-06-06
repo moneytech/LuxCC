@@ -128,6 +128,8 @@ extern unsigned cfg_nodes_counter;
 extern unsigned ic_instructions_counter;
 
 void ic_main(void);
+void ic_init(void);
+void ic_reset(void);
 void ic_function_definition(TypeExp *decl_specs, TypeExp *header);
 
 #endif

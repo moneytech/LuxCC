@@ -10,11 +10,17 @@
 #define HASH_SIZE   1009
 #define HASH_VAL(s) (hash(s)%HASH_SIZE)
 
+struct Location {
+    char *id;
+    int offset;
+    Location *next;
+};
+
 static int curr_scope = 0;
 static Location *location_table[MAX_NEST][HASH_SIZE]; /* location_table[0] unused */
 static Arena *location_arena[MAX_NEST];
 
-void init_location_arena(void)
+void location_init(void)
 {
     int i;
 
@@ -45,7 +51,7 @@ void location_push_scope(void)
     ++curr_scope;
 }
 
-Location *lookup_location(char *id)
+int location_get_offset(char *id)
 {
     int n;
     unsigned h;
@@ -55,11 +61,11 @@ Location *lookup_location(char *id)
     for (n = curr_scope; n >= 0; n--)
         for (np = location_table[n][h]; np != NULL; np = np->next)
             if (equal(id, np->id))
-                return np;
+                return np->offset;
     assert(0);
 }
 
-Location *new_location(char *id, int offset)
+void location_new(char *id, int offset)
 {
     unsigned h;
     Location *np;
@@ -70,5 +76,4 @@ Location *new_location(char *id, int offset)
     np->offset = offset;
     np->next = location_table[curr_scope][h];
     location_table[curr_scope][h] = np;
-    return np;
 }

@@ -1,3 +1,9 @@
+/*
+ * Intermediate code generator
+ *  AST ==> IC
+ * Generate code for a single function each time.
+ */
+#define DEBUG 0
 #include "ic.h"
 #include <stdio.h>
 #include <ctype.h>
@@ -14,71 +20,39 @@
 
 #define IINIT   1024
 #define IGROW   2
-
-#define AINIT   IINIT*3
-#define AGROW   2
-
-#define NINIT   128
-#define NGROW   2
-
 unsigned ic_instructions_max;
 unsigned ic_instructions_counter;
 Quad *ic_instructions;
 
+#define AINIT   IINIT*3
+#define AGROW   2
 unsigned ic_addresses_max;
 unsigned ic_addresses_counter;
 Address *ic_addresses;
 
+#define NINIT   128
+#define NGROW   2
 unsigned cfg_nodes_max;
 unsigned cfg_nodes_counter;
 CFGNode *cfg_nodes;
 
-void ic_init(void);
 
-static int is_binary(Token op);
-static int number_expression_tree(ExecNode *e);
-// static StructMember *get_member_descriptor(TypeExp *ty, char *id);
-static void print_addr(unsigned addr);
-static void disassemble(void);
-static unsigned ic_expr_convert(ExecNode *e, Declaration *dest);
-static void function_argument(ExecNode *arg, DeclList *param);
+static int label_counter = 1;
+static unsigned true_addr, false_addr;
+static Arena *name_arena;
+/*static TypeExp int_expr = { TOK_INT };
+static Declaration int_ty = { &int_expr };*/
 
-static void ic_compound_statement(ExecNode *s, int push_scope);
-static void ic_if_statement(ExecNode *s);
-static void ic_switch_statement(ExecNode *s);
-static void ic_while_statement(ExecNode *s);
-static void ic_do_statement(ExecNode *s);
-static void ic_for_statement(ExecNode *s);
-static void ic_goto_statement(ExecNode *s);
-static void ic_continue_statement(void);
-static void ic_break_statement(void);
-static void ic_return_statement(ExecNode *s);
-static void ic_case_statement(ExecNode *s);
-static void ic_default_statement(ExecNode *s);
-static void ic_expression_statement(ExecNode *s);
-static void ic_label_statement(ExecNode *s);
-static void ic_statement(ExecNode *s);
+/*
+ * X86 stuff.
+ */
+#define X86_PARAM_END 8 /* ebp+8 */
+/* the amount of space to allocate for the current function's local variables */
+int size_of_local_area = 0;
+/* used to compute the addresses of local variables */
+static int local_offset;
+/* ---- */
 
-static unsigned ic_expression2(ExecNode *e);
-static unsigned ic_unary_arith_logic_op(ExecNode *e, OpKind op);
-static unsigned ic_function_call(ExecNode *e);
-static unsigned ic_sub(ExecNode *e);
-static unsigned ic_add(ExecNode *e);
-static unsigned ic_multiplicative(ExecNode *e, OpKind op);
-static unsigned ic_subscript(ExecNode *e, int is_addr);
-static unsigned ic_member_access(ExecNode *e, int is_addr);
-static unsigned ic_relational(ExecNode *e);
-static unsigned ic_equality(ExecNode *e);
-static unsigned ic_logical_AND(ExecNode *e);
-static unsigned ic_logical_OR(ExecNode *e);
-static unsigned ic_convert(ExecNode *e, Declaration *dest);
-static unsigned ic_simple_assignment(ExecNode *e);
-static unsigned ic_compound_assignment(ExecNode *e, Token op);
-static unsigned ic_expression(ExecNode *e, int is_addr);
-static unsigned ic_conditional(ExecNode *e);
-static unsigned ic_inc_dec(ExecNode *e);
-static unsigned ic_shift(ExecNode *e, OpKind op);
-static unsigned ic_bitwise(ExecNode *e, OpKind op);
 
 #define ID_TABLE_SIZE 1009
 typedef struct SNId SNId;
@@ -92,6 +66,7 @@ int nid_counter;
 static int nid_max;
 char **nid2sid;
 
+static
 int get_nid(char *sid)
 {
     SNId *np;
@@ -106,8 +81,7 @@ int get_nid(char *sid)
     np->nid = nid_counter;
     np->next = id_table[h];
     id_table[h] = np;
-
-    if (nid_counter > nid_max) {
+    if (nid_counter >= nid_max) {
         char **p;
 
         p = realloc(nid2sid, 2*nid_max*sizeof(char *));
@@ -116,11 +90,18 @@ int get_nid(char *sid)
         nid2sid = p;
     }
     nid2sid[nid_counter++] = sid;
-
     return np->nid;
 }
 
-static
+void ic_reset(void);
+static void disassemble(void);
+static void new_cfg_node(unsigned leader);
+static void emit_i(OpKind op, Declaration *type, unsigned tar, unsigned arg1, unsigned arg2);
+static unsigned new_address(AddrKind kind);
+static unsigned new_temp_addr(void);
+static unsigned new_label(void);
+static void ic_compound_statement(ExecNode *s, int push_scope);
+
 void new_cfg_node(unsigned leader)
 {
     int i;
@@ -142,7 +123,6 @@ void new_cfg_node(unsigned leader)
     ++cfg_nodes_counter;
 }
 
-static
 void emit_i(OpKind op, Declaration *type, unsigned tar, unsigned arg1, unsigned arg2)
 {
     if (ic_instructions_counter >= ic_instructions_max) {
@@ -162,7 +142,6 @@ void emit_i(OpKind op, Declaration *type, unsigned tar, unsigned arg1, unsigned 
     ++ic_instructions_counter;
 }
 
-static
 unsigned new_address(AddrKind kind)
 {
     if (ic_addresses_counter >= ic_addresses_max) {
@@ -179,8 +158,7 @@ unsigned new_address(AddrKind kind)
     return ic_addresses_counter++;
 }
 
-/* shorthand for create a new temporary address */
-static unsigned new_temp_addr(void)
+unsigned new_temp_addr(void)
 {
     unsigned n;
     char s[10], *p;
@@ -194,10 +172,7 @@ static unsigned new_temp_addr(void)
     return n;
 }
 
-static int label_counter = 1;
-
-/* shorthand for create a new label address */
-static unsigned new_label(void)
+unsigned new_label(void)
 {
     unsigned L;
 
@@ -207,12 +182,10 @@ static unsigned new_label(void)
     return L;
 }
 
-static unsigned true_addr, false_addr;
-static TypeExp int_expr = { TOK_INT };
-static Declaration int_ty = { &int_expr };
-
 void ic_init(void)
 {
+    location_init();
+
     /* init instruction buffer */
     ic_instructions = malloc(IINIT*sizeof(Quad));
     assert(ic_instructions != NULL);
@@ -242,51 +215,41 @@ void ic_init(void)
     assert(nid2sid != NULL);
     nid_max = 128;
     nid_counter = 0;
+
+    /* mangled names arena */
+    name_arena = arena_new(1024);
 }
 
-/*void ic_main(void)
+void ic_reset(void)
 {
-    ExternId *ed;
+    unsigned i;
 
-    ic_init();
-    for (ed = get_extern_symtab(); ed != NULL; ed = ed->next) {
-        if (ed->status == REFERENCED) {
-            ;
-        } else {
-            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION)
-                ic_function_definition(ed->decl_specs, ed->declarator);
-            else
-                ;
-        }
+    size_of_local_area = 0;
+    local_offset = 0;
+
+    memset(ic_instructions, 0, sizeof(Quad)*ic_instructions_counter);
+    ic_instructions_counter = 0;
+
+    memset(ic_addresses, 0, sizeof(Address)*ic_addresses_counter);
+    ic_addresses_counter = 1;
+
+    for (i = 1; i < cfg_nodes_counter; i++) {
+        bset_free(cfg_node(i).UEVar);
+        bset_free(cfg_node(i).VarKill);
+        bset_free(cfg_node(i).LiveOut);
+        bset_free(cfg_node(i).Dom);
     }
-}*/
+    memset(cfg_nodes, 0, sizeof(CFGNode)*cfg_nodes_counter);
+    cfg_nodes_counter = 1;
+
+    free_PointOut();
+    nid_counter = 0;
+    arena_reset(name_arena);
+}
 
 static void build_CFG(void);
 static void print_CFG(void);
-
-static int pocount;
-/* post-order and reverse post-order of the CFG */
-unsigned *CFG_PO;
-unsigned *CFG_RPO;
-/* post-order and reverse post-order of the reverse CFG */
-unsigned *RCFG_PO;
-unsigned *RCFG_RPO;
-
-static void number_CFG(void);
-static void number_subCFG(unsigned n);
-static void number_subRCFG(unsigned n);
-
 static unsigned exit_label;
-
-/*
- * X86 stuff.
- */
-#define X86_PARAM_END 8 /* ebp+8 */
-/* the amount of space to allocate for the current function's local variables */
-int size_of_local_area = 0;
-/* used to compute the addresses of local variables */
-static int local_offset;
-/* ---- */
 
 void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
 {
@@ -296,7 +259,6 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
     int param_offs;
     unsigned entry_label;
 
-    init_location_arena();
     location_push_scope();
     p = header->child->attr.dl;
     if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID && p->decl->idl==NULL)
@@ -307,8 +269,8 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
         if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
             break; /* start of optional parameters (`...') */
 
-        new_location(p->decl->idl->str, param_offs);
-        printf("==> param:`%s', offset:%d\n", p->decl->idl->str, param_offs);
+        location_new(p->decl->idl->str, param_offs);
+        DEBUG_PRINTF("==> param:`%s', offset:%d\n", p->decl->idl->str, param_offs);
         ty.decl_specs = p->decl->decl_specs;
         ty.idl = p->decl->idl->child;
         param_offs += round_up(compute_sizeof(&ty), 4);
@@ -330,15 +292,12 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
     ic_compound_statement(header->attr.e, FALSE);
     emit_i(OpJmp, NULL, exit_label, 0, 0);
     emit_i(OpLab, NULL, exit_label, 0, 0);
-
     location_pop_scope();
-    // size_of_local_area = 0;
-    // local_offset = 0;
 
     disassemble();
     if (ic_instructions_counter > 0) {
         build_CFG();
-        print_CFG();
+        // print_CFG();
         dflow_dominance();
         dflow_PointOut();
         dflow_LiveOut();
@@ -346,32 +305,23 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
     }
 }
 
-/*void print_CFG(void)
-{
-    unsigned i;
+// =============================================================================
+// Control Flow Graph (CFG)
+// =============================================================================
+static int pocount;
+static int *visited, nunvisited;
+/* post-order and reverse post-order of the CFG */
+unsigned *CFG_PO;
+unsigned *CFG_RPO;
+/* post-order and reverse post-order of the reverse CFG */
+unsigned *RCFG_PO;
+unsigned *RCFG_RPO;
 
-    for (i = 1; i < cfg_nodes.n_counter; i++) {
-        unsigned j;
+static void number_CFG(void);
+static void number_subCFG(unsigned n);
+static void number_subRCFG(unsigned n);
 
-        printf("\nCFG node #%u\n", i);
-
-        for (j = cfg_node(i).leader; j <= cfg_node(i).last; j++)
-            printf("(%u), ", j);
-
-        printf("\n");
-        if (cfg_node(i).out_edges[0]) {
-            if (cfg_node(i).out_edges[1]) {
-                printf("egde1 ==> %u\n", cfg_node(i).out_edges[0]);
-                printf("egde2 ==> %u\n\n", cfg_node(i).out_edges[1]);
-            } else {
-                printf("egde1 ==> %u\n\n", cfg_node(i).out_edges[0]);
-            }
-        }
-    }
-}*/
-
-/* emit a DOT definition of the CFG */
-void print_CFG(void)
+void print_CFG_ordering(void)
 {
     unsigned i;
 
@@ -391,6 +341,14 @@ void print_CFG(void)
     for (i = ENTRY_NODE; i < cfg_nodes_counter; i++)
         printf("%u, ", RCFG_RPO[i]);
     printf("]\n");
+}
+
+/* emit a DOT definition of the CFG */
+void print_CFG(void)
+{
+    unsigned i;
+
+    print_CFG_ordering();
 
     printf("digraph {\n");
     for (i = ENTRY_NODE; i < cfg_nodes_counter; i++) {
@@ -417,8 +375,6 @@ void print_CFG(void)
     }
     printf("}\n");
 }
-
-static int *visited, nunvisited;
 
 void number_subCFG(unsigned n)
 {
@@ -585,6 +541,22 @@ void build_CFG(void)
 // =============================================================================
 // Statements
 // =============================================================================
+static void ic_if_statement(ExecNode *s);
+// static void ic_switch_statement(ExecNode *s);
+static void ic_while_statement(ExecNode *s);
+// static void ic_do_statement(ExecNode *s);
+// static void ic_for_statement(ExecNode *s);
+// static void ic_goto_statement(ExecNode *s);
+// static void ic_continue_statement(void);
+// static void ic_break_statement(void);
+static void ic_return_statement(ExecNode *s);
+// static void ic_case_statement(ExecNode *s);
+// static void ic_default_statement(ExecNode *s);
+static void ic_expression_statement(ExecNode *s);
+// static void ic_label_statement(ExecNode *s);
+static void ic_statement(ExecNode *s);
+static unsigned ic_expression2(ExecNode *e);
+static unsigned ic_expr_convert(ExecNode *e, Declaration *dest);
 
 #if 0
 static unsigned btarget_stack[128], ctarget_stack[128];
@@ -787,8 +759,8 @@ void ic_compound_statement(ExecNode *s, int push_scope)
                 lty.idl = dct->child;
                 local_offset = round_up(local_offset, get_alignment(&lty));
                 local_offset -= compute_sizeof(&lty);
-                new_location(dct->str, local_offset);
-                printf("==> var: %s, offset: %d\n", dct->str, local_offset);
+                location_new(dct->str, local_offset);
+                DEBUG_PRINTF("==> var: %s, offset: %d\n", dct->str, local_offset);
                 /*if (dct->attr.e != NULL)
                     do_auto_init(lty.decl_specs, lty.idl, dct->attr.e, local_offset);*/
             }
@@ -818,6 +790,13 @@ void ic_expression_statement(ExecNode *s)
 // =============================================================================
 // Expressions
 // =============================================================================
+static int is_binary(Token op);
+static char *get_mangled_name(char *name, int scope);
+static int number_expression_tree(ExecNode *e);
+static void print_addr(unsigned addr);
+static void function_argument(ExecNode *arg, DeclList *param);
+static unsigned ic_dereference(unsigned ptr, Declaration *ty);
+static unsigned ic_expression(ExecNode *e, int is_addr);
 
 #define NREG(x) ((x)->nreg)
 
@@ -868,8 +847,7 @@ char *get_mangled_name(char *name, int scope)
 {
     char buf[128], *p;
 
-    sprintf(buf, "%s:%d", name, scope);
-    p = malloc(strlen(buf)+1);
+    p = arena_alloc(name_arena, sprintf(buf, "%s:%d", name, scope)+1);
     strcpy(p, buf);
     return p;
 }
@@ -956,10 +934,10 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             emit_i(OpCBr, &e->child[1]->type, a2, L2, L3);
             emit_i(OpLab, NULL, L2, 0, 0);
             a3 = new_temp_addr();
-            emit_i(OpAsn, &int_ty, a3, true_addr, 0);
+            emit_i(OpAsn, /*&int_ty*/NULL, a3, true_addr, 0);
             emit_i(OpJmp, NULL, L4, 0, 0);
             emit_i(OpLab, NULL, L3, 0, 0);
-            emit_i(OpAsn, &int_ty, a3, false_addr, 0);
+            emit_i(OpAsn, /*&int_ty*/NULL, a3, false_addr, 0);
             emit_i(OpJmp, NULL, L4, 0, 0);
             emit_i(OpLab, NULL, L4, 0, 0);
             return a3;
@@ -1201,7 +1179,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             address(a1).cont.var.var_id = get_mangled_name(e->attr.str, e->attr.var.scope);
         address(a1).cont.var.e = e;
         if (e->attr.var.duration == DURATION_AUTO)
-            address(a1).cont.var.offset = lookup_location(e->attr.str)->offset;
+            address(a1).cont.var.offset = location_get_offset(e->attr.str);
         address(a1).cont.com.nid = get_nid(address(a1).cont.var.var_id);
         if (is_addr) {
             a2 = new_temp_addr();
@@ -1274,35 +1252,23 @@ unsigned ic_expr_convert(ExecNode *e, Declaration *dest)
  */
 void function_argument(ExecNode *arg, DeclList *param)
 {
-    /*unsigned siz;*/
     if (arg == NULL)
         return;
 
-    /*siz = new_address(IConstKind);*/
     if (param->decl->idl==NULL || param->decl->idl->op!=TOK_ELLIPSIS) {
-        /*
-         * This argument match a declared (non-optional) parameter.
-         */
+        /* this argument match a declared (non-optional) parameter */
+
         Declaration ty;
 
         function_argument(arg->sibling, param->next);
-        ty.decl_specs = param->decl->decl_specs;
-        /* just get the type part of the declarator, skip any identifier */
-        if (param->decl->idl!=NULL && param->decl->idl->op==TOK_ID)
-            ty.idl = param->decl->idl->child;
-        else
-            ty.idl = param->decl->idl;
-        /*address(siz).cont.uval = compute_sizeof(&ty);*/
+        ty = *param->decl;
+        if (ty.idl!=NULL && ty.idl->op==TOK_ID) /* skip any identifier */
+            ty.idl = ty.idl->child;
         emit_i(OpArg, param->decl, 0, ic_expr_convert(arg, &ty), 0);
     } else {
-        /*
-         * This and the follow arguments match the `...'.
-         */
+        /* this and the follow arguments match the `...' */
+
         function_argument(arg->sibling, param);
-        /*if (arg->type.idl!=NULL && (arg->type.idl->op==TOK_SUBSCRIPT || arg->type.idl->op==TOK_FUNCTION))
-            address(siz).cont.uval = 4;
-        else
-            address(siz).cont.uval = compute_sizeof(&arg->type);*/
         emit_i(OpArg, &arg->type, 0, ic_expression(arg, FALSE), 0);
     }
 }

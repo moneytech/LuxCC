@@ -1,8 +1,8 @@
 /*
  * Simple x86 code generator
  *      IC ==> x86 ASM.
- *
- * Of interest: http://www.sco.com/developers/devspecs/abi386-4.pdf
+ * Of interest:
+ *   => System V ABI-i386: http://www.sco.com/developers/devspecs/abi386-4.pdf
  */
 #include "x86_cgen.h"
 #include <stdio.h>
@@ -133,11 +133,6 @@ void init_addr_descr_tab(void)
 {
     addr_descr_tab = calloc(nid_counter, sizeof(AddrDescr));
 }
-static
-void reset_addr_descr_tab(void)
-{
-    memset(addr_descr_tab, 0, sizeof(AddrDescr)*nid_counter);
-}
 
 #define addr_in_reg(a)  (addr_descr_tab[nid(a)].in_reg)
 #define addr_reg(a)     (addr_descr_tab[nid(a)].r)
@@ -208,7 +203,6 @@ static String *func_body, *func_prolog, *func_epilog;
 #define emit_epilog(...)   (string_printf(func_epilog, __VA_ARGS__))
 #define emit_epilogln(...) (string_printf(func_epilog, __VA_ARGS__), string_printf(func_epilog, "\n"))
 
-void ic_init(void);
 void x86_function_definition(TypeExp *decl_specs, TypeExp *header);
 
 void x86_cgen(void)
@@ -1129,36 +1123,41 @@ void (*instruction_handlers[])(int, unsigned, unsigned, unsigned) = {
     x86_ret, x86_cbr, x86_nop
 };
 
-/*
-    +------------------------------+ <- ESP   EBP-?
-    |   Space for temp struct/union| used when calling a struct/union valued function
-    +-------------------------+
-    |  more vars and temps    |
-    +-------------------------+ <- EBP-8
-    |   First local variable  |
-    +-------------------------+ <- EBP-4
-    |   Return Value Address  | used when returning a struct/union
-    +-------------------------+ <- EBP
-    |       Saved EBP         |
-    +-------------------------+ <- EBP+4
-    |       Ret. Addr         |
-    +-------------------------+ <- EBP+8
-    |    First argument       |
-    +-------------------------+
-
- */
-
 void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
 {
     /*
-     * cdecl calling convention
-     * ==> caller save: eax, ecx, edx
-     * ==> callee save: ebp, ebx, esi, edi
-     */
+        cdecl calling convention
+            ==> caller save: eax, ecx, edx
+            ==> callee save: ebp, ebx, esi, edi
+
+                        [ Stack frame layout ]
+     => Low addresses
+        +-----------------------------------------------------------+ <- ESP    EBP-?
+        |               Calle save registers                        |
+        +-----------------------------------------------------------+ <- EBP-?
+        |               Space for temp struct/union                 |
+        |   (used when calling a struct/union valued function)      |
+        +-----------------------------------------------------------+
+        |               ... (more vars and temps)                   |
+        +-----------------------------------------------------------+ <- EBP-8
+        |               First local variable                        |
+        +-----------------------------------------------------------+ <- EBP-4
+        |               Return Value Address                        |
+        |       (used when returning a struct/union)                |
+        +-----------------------------------------------------------+ <- EBP
+        |               Saved EBP                                   |
+        +-----------------------------------------------------------+ <- EBP+4
+        |               Ret. Addr                                   |
+        +-----------------------------------------------------------+ <- EBP+8
+        |               First argument                              |
+        +-----------------------------------------------------------+
+     => High addresses
+    */
+
     int b;
     Token cat;
 
-    ic_function_definition(decl_specs, header); //exit(0);
+    ic_function_definition(decl_specs, header);
     init_addr_descr_tab();
     size_of_local_area = round_up(size_of_local_area, 4);
     curr_func = header->str;
@@ -1167,6 +1166,7 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
 
     big_return = ((cat=get_type_category(&ret_ty))==TOK_STRUCT || cat==TOK_UNION);
 
+    emit_prologln("\n; ==== start of definition of function `%s' ====", curr_func);
     emit_prologln("%s:", curr_func);
     if (big_return) {
         emit_prologln("pop eax");
@@ -1218,6 +1218,17 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     emit_epilogln("pop ebp");
     emit_epilogln("ret");
 
-    string_write(func_prolog, stdout), string_write(func_body, stdout), string_write(func_epilog, stdout);
-    string_clear(func_prolog), string_clear(func_body), string_clear(func_epilog);
+    string_write(func_prolog, stdout);
+    string_write(func_body, stdout);
+    string_write(func_epilog, stdout);
+
+    /* reset everything */
+    string_clear(func_prolog);
+    string_clear(func_body);
+    string_clear(func_epilog);
+    temp_struct_size = 0;
+    calls_to_fix_counter = 0;
+    memset(modified, 0, sizeof(int)*X86_NREG);
+    free(addr_descr_tab);
+    ic_reset();
 }

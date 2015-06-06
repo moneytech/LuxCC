@@ -1,6 +1,7 @@
 /*
  * Iterative data-flow analyses.
  */
+#define DEBUG 0
 #include "dflow.h"
 #include <stdio.h>
 #include <string.h>
@@ -56,7 +57,7 @@ void dflow_dominance(void)
     /* solve equations */
     changed = TRUE;
     while (changed) {
-        printf("==> Dom solver iteration\n");
+        DEBUG_PRINTF("==> Dom solver iteration\n");
         changed = FALSE;
         for (i = ENTRY_NODE+1; i < cfg_nodes_counter; i++) {
             int j;
@@ -78,11 +79,13 @@ void dflow_dominance(void)
     }
     bset_free(N), bset_free(temp);
 
+#if DEBUG
     for (i = ENTRY_NODE; i < cfg_nodes_counter; i++) {
         printf("Dom(n%d) = { ", i);
         dom_print_set(cfg_node(i).Dom);
         printf(" }\n");
     }
+#endif
 }
 
 // =======================================================================================
@@ -237,6 +240,7 @@ void dflow_LiveOut(void)
     for (i = ENTRY_NODE; i < cfg_nodes_counter; i++) {
         live_init_block(i);
 
+#if DEBUG
         printf("UEVar[%d]=", i);
         live_print_set(cfg_node(i).UEVar);
         printf("\n\n");
@@ -244,6 +248,7 @@ void dflow_LiveOut(void)
         printf("VarKill[%d]=", i);
         live_print_set(cfg_node(i).VarKill);
         printf("\n\n");
+#endif
 
         /* all LiveOut sets are initially empty */
         cfg_node(i).LiveOut = bset_new(nid_counter);
@@ -257,7 +262,7 @@ void dflow_LiveOut(void)
     /* solve equations */
     changed = TRUE;
     while (changed) {
-        printf("==> LiveOut solver iteration\n");
+        DEBUG_PRINTF("==> LiveOut solver iteration\n");
         changed = FALSE;
         for (i = ENTRY_NODE; i < cfg_nodes_counter; i++) {
             int j, b;
@@ -282,12 +287,15 @@ void dflow_LiveOut(void)
             bset_clear(new_out);
         }
     }
+    bset_free(temp), bset_free(new_out);
 
+#if DEBUG
     for (i = ENTRY_NODE; i < cfg_nodes_counter; i++) {
         printf("LiveOut[%d]=", i);
         live_print_set(cfg_node(i).LiveOut);
         printf("\n\n");
     }
+#endif
 }
 
 
@@ -394,22 +402,22 @@ void compute_liveness_and_next_use(void)
                 continue;
 
             case OpInd: {
-                int i;
+                int j;
                 BSet *s;
 
                 update_tar();
                 update_arg1();
 
                 if ((s=get_pointer_targets(i, nid(arg1))) != NULL) {
-                    for (i = bset_iterate(s); i != -1; i = bset_iterate(NULL))
-                        operand_table[i].liveness = LIVE;
+                    for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
+                        operand_table[j].liveness = LIVE;
                 } else {
                     /*
                      * TBD: if temporaries cannot cross basic block boundaries,
                      * only programmer declared variables need to be marked 'LIVE'.
                      */
-                    for (i = 0; i < nid_counter; i++)
-                        operand_table[i].liveness = LIVE;
+                    for (j = 0; j < nid_counter; j++)
+                        operand_table[j].liveness = LIVE;
                 }
             }
                 continue;
@@ -446,7 +454,9 @@ void compute_liveness_and_next_use(void)
     } /* basic blocks */
 
     free(operand_table);
+#if DEBUG
     print_liveness_and_next_use();
+#endif
 }
 
 void print_liveness_and_next_use(void)
@@ -551,8 +561,7 @@ void print_liveness_and_next_use(void)
 }
 
 // =======================================================================================
-// Iterative, flow-sensitive, may-point-to analysis.
-//
+// Pointer analysis (flow-sensitive, may point-to analysis).
 // TBD:
 //  => what to do with arrays & function pointers.
 // =======================================================================================
@@ -874,12 +883,13 @@ void dflow_PointOut(void)
     ptr_changed = TRUE;
     while (ptr_changed) {
         ptr_changed = FALSE;
-        printf("==> Point-to solver iteration\n");
+        DEBUG_PRINTF("==> Point-to solver iteration\n");
         ptr_iteration();
     }
-
-    print_point_OUT();
     bset_free(ptr_tmp);
+#if DEBUG
+    print_point_OUT();
+#endif
 }
 
 BSet *get_pointer_targets(int i, int p)
@@ -890,4 +900,9 @@ BSet *get_pointer_targets(int i, int p)
         if (s->ptr == p)
             return s->tl;
     return NULL;
+}
+
+void free_PointOut(void)
+{
+    free(point_OUT);
 }

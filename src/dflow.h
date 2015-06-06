@@ -14,5 +14,6 @@ void dflow_PointOut(void);
  * Return NULL if we know nothing about where p may point to at program point i.
  */
 BSet *get_pointer_targets(int i, int p);
+void free_PointOut(void);
 
 #endif

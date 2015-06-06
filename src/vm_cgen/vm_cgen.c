@@ -93,7 +93,7 @@ void vm_cgen(FILE *outf)
 {
     ExternId *ed;
 
-    init_location_arena();
+    location_init();
     output_file = outf;
 
 #if 0
@@ -174,7 +174,7 @@ void function_definition(TypeExp *decl_specs, TypeExp *header)
         pty.decl_specs = p->decl->decl_specs;
         pty.idl = p->decl->idl->child;
         param_offs -= round_up(compute_sizeof(&pty), VM_STACK_ALIGN);
-        new_location(p->decl->idl->str, param_offs);
+        location_new(p->decl->idl->str, param_offs);
         emit("# param:`%s', offset:%d", p->decl->idl->str, param_offs);
 
         p = p->next;
@@ -730,7 +730,7 @@ void compound_statement(ExecNode *s, int push_scope)
                 lty.decl_specs = dl->decl->decl_specs;
                 lty.idl = dct->child;
                 local_offset = round_up(local_offset, get_alignment(&lty));
-                new_location(dct->str, local_offset);
+                location_new(dct->str, local_offset);
                 emit("# var: %s, offset: %d", dct->str, local_offset);
                 if (dct->attr.e != NULL)
                     do_auto_init(lty.decl_specs, lty.idl, dct->attr.e, local_offset);
@@ -1672,7 +1672,7 @@ void load_addr(ExecNode *e)
     } else { /* parameter or local */
         int offset;
 
-        offset = lookup_location(e->attr.str)->offset;
+        offset = location_get_offset(e->attr.str);
         emit("ldbp %u; #(%d)", offset, offset);
     }
 }
