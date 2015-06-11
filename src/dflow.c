@@ -1,7 +1,7 @@
 /*
  * Iterative data-flow analyses.
  */
-#define DEBUG 0
+#define DEBUG 1
 #include "dflow.h"
 #include <stdio.h>
 #include <string.h>
@@ -572,8 +572,6 @@ void print_liveness_and_next_use(void)
 
 // =======================================================================================
 // Pointer analysis (flow-sensitive, may point-to analysis).
-// TBD:
-//  => what to do with arrays & function pointers.
 // =======================================================================================
 typedef struct PointToSet PointToSet;
 struct PointToSet {

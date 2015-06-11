@@ -1349,30 +1349,37 @@ unsigned ic_expression(ExecNode *e, int is_addr)
         }
         case TOK_UNARY_PLUS:
             return ic_expression(e->child[0], FALSE);
-#if 0
-        case TOK_SUBSCRIPT: {
-            unsigned a1, a2, a3;
 
-            if (NREG(e->child[0]) >= NREG(e->child[1])) {
-                a1 = ic_expression(e->child[0], FALSE);
-                a2 = ic_expression(e->child[1], FALSE);
-            } else {
-                a2 = ic_expression(e->child[1], FALSE);
-                a1 = ic_expression(e->child[0], FALSE);
-            }
-            a3 = new_temp_addr();
-            if (is_pointer(get_type_category(&e->child[0]->type)))
-                emit_i(OpAdd, &e->child[0]->type, a3, a1, a2);
+        case TOK_SUBSCRIPT: {
+            int ii, pi;
+            Declaration ty;
+            unsigned a1, a2, a3, a4, a5;
+
+            if (is_integer(get_type_category(&e->child[0]->type)))
+                ii = 0, pi = 1;
             else
-                emit_i(OpAdd, &e->child[1]->type, a3, a1, a2);
-            if (is_addr || get_type_category(&e->type)==TOK_SUBSCRIPT)
-                return a3;
-            /* dereference */
-            a1 = new_temp_addr();
-            emit_i(OpInd, &e->type, a1, a3, 0);
-            return a1;
+                ii = 1, pi = 0;
+            if (NREG(e->child[ii]) >= NREG(e->child[pi])) {
+                a1 = ic_expression(e->child[ii], FALSE);
+                a2 = ic_expression(e->child[pi], FALSE);
+            } else {
+                a2 = ic_expression(e->child[pi], FALSE);
+                a1 = ic_expression(e->child[ii], FALSE);
+            }
+            ty = e->child[pi]->type;
+            ty.idl = ty.idl->child;
+            a3 = new_address(IConstKind);
+            address(a3).cont.uval = compute_sizeof(&ty);
+            a4 = new_temp_addr();
+            emit_i(OpMul, NULL, a4, a1, a3);
+            a5 = new_temp_addr();
+            emit_i(OpAdd, NULL, a5, a2, a4);
+            if (is_addr)
+                return a5;
+            else
+                return ic_dereference(a5, &e->type);
         }
-#endif
+
         case TOK_FUNCTION: {
             OpKind op;
             unsigned a1;
@@ -1416,7 +1423,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                 emit_i(OpAdd, NULL, a3, a1, a2);
                 a1 = a3;
             }
-            if (is_addr || get_type_category(&e->type)==TOK_SUBSCRIPT)
+            if (is_addr)
                 return a1;
             else
                 return ic_dereference(a1, &e->type);
@@ -1444,6 +1451,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
 #endif
         assert(0);
     case IdExp: {
+        Token cat;
         unsigned a1;
 
         a1 = new_address(IdKind);
@@ -1451,7 +1459,8 @@ unsigned ic_expression(ExecNode *e, int is_addr)
         address(a1).cont.nid = get_var_nid(e->attr.str, e->attr.var.scope);
         if (e->attr.var.duration == DURATION_AUTO)
             address(a1).cont.var.offset = location_get_offset(e->attr.str);
-        if (is_addr) {
+
+        if (is_addr || (cat=get_type_category(&e->type))==TOK_SUBSCRIPT || cat==TOK_FUNCTION) {
             unsigned a2;
 
             a2 = new_temp_addr();
@@ -1659,7 +1668,7 @@ void disassemble(void)
     for (i = 0; i < ic_instructions_counter; i++) {
         Quad *p;
 
-        p = &p[i];
+        p = &ic_instructions[i];
         printf("(%d) ", i);
         switch (p->op) {
         case OpAdd: print_binop(p, "+");  break;
