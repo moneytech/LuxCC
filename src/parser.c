@@ -1791,7 +1791,7 @@ ExecNode *multiplicative_expression(void)
     ExecNode *n, *temp;
 
     n = cast_expression();
-    while (lookahead(1)==TOK_STAR || lookahead(1)==TOK_DIV || lookahead(1)==TOK_MOD) {
+    while (lookahead(1)==TOK_STAR || lookahead(1)==TOK_DIV || lookahead(1)==TOK_REM) {
         temp = new_op_node((lookahead(1)!=TOK_STAR)?lookahead(1):TOK_MUL);
         match(lookahead(1));
         temp->child[0] = n;

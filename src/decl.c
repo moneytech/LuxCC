@@ -1432,7 +1432,7 @@ static int analyze_static_initializer(ExecNode *e, int is_addr)
 #define C2() analyze_static_initializer(e->child[2], FALSE)
         case TOK_MUL:
         case TOK_DIV:
-        case TOK_MOD:
+        case TOK_REM:
         case TOK_PLUS:
         case TOK_MINUS:
         case TOK_LSHIFT:

@@ -686,8 +686,8 @@ void analyze_assignment_expression(ExecNode *e)
             temp.attr.op = TOK_DIV;
             analyze_multiplicative_expression(&temp);
             break;
-        case TOK_MOD_ASSIGN:
-            temp.attr.op = TOK_MOD;
+        case TOK_REM_ASSIGN:
+            temp.attr.op = TOK_REM;
             analyze_multiplicative_expression(&temp);
             break;
         case TOK_PLUS_ASSIGN:
@@ -1988,7 +1988,7 @@ long eval_int_const_expr(ExecNode *e)
             return L * R;
         case TOK_DIV:
             return L / R;
-        case TOK_MOD:
+        case TOK_REM:
             return L % R;
         case TOK_PLUS:
             return L + R;
@@ -2115,7 +2115,7 @@ long eval_const_expr(ExecNode *e, int is_addr)
             return L * R;
         case TOK_DIV:
             return L / R;
-        case TOK_MOD:
+        case TOK_REM:
             return L % R;
         case TOK_PLUS: {
             int ptr_child;

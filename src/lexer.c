@@ -197,8 +197,8 @@ static const struct Punctuator {
 } punctuators_table[] = { /* sorted for bsearch() */
     {"!", TOK_NEGATION},
     {"!=", TOK_NEQ},
-    {"%", TOK_MOD},
-    {"%=", TOK_MOD_ASSIGN},
+    {"%", TOK_REM},
+    {"%=", TOK_REM_ASSIGN},
     {"&", TOK_AMPERSAND},
     {"&&", TOK_AND},
     {"&=", TOK_BW_AND_ASSIGN},

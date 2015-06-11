@@ -1238,7 +1238,7 @@ void expression(ExecNode *e, int is_addr)
             break;
         case TOK_MUL_ASSIGN:
         case TOK_DIV_ASSIGN:
-        case TOK_MOD_ASSIGN:
+        case TOK_REM_ASSIGN:
         case TOK_PLUS_ASSIGN:
         case TOK_MINUS_ASSIGN:
         case TOK_LSHIFT_ASSIGN:
@@ -1252,7 +1252,7 @@ void expression(ExecNode *e, int is_addr)
             switch (e->attr.op) {
                 case TOK_MUL_ASSIGN:    new_e.attr.op = TOK_MUL;     break;
                 case TOK_DIV_ASSIGN:    new_e.attr.op = TOK_DIV;     break;
-                case TOK_MOD_ASSIGN:    new_e.attr.op = TOK_MOD;     break;
+                case TOK_REM_ASSIGN:    new_e.attr.op = TOK_REM;     break;
                 case TOK_PLUS_ASSIGN:   new_e.attr.op = TOK_PLUS;    break;
                 case TOK_MINUS_ASSIGN:  new_e.attr.op = TOK_MINUS;   break;
                 case TOK_LSHIFT_ASSIGN: new_e.attr.op = TOK_LSHIFT;  break;
@@ -1453,7 +1453,7 @@ relational_unsigned:
             else
                 emit("sdiv;");
             break;
-        case TOK_MOD:
+        case TOK_REM:
             BIN_OPS();
             if (is_unsigned_int(get_type_category(&e->type)))
                 emit("umod;");

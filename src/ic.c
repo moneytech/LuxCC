@@ -1067,8 +1067,8 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             return ic_compound_assignment(e, TOK_MUL);
         case TOK_DIV_ASSIGN:
             return ic_compound_assignment(e, TOK_DIV);
-        case TOK_MOD_ASSIGN:
-            return ic_compound_assignment(e, TOK_MOD);
+        case TOK_REM_ASSIGN:
+            return ic_compound_assignment(e, TOK_REM);
         case TOK_PLUS_ASSIGN:
             return ic_compound_assignment(e, TOK_PLUS);
         case TOK_MINUS_ASSIGN:
@@ -1307,7 +1307,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
 
         case TOK_MUL:
         case TOK_DIV:
-        case TOK_MOD: {
+        case TOK_REM: {
             OpKind op;
             unsigned a1, a2, a3;
 
@@ -1322,7 +1322,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             switch (e->attr.op) {
             case TOK_MUL: op = OpMul; break;
             case TOK_DIV: op = OpDiv; break;
-            case TOK_MOD: op = OpRem; break;
+            case TOK_REM: op = OpRem; break;
             }
             emit_i(op, &e->type, a3, a1, a2);
             return a3;
@@ -1565,7 +1565,7 @@ int is_binary(Token op)
     case TOK_ASSIGN:
     case TOK_MUL_ASSIGN:
     case TOK_DIV_ASSIGN:
-    case TOK_MOD_ASSIGN:
+    case TOK_REM_ASSIGN:
     case TOK_PLUS_ASSIGN:
     case TOK_MINUS_ASSIGN:
     case TOK_LSHIFT_ASSIGN:
@@ -1591,7 +1591,7 @@ int is_binary(Token op)
     case TOK_MINUS:
     case TOK_MUL:
     case TOK_DIV:
-    case TOK_MOD:
+    case TOK_REM:
     case TOK_SUBSCRIPT:
         return TRUE;
     default:
