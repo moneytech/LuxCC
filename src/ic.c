@@ -39,8 +39,8 @@ CFGNode *cfg_nodes;
 
 static int label_counter = 1;
 static unsigned true_addr, false_addr;
-/*static TypeExp int_expr = { TOK_INT };
-static Declaration int_ty = { &int_expr };*/
+static TypeExp int_expr = { TOK_INT };
+static Declaration int_ty = { &int_expr };
 
 /*
  * X86 stuff.
@@ -207,12 +207,6 @@ void ic_init(void)
     ic_addresses_max = AINIT;
     ic_addresses_counter = 1; /* address 0 is reserved for 'empty' */
 
-    /* FALSE/TRUE addresses */
-    true_addr = new_address(IConstKind);
-    address(true_addr).cont.uval = 1;
-    false_addr = new_address(IConstKind);
-    address(false_addr).cont.uval = 0;
-
     /* init CFG buffer */
     cfg_nodes = malloc(NINIT*sizeof(CFGNode));
     assert(cfg_nodes != NULL);
@@ -227,6 +221,12 @@ void ic_init(void)
 
     id_table_arena = arena_new(256);
     temp_names_arena = arena_new(256);
+
+    /* FALSE/TRUE addresses */
+    true_addr = new_address(IConstKind);
+    address(true_addr).cont.uval = 1;
+    false_addr = new_address(IConstKind);
+    address(false_addr).cont.uval = 0;
 }
 
 void ic_reset(void)
@@ -260,6 +260,7 @@ void ic_reset(void)
 
 static void build_CFG(void);
 static void print_CFG(void);
+static void fix_gotos(void);
 static unsigned exit_label;
 
 void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
@@ -305,10 +306,12 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
     emit_i(OpLab, NULL, exit_label, 0, 0);
     location_pop_scope();
 
+    fix_gotos();
+
     disassemble();
     if (ic_instructions_counter > 0) {
         build_CFG();
-        // print_CFG();
+        print_CFG();
         dflow_dominance();
         dflow_PointOut();
         dflow_LiveOut();
@@ -462,7 +465,7 @@ void build_CFG(void)
 {
     /*
      * Assumptions:
-     * - Every basic block ends with a brach or a jump.
+     * - Every basic block ends with a branch or a jump.
      */
 
     unsigned i;
@@ -552,51 +555,77 @@ void build_CFG(void)
 // =============================================================================
 // Statements
 // =============================================================================
+typedef struct Label Label;
+static struct Label {
+    char *str;
+    unsigned addr;
+    Label *next;
+} *ic_labels;
+
+static int gotos_to_fix[64], gotos_to_fix_counter;
+static void register_label(char *str, unsigned addr);
+static unsigned get_label_address(char *str);
+// static void emit_label(unsigned L);
+
+static unsigned btarget_stack[128], ctarget_stack[128];
+static int bt_stack_top = -1, ct_stack_top = -1;
+static void push_break_target(unsigned lab);
+static void pop_break_target(void);
+static void push_continue_target(unsigned lab);
+static void pop_continue_target(void);
+
 static void ic_if_statement(ExecNode *s);
 // static void ic_switch_statement(ExecNode *s);
 static void ic_while_statement(ExecNode *s);
-// static void ic_do_statement(ExecNode *s);
-// static void ic_for_statement(ExecNode *s);
-// static void ic_goto_statement(ExecNode *s);
-// static void ic_continue_statement(void);
-// static void ic_break_statement(void);
+static void ic_do_statement(ExecNode *s);
+static void ic_for_statement(ExecNode *s);
+static void ic_goto_statement(ExecNode *s);
+static void ic_continue_statement(void);
+static void ic_break_statement(void);
 static void ic_return_statement(ExecNode *s);
 // static void ic_case_statement(ExecNode *s);
 // static void ic_default_statement(ExecNode *s);
 static void ic_expression_statement(ExecNode *s);
-// static void ic_label_statement(ExecNode *s);
+static void ic_label_statement(ExecNode *s);
 static void ic_statement(ExecNode *s);
 static unsigned ic_expression2(ExecNode *e);
 static unsigned ic_expr_convert(ExecNode *e, Declaration *dest);
+static void split_block(void);
 
-#if 0
-static unsigned btarget_stack[128], ctarget_stack[128];
-static int bt_stack_top = -1, ct_stack_top = -1;
+/*void emit_label(unsigned L)
+{
+    int iprev;
 
-static
+    iprev = ic_instructions_counter-1;
+    if (instruction(iprev).op == OpLab)
+        address(L).cont.val = address(instruction(iprev).tar).cont.val;
+    else
+        emit_i(OpLab, NULL, L, 0, 0);
+}*/
+void split_block(void)
+{
+    emit_i(OpLab, NULL, new_label(), 0, 0);
+}
+
 void push_break_target(unsigned lab)
 {
     btarget_stack[++bt_stack_top] = lab;
 }
 
-static
 void pop_break_target(void)
 {
     --bt_stack_top;
 }
 
-static
 void push_continue_target(unsigned lab)
 {
     ctarget_stack[++ct_stack_top] = lab;
 }
 
-static
 void pop_continue_target(void)
 {
     --ct_stack_top;
 }
-#endif
 
 void ic_statement(ExecNode *s)
 {
@@ -611,21 +640,21 @@ void ic_statement(ExecNode *s)
     case WhileStmt:
         ic_while_statement(s);
         break;
-    // case DoStmt:
-        // ic_do_statement(s);
-        // break;
-    // case ForStmt:
-        // ic_for_statement(s);
-        // break;
-    // case GotoStmt:
-        // ic_goto_statement(s);
-        // break;
-    // case ContinueStmt:
-        // ic_continue_statement();
-        // break;
-    // case BreakStmt:
-        // ic_break_statement();
-        // break;
+    case DoStmt:
+        ic_do_statement(s);
+        break;
+    case ForStmt:
+        ic_for_statement(s);
+        break;
+    case GotoStmt:
+        ic_goto_statement(s);
+        break;
+    case ContinueStmt:
+        ic_continue_statement();
+        break;
+    case BreakStmt:
+        ic_break_statement();
+        break;
     case ReturnStmt:
         ic_return_statement(s);
         break;
@@ -634,9 +663,9 @@ void ic_statement(ExecNode *s)
     case ExpStmt:
         ic_expression_statement(s);
         break;
-    // case LabelStmt:
-        // ic_label_statement(s);
-        // break;
+    case LabelStmt:
+        ic_label_statement(s);
+        break;
     }
 }
 
@@ -644,8 +673,7 @@ void ic_if_statement(ExecNode *s)
 {
     /*
     ==> if <e> <stmt1> else <stmt2>
-    t1 = <e>
-    CBr t1, L1, L2
+    CBr <e>, L1, L2
     L1:
     <stmt1>
     Jmp L3
@@ -656,20 +684,17 @@ void ic_if_statement(ExecNode *s)
     ...
      */
     int else_part;
-    unsigned a;
     unsigned L1, L2, L3;
 
     /* does the else part is present? */
     else_part = s->child[2]!=NULL;
 
-    /* generate labels */
     L1 = new_label();
     L2 = new_label();
     if (else_part)
         L3 = new_label();
 
-    a = ic_expression2(s->child[0]);
-    emit_i(OpCBr, &s->child[0]->type, a, L1, L2);
+    emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L2);
     emit_i(OpLab, NULL, L1, 0, 0);
     ic_statement(s->child[1]);
     emit_i(OpJmp, NULL, else_part?L3:L2, 0, 0);
@@ -685,36 +710,144 @@ void ic_while_statement(ExecNode *s)
 {
     /*
     ==> while (<e>) <stmt>
-    t1 = <e>
-    CBr t1, L1, L3
+    CBr <e>, L1, L3
     L1:
     <stmt>
     Jmp L2
     L2:
-    t2 = <e>
-    CBr t2, L1, L3
+    CBr <e>, L1, L3
     L3:
     ...
      */
-    unsigned a;
     unsigned L1, L2, L3;
 
-    /* generate labels */
     L1 = new_label();
-    // L2 = new_label();
+    L2 = new_label();
     L3 = new_label();
 
-    a = ic_expression2(s->child[0]);
-    emit_i(OpCBr, &s->child[0]->type, a, L1, L3);
+    emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
     emit_i(OpLab, NULL, L1, 0, 0);
-    // push_break_target(L3), push_continue_target(L2);
+    push_break_target(L3), push_continue_target(L2);
     ic_statement(s->child[1]);
-    // pop_break_target(), pop_continue_target();
-    // emit_i(OpJmp, NULL, L2, 0, 0);
-    // emit_i(OpLab, NULL, L2, 0, 0); /* continue's target */
-    a = ic_expression2(s->child[0]);
-    emit_i(OpCBr, &s->child[0]->type, a, L1, L3);
+    pop_break_target(), pop_continue_target();
+    emit_i(OpJmp, NULL, L2, 0, 0);
+    emit_i(OpLab, NULL, L2, 0, 0); /* continue's target */
+    emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
     emit_i(OpLab, NULL, L3, 0, 0);
+}
+
+void ic_do_statement(ExecNode *s)
+{
+    /*
+    ==> do <stmt> while (<e>)
+    L1:
+    <stmt>
+    Jmp L2
+    L2:
+    CBr <e>, L1, L3
+    L3:
+    ...
+     */
+    int iprev;
+    unsigned L1, L2, L3;
+
+    L2 = new_label();
+    L3 = new_label();
+
+    iprev = ic_instructions_counter-1;
+    if (instruction(iprev).op != OpLab) {
+        L1 = new_label();
+        emit_i(OpJmp, NULL, L1, 0, 0);
+        emit_i(OpLab, NULL, L1, 0, 0);
+    } else {
+        L1 = instruction(iprev).tar;
+    }
+    push_break_target(L3), push_continue_target(L2);
+    ic_statement(s->child[1]);
+    pop_break_target(), pop_continue_target();
+    emit_i(OpJmp, NULL, L2, 0, 0);
+    emit_i(OpLab, NULL, L2, 0, 0);
+    emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
+    emit_i(OpLab, NULL, L3, 0, 0);
+}
+
+void ic_for_statement(ExecNode *s)
+{
+    /*
+    ==> for (<e1>; <e2>; <e3>) <stmt>
+    <e1>
+    CBr <e2>, L1, L3
+    L1:
+    <stmt>
+    Jmp L2
+    L2:
+    <e3>
+    CBr <e2>, L1, L3
+    L3:
+    ...
+     */
+    unsigned L1, L2, L3;
+
+    L1 = new_label();
+    L2 = new_label();
+    L3 = new_label();
+
+    if (s->child[1] != NULL)
+        ic_expression2(s->child[1]);
+    if (s->child[0] != NULL)
+        emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
+    else
+        emit_i(OpJmp, NULL, L1, 0, 0);
+    emit_i(OpLab, NULL, L1, 0, 0);
+    push_break_target(L3), push_continue_target(L2);
+    ic_statement(s->child[3]);
+    pop_break_target(), pop_continue_target();
+    emit_i(OpJmp, NULL, L2, 0, 0);
+    emit_i(OpLab, NULL, L2, 0, 0);
+    if (s->child[2] != NULL)
+        ic_expression2(s->child[2]);
+    if (s->child[0] != NULL)
+        emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
+    else
+        emit_i(OpJmp, NULL, L1, 0, 0);
+    emit_i(OpLab, NULL, L3, 0, 0);
+}
+
+void ic_label_statement(ExecNode *s)
+{
+    int iprev;
+
+    iprev = ic_instructions_counter-1;
+    if (instruction(iprev).op != OpLab) {
+        unsigned L;
+
+        L = new_label();
+        emit_i(OpJmp, NULL, L, 0, 0);
+        emit_i(OpLab, NULL, L, 0, 0);
+        register_label(s->attr.str, L);
+    } else {
+        register_label(s->attr.str, instruction(iprev).tar);
+    }
+    ic_statement(s->child[0]);
+}
+
+void ic_goto_statement(ExecNode *s)
+{
+    gotos_to_fix[gotos_to_fix_counter++] = ic_instructions_counter;
+    emit_i(OpJmp, (Declaration *)s->attr.str, 0, 0, 0);
+    split_block();
+}
+
+void ic_continue_statement(void)
+{
+    emit_i(OpJmp, NULL, ctarget_stack[ct_stack_top], 0, 0);
+    split_block();
+}
+
+void ic_break_statement(void)
+{
+    emit_i(OpJmp, NULL, btarget_stack[bt_stack_top], 0, 0);
+    split_block();
 }
 
 void ic_return_statement(ExecNode *s)
@@ -727,7 +860,7 @@ void ic_return_statement(ExecNode *s)
         emit_i(OpRet, NULL, 0, ic_expr_convert(s->child[0], &ret_ty), 0); /* TBD: type field */
     }
     emit_i(OpJmp, NULL, exit_label, 0, 0);
-    emit_i(OpLab, NULL, new_label(), 0, 0); /* just to split the basic block here */
+    split_block();
 }
 
 void ic_compound_statement(ExecNode *s, int push_scope)
@@ -798,6 +931,45 @@ void ic_expression_statement(ExecNode *s)
     ic_expression2(s->child[0]);
 }
 
+void register_label(char *str, unsigned addr)
+{
+    Label *np;
+
+    np = malloc(sizeof(Label));
+    np->str = str;
+    np->addr = addr;
+    np->next = ic_labels;
+    ic_labels = np;
+}
+
+unsigned get_label_address(char *str)
+{
+    Label *np;
+
+    for (np = ic_labels; np != NULL; np = np->next)
+        if (equal(np->str, str))
+            return np->addr;
+    assert(0);
+}
+
+void fix_gotos(void)
+{
+    Label *np, *temp;
+
+    while (--gotos_to_fix_counter >= 0) {
+        int i;
+
+        i = gotos_to_fix[gotos_to_fix_counter];
+        instruction(i).tar = get_label_address((char *)instruction(i).type);
+    }
+    gotos_to_fix_counter = 0;
+
+    for (np = ic_labels; np != NULL; ) {
+        temp = np;
+        np = np->next;
+        free(temp);
+    }
+}
 // =============================================================================
 // Expressions
 // =============================================================================
@@ -873,11 +1045,10 @@ unsigned ic_expression(ExecNode *e, int is_addr)
     switch (e->kind.exp) {
     case OpExp:
         switch (e->attr.op) {
-#if 0
         case TOK_COMMA:
             ic_expression(e->child[0], FALSE);
             return ic_expression(e->child[1], FALSE);
-#endif
+
         case TOK_ASSIGN: {
             unsigned a1, a2;
 
@@ -912,15 +1083,40 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             return ic_compound_assignment(e, TOK_BW_XOR);
         case TOK_BW_OR_ASSIGN:
             return ic_compound_assignment(e, TOK_BW_OR);
-
-        case TOK_CONDITIONAL:
-            return ic_conditional(e);
-
-        case TOK_OR:
-            return ic_logical_OR(e);
 #endif
-        case TOK_AND: {
-            unsigned a1, a2, a3;
+        case TOK_CONDITIONAL: {
+            /*
+            ==> <a> ? <b> : <c>
+            CBr <a>, L1, L2
+            L1:
+            t1 = <b>
+            Jmp L3
+            L2:
+            t1 = <c>
+            Jmp L3
+            L3:
+            */
+            unsigned a;
+            unsigned L1, L2, L3;
+
+            L1 = new_label();
+            L2 = new_label();
+            L3 = new_label();
+
+            a = new_temp_addr();
+            emit_i(OpCBr, NULL, ic_expression(e->child[0], FALSE), L1, L2);
+            emit_i(OpLab, NULL, L1, 0, 0);
+            emit_i(OpAsn, NULL, a, ic_expression(e->child[1], FALSE), 0);
+            emit_i(OpJmp, NULL, L3, 0, 0);
+            emit_i(OpLab, NULL, L2, 0, 0);
+            emit_i(OpAsn, NULL, a, ic_expression(e->child[2], FALSE), 0);
+            emit_i(OpJmp, NULL, L3, 0, 0);
+            emit_i(OpLab, NULL, L3, 0, 0);
+            return a;
+        }
+
+        case TOK_OR: {
+            unsigned a;
             unsigned L1, L2, L3, L4;
 
             L1 = new_label();
@@ -928,20 +1124,41 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             L3 = new_label();
             L4 = new_label();
 
-            a1 = ic_expression(e->child[0], FALSE);
-            emit_i(OpCBr, &e->child[0]->type, a1, L1, L3);
-            emit_i(OpLab, NULL, L1, 0, 0);
-            a2 = ic_expression(e->child[1], FALSE);
-            emit_i(OpCBr, &e->child[1]->type, a2, L2, L3);
+            a = new_temp_addr();
+            emit_i(OpCBr, NULL, ic_expression(e->child[0], FALSE), L1, L2);
             emit_i(OpLab, NULL, L2, 0, 0);
-            a3 = new_temp_addr();
-            emit_i(OpAsn, /*&int_ty*/NULL, a3, true_addr, 0);
+            emit_i(OpCBr, NULL, ic_expression(e->child[1], FALSE), L1, L3);
+            emit_i(OpLab, NULL, L1, 0, 0);
+            emit_i(OpAsn, NULL, a, true_addr, 0);
             emit_i(OpJmp, NULL, L4, 0, 0);
             emit_i(OpLab, NULL, L3, 0, 0);
-            emit_i(OpAsn, /*&int_ty*/NULL, a3, false_addr, 0);
+            emit_i(OpAsn, NULL, a, false_addr, 0);
             emit_i(OpJmp, NULL, L4, 0, 0);
             emit_i(OpLab, NULL, L4, 0, 0);
-            return a3;
+            return a;
+        }
+
+        case TOK_AND: {
+            unsigned a;
+            unsigned L1, L2, L3, L4;
+
+            L1 = new_label();
+            L2 = new_label();
+            L3 = new_label();
+            L4 = new_label();
+
+            a = new_temp_addr();
+            emit_i(OpCBr, NULL, ic_expression(e->child[0], FALSE), L1, L3);
+            emit_i(OpLab, NULL, L1, 0, 0);
+            emit_i(OpCBr, NULL, ic_expression(e->child[1], FALSE), L2, L3);
+            emit_i(OpLab, NULL, L2, 0, 0);
+            emit_i(OpAsn, NULL, a, true_addr, 0);
+            emit_i(OpJmp, NULL, L4, 0, 0);
+            emit_i(OpLab, NULL, L3, 0, 0);
+            emit_i(OpAsn, NULL, a, false_addr, 0);
+            emit_i(OpJmp, NULL, L4, 0, 0);
+            emit_i(OpLab, NULL, L4, 0, 0);
+            return a;
         }
 #if 0
         case TOK_BW_OR:
@@ -950,23 +1167,66 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             return ic_bitwise(e, OpXor);
         case TOK_BW_AND:
             return ic_bitwise(e, OpAnd);
-
+#endif
         case TOK_EQ:
-        case TOK_NEQ:
-            return ic_equality(e);
+        case TOK_NEQ: {
+            unsigned a1, a2, a3;
+
+            if (NREG(e->child[0]) >= NREG(e->child[1])) {
+                a1 = ic_expression(e->child[0], FALSE);
+                a2 = ic_expression(e->child[1], FALSE);
+            } else {
+                a2 = ic_expression(e->child[1], FALSE);
+                a1 = ic_expression(e->child[0], FALSE);
+            }
+            a3 = new_temp_addr();
+            emit_i((e->attr.op==TOK_EQ)?OpEQ:OpNEQ, NULL, a3, a1, a2);
+            return a3;
+        }
+
         case TOK_LT:
         case TOK_GT:
         case TOK_LET:
-        case TOK_GET:
-            return ic_relational(e);
+        case TOK_GET: {
+            OpKind op;
+            int signedness;
+            Token cat1, cat2;
+            unsigned a1, a2, a3;
 
+            if (NREG(e->child[0]) >= NREG(e->child[1])) {
+                a1 = ic_expression(e->child[0], FALSE);
+                a2 = ic_expression(e->child[1], FALSE);
+            } else {
+                a2 = ic_expression(e->child[1], FALSE);
+                a1 = ic_expression(e->child[0], FALSE);
+            }
+
+            cat1 = get_type_category(&e->child[0]->type);
+            cat2 = get_type_category(&e->child[1]->type);
+
+            signedness = IC_UNSIGNED;
+            if (is_integer(cat1) && is_integer(cat2)
+            && is_signed_int(get_promoted_type(cat1)) && is_signed_int(get_promoted_type(cat2)))
+                signedness = IC_SIGNED;
+
+            switch (e->attr.op) {
+            case TOK_LT: op = OpLT; break;
+            case TOK_GT: op = OpGT; break;
+            case TOK_LET: op = OpLET; break;
+            case TOK_GET: op = OpGET; break;
+            }
+            a3 = new_temp_addr();
+            emit_i(op, (Declaration *)signedness, a3, a1, a2);
+            return a3;
+        }
+#if 0
         case TOK_LSHIFT:
             return ic_shift(e, OpSLL);
         case TOK_RSHIFT:
             return ic_shift(e, (is_unsigned_int(get_type_category(&e->type)))?OpSRL:OpSRA);
 #endif
         case TOK_PLUS: {
-            unsigned a1, a2, a3, a4, a5;
+            unsigned a1, a2, a3;
 
             if (is_integer(get_type_category(&e->type))) {
                 if (NREG(e->child[0]) >= NREG(e->child[1])) {
@@ -982,6 +1242,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             } else {
                 int ii, pi;
                 Declaration ty;
+                unsigned a4, a5;
 
                 if (is_integer(get_type_category(&e->child[0]->type)))
                     ii = 0, pi = 1;
@@ -994,8 +1255,8 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                     a2 = ic_expression(e->child[pi], FALSE);
                     a1 = ic_expression(e->child[ii], FALSE);
                 }
-                ty.decl_specs = e->child[pi]->type.decl_specs;
-                ty.idl = e->child[pi]->type.idl->child;
+                ty = e->child[pi]->type;
+                ty.idl = ty.idl->child;
                 a3 = new_address(IConstKind);
                 address(a3).cont.uval = compute_sizeof(&ty);
                 a4 = new_temp_addr();
@@ -1005,11 +1266,49 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                 return a5;
             }
         }
-#if 0
-        case TOK_MINUS:
-            return ic_sub(e);
-#endif
-        case TOK_MUL: {
+
+        case TOK_MINUS: {
+            unsigned a1, a2, a3;
+
+            if (NREG(e->child[0]) >= NREG(e->child[1])) {
+                a1 = ic_expression(e->child[0], FALSE);
+                a2 = ic_expression(e->child[1], FALSE);
+            } else {
+                a2 = ic_expression(e->child[1], FALSE);
+                a1 = ic_expression(e->child[0], FALSE);
+            }
+            if (is_integer(get_type_category(&e->child[0]->type))) { /* int-int */
+                a3 = new_temp_addr();
+                emit_i(OpSub, NULL, a3, a1, a2);
+                return a3;
+            } else {
+                Declaration ty;
+                unsigned a4, a5;
+
+                ty = e->child[0]->type;
+                ty.idl = ty.idl->child;
+                a3 = new_address(IConstKind);
+                address(a3).cont.uval = compute_sizeof(&ty);
+
+                if (is_integer(get_type_category(&e->child[1]->type))) { /* ptr-int */
+                    a4 = new_temp_addr();
+                    emit_i(OpMul, NULL, a4, a2, a3);
+                    a5 = new_temp_addr();
+                    emit_i(OpSub, NULL, a5, a1, a4);
+                } else { /* ptr-ptr */
+                    a4 = new_temp_addr();
+                    emit_i(OpSub, NULL, a4, a1, a2);
+                    a5 = new_temp_addr();
+                    emit_i(OpDiv, &int_ty, a5, a4, a3);
+                }
+                return a5;
+            }
+        }
+
+        case TOK_MUL:
+        case TOK_DIV:
+        case TOK_MOD: {
+            OpKind op;
             unsigned a1, a2, a3;
 
             if (NREG(e->child[0]) >= NREG(e->child[1])) {
@@ -1020,29 +1319,15 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                 a1 = ic_expression(e->child[0], FALSE);
             }
             a3 = new_temp_addr();
-            emit_i(OpMul, &e->type, a3, a1, a2);
-
-            return a3;
-        }
-        case TOK_DIV: {
-            unsigned a1, a2, a3;
-
-            if (NREG(e->child[0]) >= NREG(e->child[1])) {
-                a1 = ic_expression(e->child[0], FALSE);
-                a2 = ic_expression(e->child[1], FALSE);
-            } else {
-                a2 = ic_expression(e->child[1], FALSE);
-                a1 = ic_expression(e->child[0], FALSE);
+            switch (e->attr.op) {
+            case TOK_MUL: op = OpMul; break;
+            case TOK_DIV: op = OpDiv; break;
+            case TOK_MOD: op = OpRem; break;
             }
-            a3 = new_temp_addr();
-            emit_i(OpDiv, &e->type, a3, a1, a2);
-
+            emit_i(op, &e->type, a3, a1, a2);
             return a3;
         }
-#if 0
-        case TOK_MOD:
-            return ic_multiplicative(e, (is_unsigned_int(get_type_category(&e->type)))?OpUMod:OpSMod);
-#endif
+
         case TOK_CAST:
             return ic_expr_convert(e->child[0], (Declaration *)e->child[1]);
 #if 0
@@ -1124,7 +1409,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
         case TOK_DOT:
         case TOK_ARROW: {
             int is_union;
-            unsigned a1, a2, a3;
+            unsigned a1;
 
             if (e->attr.op == TOK_DOT) {
                 a1 = ic_expression(e->child[0], TRUE);
@@ -1135,6 +1420,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             }
             if (!is_union) {
                 StructMember *m;
+                unsigned a2, a3;
 
                 m = get_member_descriptor(get_type_spec(e->child[0]->type.decl_specs), e->child[1]->attr.str);
                 a2 = new_address(IConstKind);
@@ -1381,10 +1667,10 @@ void disassemble(void)
         printf("(%d) ", i);
         switch (p[i].op) {
         case OpAdd: print_binop(&p[i], "+"); break;
-        // case OpSub:
+        case OpSub: print_binop(&p[i], "-"); break;
         case OpMul: print_binop(&p[i], "*"); break;
         case OpDiv: print_binop(&p[i], "/"); break;
-        // case OpRem:
+        case OpRem: print_binop(&p[i], "%"); break;
         case OpNeg:
             print_addr(p[i].tar);
             printf(" = -");
@@ -1397,12 +1683,12 @@ void disassemble(void)
         // case OpAnd:
         // case OpOr:
         // case OPXor:
-        // case OpEQ:
-        // case OpNEQ:
-        // case OpLT:
-        // case OpLET:
-        // case OpGT:
-        // case OpGET:
+        case OpEQ:  print_binop(&p[i], "=="); break;
+        case OpNEQ: print_binop(&p[i], "!="); break;
+        case OpLT:  print_binop(&p[i], "<");  break;
+        case OpLET: print_binop(&p[i], "<="); break;
+        case OpGT:  print_binop(&p[i], ">");  break;
+        case OpGET: print_binop(&p[i], ">="); break;
 
         case OpCh:
             print_addr(p[i].tar);

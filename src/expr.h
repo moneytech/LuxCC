@@ -22,6 +22,7 @@ long eval_int_const_expr(ExecNode *e);
 Token get_type_category(Declaration *d);
 TypeExp *get_type_node(Token ty);
 int is_unsigned_int(Token ty);
+int is_signed_int(Token ty);
 int is_integer(Token ty);
 int get_rank(Token ty);
 int is_integer(Token ty);

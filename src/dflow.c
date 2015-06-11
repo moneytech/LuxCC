@@ -152,6 +152,7 @@ void live_init_block(int b)
 
             /* keep track of modified static objects */
             if ((instruction(i).op == OpAsn)
+            && (address(tar).kind == IdKind)
             && (address(tar).cont.var.e->attr.var.duration == DURATION_STATIC))
                 bset_insert(modified_static_objects, address_nid(tar));
             continue;
@@ -289,13 +290,13 @@ void dflow_LiveOut(void)
     }
     bset_free(temp), bset_free(new_out);
 
-// #if DEBUG
+#if DEBUG
     for (i = ENTRY_NODE; i < cfg_nodes_counter; i++) {
         printf("LiveOut[%d]=", i);
         live_print_set(cfg_node(i).LiveOut);
         printf("\n\n");
     }
-// #endif
+#endif
 }
 
 
@@ -430,6 +431,11 @@ void compute_liveness_and_next_use(void)
                     update_arg1();
                 continue;
 
+            case OpCall:
+                if (tar)
+                    update_tar();
+                continue;
+
             case OpIndCall:
                 if (tar)
                     update_tar();
@@ -453,9 +459,9 @@ void compute_liveness_and_next_use(void)
     } /* basic blocks */
 
     free(operand_table);
-// #if DEBUG
+#if DEBUG
     print_liveness_and_next_use();
-// #endif
+#endif
 }
 
 void print_liveness_and_next_use(void)
@@ -535,6 +541,11 @@ void print_liveness_and_next_use(void)
                     printf(" | ");
                     print_arg1();
                 }
+                break;
+
+            case OpCall:
+                if (tar)
+                    print_tar();
                 break;
 
             case OpIndCall:
@@ -885,9 +896,9 @@ void dflow_PointOut(void)
         ptr_iteration();
     }
     bset_free(ptr_tmp);
-// #if DEBUG
+#if DEBUG
     print_point_OUT();
-// #endif
+#endif
 }
 
 BSet *get_pointer_targets(int i, int p)

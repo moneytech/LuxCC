@@ -53,6 +53,9 @@ typedef enum {
     OpNOp,
 } OpKind;
 
+#define IC_UNSIGNED 0
+#define IC_SIGNED   1
+
 typedef enum {
     IConstKind,
     StrLitKind,

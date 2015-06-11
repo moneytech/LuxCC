@@ -3,6 +3,8 @@
  *      IC ==> x86 ASM.
  * Of interest:
  *   => System V ABI-i386: http://www.sco.com/developers/devspecs/abi386-4.pdf
+ * TOFIX:
+ * - The code acts as if byte versions of ESI and EDI existed.
  */
 #include "x86_cgen.h"
 #include <stdio.h>
@@ -540,7 +542,6 @@ void x86_store(X86_Reg r, unsigned a)
         case TOK_CHAR:
         case TOK_SIGNED_CHAR:
         case TOK_UNSIGNED_CHAR:
-            /* TODO: handle the case where the register is esi or edi */
             siz_str = "byte";
             reg_str = x86_lbreg_str[r];
             break;
@@ -666,6 +667,15 @@ void compare_against_zero(unsigned a)
     }
 }
 
+#define UPDATE_ADDRESSES(res_reg) {\
+    update_tar_descriptors(res_reg, tar, instruction(i).liveness[0], instruction(i).next_use[0]);\
+    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);\
+    update_arg_descriptors(arg2, instruction(i).liveness[2], instruction(i).next_use[2]);\
+}
+
+static void x86_pre_call(int i);
+static void x86_div_rem(X86_Reg res, int i, unsigned tar, unsigned arg1, unsigned arg2);
+
 void x86_add(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -675,11 +685,19 @@ void x86_add(int i, unsigned tar, unsigned arg1, unsigned arg2)
     pin_reg(res);
     emitln("add %s, %s", x86_reg_str[res], get_operand(arg2));
     unpin_reg(res);
-    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
-    update_arg_descriptors(arg2, instruction(i).liveness[2], instruction(i).next_use[2]);
+    UPDATE_ADDRESSES(res);
 }
-void x86_sub(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
+void x86_sub(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    X86_Reg res;
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    pin_reg(res);
+    emitln("sub %s, %s", x86_reg_str[res], get_operand(arg2));
+    unpin_reg(res);
+    UPDATE_ADDRESSES(res);
+}
 void x86_mul(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -689,11 +707,9 @@ void x86_mul(int i, unsigned tar, unsigned arg1, unsigned arg2)
     pin_reg(res);
     emitln("imul %s, %s", x86_reg_str[res], get_operand(arg2));
     unpin_reg(res);
-    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
-    update_arg_descriptors(arg2, instruction(i).liveness[2], instruction(i).next_use[2]);
+    UPDATE_ADDRESSES(res);
 }
-void x86_div(int i, unsigned tar, unsigned arg1, unsigned arg2)
+void x86_div_rem(X86_Reg res, int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     char *instr, *divop;
 
@@ -726,22 +742,79 @@ void x86_div(int i, unsigned tar, unsigned arg1, unsigned arg2)
     emitln("%s %s", instr, divop);
     unpin_reg(X86_EAX);
     unpin_reg(X86_EDX);
-    update_tar_descriptors(X86_EAX, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
-    update_arg_descriptors(arg2, instruction(i).liveness[2], instruction(i).next_use[2]);
+    UPDATE_ADDRESSES(res);
 }
-void x86_rem(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
+void x86_div(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    x86_div_rem(X86_EAX, i, tar, arg1, arg2);
+}
+void x86_rem(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    x86_div_rem(X86_EDX, i, tar, arg1, arg2);
+}
 void x86_shl(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
 void x86_shr(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
 void x86_and(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
 void x86_or(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
 void x86_xor(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
-void x86_eq(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
-void x86_neq(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
-void x86_lt(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
-void x86_let(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
-void x86_gt(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
-void x86_get(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
+void x86_eq(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    X86_Reg res;
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    pin_reg(res);
+    emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
+    unpin_reg(res);
+    emitln("sete %s", x86_lbreg_str[res]);
+    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    UPDATE_ADDRESSES(res);
+}
+void x86_neq(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    X86_Reg res;
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    pin_reg(res);
+    emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
+    unpin_reg(res);
+    emitln("setne %s", x86_lbreg_str[res]);
+    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    UPDATE_ADDRESSES(res);
+}
+void x86_lt(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    X86_Reg res;
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    pin_reg(res);
+    emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
+    unpin_reg(res);
+    emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"l":"b", x86_lbreg_str[res]);
+    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    UPDATE_ADDRESSES(res);
+}
+void x86_let(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+}
+void x86_gt(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    X86_Reg res;
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    pin_reg(res);
+    emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
+    unpin_reg(res);
+    emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"g":"a", x86_lbreg_str[res]);
+    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    UPDATE_ADDRESSES(res);
+}
+void x86_get(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+}
 
 void x86_neg(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -862,7 +935,7 @@ void x86_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
     update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
     update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
 }
-static
+
 void x86_pre_call(int i)
 {
     Token cat;
@@ -903,10 +976,10 @@ void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
     /*update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);*/
 }
 
-#define emit_lab(n)         emitln(".L%lu:", n)
-#define emit_jmp(target)    emitln("jmp .L%lu", target)
-#define emit_jmpeq(target)  emitln("je .L%lu", target)
-#define emit_jmpneq(target) emitln("jne .L%lu", target)
+#define emit_lab(n)         emitln(".L%d:", n)
+#define emit_jmp(target)    emitln("jmp .L%d", target)
+#define emit_jmpeq(target)  emitln("je .L%d", target)
+#define emit_jmpneq(target) emitln("jne .L%d", target)
 
 void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -1000,11 +1073,11 @@ done:
 }
 void x86_lab(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    emit_lab(address(tar).cont.uval);
+    emit_lab(address(tar).cont.val);
 }
 void x86_jmp(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    emit_jmp(address(tar).cont.uval);
+    emit_jmp(address(tar).cont.val);
 }
 void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -1099,8 +1172,8 @@ void x86_cbr(int i, unsigned tar, unsigned arg1, unsigned arg2)
     compare_against_zero(tar);
     /* do any spilling before the jumps */
     update_arg_descriptors(tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    emit_jmpeq(address(arg2).cont.uval);
-    emit_jmp(address(arg1).cont.uval);
+    emit_jmpeq(address(arg2).cont.val);
+    emit_jmp(address(arg1).cont.val);
 }
 void x86_nop(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
