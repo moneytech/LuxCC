@@ -752,11 +752,76 @@ void x86_rem(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     x86_div_rem(X86_EDX, i, tar, arg1, arg2);
 }
-void x86_shl(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
-void x86_shr(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
-void x86_and(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
-void x86_or(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
-void x86_xor(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
+void x86_shl(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    X86_Reg res;
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    if (address(arg2).kind == IConstKind) {
+        emitln("sal %s, %lu", x86_reg_str[res], address(arg2).cont.uval);
+    } else {
+        if (!addr_in_reg(arg2) || addr_reg(arg2)!=X86_ECX) {
+            spill_reg(X86_ECX);
+            x86_load(X86_ECX, arg2);
+        }
+        emitln("sal %s, cl", x86_reg_str[res]);
+    }
+    UPDATE_ADDRESSES(res);
+}
+void x86_shr(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    char *instr;
+    X86_Reg res;
+
+    instr = (is_unsigned_int(get_type_category(instruction(i).type))) ? "shr" : "sar";
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    if (address(arg2).kind == IConstKind) {
+        emitln("%s %s, %lu", instr, x86_reg_str[res], address(arg2).cont.uval);
+    } else {
+        if (!addr_in_reg(arg2) || addr_reg(arg2)!=X86_ECX) {
+            spill_reg(X86_ECX);
+            x86_load(X86_ECX, arg2);
+        }
+        emitln("%s %s, cl", instr, x86_reg_str[res]);
+    }
+    UPDATE_ADDRESSES(res);
+}
+void x86_and(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    X86_Reg res;
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    pin_reg(res);
+    emitln("and %s, %s", x86_reg_str[res], get_operand(arg2));
+    unpin_reg(res);
+    UPDATE_ADDRESSES(res);
+}
+void x86_or(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    X86_Reg res;
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    pin_reg(res);
+    emitln("or %s, %s", x86_reg_str[res], get_operand(arg2));
+    unpin_reg(res);
+    UPDATE_ADDRESSES(res);
+}
+void x86_xor(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    X86_Reg res;
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    pin_reg(res);
+    emitln("xor %s, %s", x86_reg_str[res], get_operand(arg2));
+    unpin_reg(res);
+    UPDATE_ADDRESSES(res);
+}
 void x86_eq(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -826,8 +891,28 @@ void x86_neg(int i, unsigned tar, unsigned arg1, unsigned arg2)
     update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
     update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
 }
-void x86_cmpl(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
-void x86_not(int i, unsigned tar, unsigned arg1, unsigned arg2) {}
+void x86_cmpl(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    X86_Reg res;
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    emitln("not %s", x86_reg_str[res]);
+    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
+    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+}
+void x86_not(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    X86_Reg res;
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    emitln("cmp %s, 0", x86_reg_str[res]);
+    emitln("sete %s", x86_lbreg_str[res]);
+    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
+    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+}
 void x86_ch(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -976,10 +1061,10 @@ void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
     /*update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);*/
 }
 
-#define emit_lab(n)         emitln(".L%d:", n)
-#define emit_jmp(target)    emitln("jmp .L%d", target)
-#define emit_jmpeq(target)  emitln("je .L%d", target)
-#define emit_jmpneq(target) emitln("jne .L%d", target)
+#define emit_lab(n)         emitln(".L%ld:", n)
+#define emit_jmp(target)    emitln("jmp .L%ld", target)
+#define emit_jmpeq(target)  emitln("je .L%ld", target)
+#define emit_jmpneq(target) emitln("jne .L%ld", target)
 
 void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {

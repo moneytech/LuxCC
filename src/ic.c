@@ -1160,29 +1160,6 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             emit_i(OpLab, NULL, L4, 0, 0);
             return a;
         }
-#if 0
-        case TOK_BW_OR:
-            return ic_bitwise(e, OpOr);
-        case TOK_BW_XOR:
-            return ic_bitwise(e, OpXor);
-        case TOK_BW_AND:
-            return ic_bitwise(e, OpAnd);
-#endif
-        case TOK_EQ:
-        case TOK_NEQ: {
-            unsigned a1, a2, a3;
-
-            if (NREG(e->child[0]) >= NREG(e->child[1])) {
-                a1 = ic_expression(e->child[0], FALSE);
-                a2 = ic_expression(e->child[1], FALSE);
-            } else {
-                a2 = ic_expression(e->child[1], FALSE);
-                a1 = ic_expression(e->child[0], FALSE);
-            }
-            a3 = new_temp_addr();
-            emit_i((e->attr.op==TOK_EQ)?OpEQ:OpNEQ, NULL, a3, a1, a2);
-            return a3;
-        }
 
         case TOK_LT:
         case TOK_GT:
@@ -1219,12 +1196,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             emit_i(op, (Declaration *)signedness, a3, a1, a2);
             return a3;
         }
-#if 0
-        case TOK_LSHIFT:
-            return ic_shift(e, OpSLL);
-        case TOK_RSHIFT:
-            return ic_shift(e, (is_unsigned_int(get_type_category(&e->type)))?OpSRL:OpSRA);
-#endif
+
         case TOK_PLUS: {
             unsigned a1, a2, a3;
 
@@ -1305,6 +1277,13 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             }
         }
 
+        case TOK_EQ:
+        case TOK_NEQ:
+        case TOK_BW_OR:
+        case TOK_BW_XOR:
+        case TOK_BW_AND:
+        case TOK_LSHIFT:
+        case TOK_RSHIFT:
         case TOK_MUL:
         case TOK_DIV:
         case TOK_REM: {
@@ -1320,9 +1299,16 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             }
             a3 = new_temp_addr();
             switch (e->attr.op) {
-            case TOK_MUL: op = OpMul; break;
-            case TOK_DIV: op = OpDiv; break;
-            case TOK_REM: op = OpRem; break;
+            case TOK_EQ:     op = OpEQ;  break;
+            case TOK_NEQ:    op = OpNEQ; break;
+            case TOK_BW_OR:  op = OpOr;  break;
+            case TOK_BW_XOR: op = OpXor; break;
+            case TOK_BW_AND: op = OpAnd; break;
+            case TOK_LSHIFT: op = OpSHL; break;
+            case TOK_RSHIFT: op = OpSHR; break;
+            case TOK_MUL:    op = OpMul; break;
+            case TOK_DIV:    op = OpDiv; break;
+            case TOK_REM:    op = OpRem; break;
             }
             emit_i(op, &e->type, a3, a1, a2);
             return a3;
@@ -1345,21 +1331,25 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             else
                 return ic_dereference(ic_expression(e->child[0], FALSE), &e->type);
 
+        case TOK_COMPLEMENT:
+        case TOK_NEGATION:
         case TOK_UNARY_MINUS: {
+            OpKind op;
             unsigned a1, a2;
 
             a1 = ic_expression(e->child[0], FALSE);
             a2 = new_temp_addr();
-            emit_i(OpNeg, &e->type, a2, a1, 0);
+            switch (e->attr.op) {
+            case TOK_COMPLEMENT:  op = OpCmpl; break;
+            case TOK_NEGATION:    op = OpNot;  break;
+            case TOK_UNARY_MINUS: op = OpNeg;  break;
+            }
+            emit_i(op, &e->type, a2, a1, 0);
             return a2;
         }
-#if 0
         case TOK_UNARY_PLUS:
-            return ic_unary_arith_logic_op(e, OpNone);
-        case TOK_COMPLEMENT:
-            return ic_unary_arith_logic_op(e, OpCmpl);
-        case TOK_NEGATION:
-            return ic_unary_arith_logic_op(e, OpNot);
+            return ic_expression(e->child[0], FALSE);
+#if 0
         case TOK_SUBSCRIPT: {
             unsigned a1, a2, a3;
 
@@ -1387,10 +1377,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             OpKind op;
             unsigned a1;
 
-            if (get_type_category(&e->child[0]->type) == TOK_STAR)
-                op = OpIndCall;
-            else
-                op = OpCall;
+            op = (get_type_category(&e->child[0]->type) == TOK_STAR) ? OpIndCall : OpCall;
 
             function_argument(e->child[1], e->locals);
             a1 = ic_expression(e->child[0], FALSE);
@@ -1647,6 +1634,7 @@ void print_addr(unsigned addr)
     }
 }
 
+static
 void print_binop(Quad *i, char *op)
 {
     print_addr(i->tar);
@@ -1656,112 +1644,86 @@ void print_binop(Quad *i, char *op)
     print_addr(i->arg2);
 }
 
+static
+void print_unaop(Quad *i, char *op)
+{
+    print_addr(i->tar);
+    printf(" = %s", op);
+    print_addr(i->arg1);
+}
+
 void disassemble(void)
 {
-    Quad *p;
     unsigned i;
 
-    p = ic_instructions;
-
     for (i = 0; i < ic_instructions_counter; i++) {
+        Quad *p;
+
+        p = &p[i];
         printf("(%d) ", i);
-        switch (p[i].op) {
-        case OpAdd: print_binop(&p[i], "+"); break;
-        case OpSub: print_binop(&p[i], "-"); break;
-        case OpMul: print_binop(&p[i], "*"); break;
-        case OpDiv: print_binop(&p[i], "/"); break;
-        case OpRem: print_binop(&p[i], "%"); break;
-        case OpNeg:
-            print_addr(p[i].tar);
-            printf(" = -");
-            print_addr(p[i].arg1);
-            break;
-        // case OpCmpl:
-        // case OpNot:
-        // case OpSHL:
-        // case OpSHR:
-        // case OpAnd:
-        // case OpOr:
-        // case OPXor:
-        case OpEQ:  print_binop(&p[i], "=="); break;
-        case OpNEQ: print_binop(&p[i], "!="); break;
-        case OpLT:  print_binop(&p[i], "<");  break;
-        case OpLET: print_binop(&p[i], "<="); break;
-        case OpGT:  print_binop(&p[i], ">");  break;
-        case OpGET: print_binop(&p[i], ">="); break;
+        switch (p->op) {
+        case OpAdd: print_binop(p, "+");  break;
+        case OpSub: print_binop(p, "-");  break;
+        case OpMul: print_binop(p, "*");  break;
+        case OpDiv: print_binop(p, "/");  break;
+        case OpRem: print_binop(p, "%");  break;
+        case OpSHL: print_binop(p, "<<"); break;
+        case OpSHR: print_binop(p, ">>"); break;
+        case OpAnd: print_binop(p, "&");  break;
+        case OpOr:  print_binop(p, "|");  break;
+        case OpXor: print_binop(p, "^");  break;
+        case OpEQ:  print_binop(p, "=="); break;
+        case OpNEQ: print_binop(p, "!="); break;
+        case OpLT:  print_binop(p, "<");  break;
+        case OpLET: print_binop(p, "<="); break;
+        case OpGT:  print_binop(p, ">");  break;
+        case OpGET: print_binop(p, ">="); break;
 
-        case OpCh:
-            print_addr(p[i].tar);
-            printf(" = (char)");
-            print_addr(p[i].arg1);
-            break;
-        case OpUCh:
-            print_addr(p[i].tar);
-            printf(" = (unsigned char)");
-            print_addr(p[i].arg1);
-            break;
-        case OpSh:
-            print_addr(p[i].tar);
-            printf(" = (short)");
-            print_addr(p[i].arg1);
-            break;
-        case OpUSh:
-            print_addr(p[i].tar);
-            printf(" = (unsigned short)");
-            print_addr(p[i].arg1);
-            break;
-
-        case OpIndAsn:
-            printf("*");
-        case OpAsn:
-            print_addr(p[i].tar);
-            printf(" = ");
-            print_addr(p[i].arg1);
-            break;
-        case OpAddrOf:
-            print_addr(p[i].tar);
-            printf(" = &");
-            print_addr(p[i].arg1);
-            break;
-        case OpInd:
-            print_addr(p[i].tar);
-            printf(" = *");
-            print_addr(p[i].arg1);
-            break;
+        case OpNeg:  print_unaop(p, "-"); break;
+        case OpCmpl: print_unaop(p, "~"); break;
+        case OpNot:  print_unaop(p, "!"); break;
+        case OpCh:   print_unaop(p, "(char)");           break;
+        case OpUCh:  print_unaop(p, "(unsigned char)");  break;
+        case OpSh:   print_unaop(p, "(short)");          break;
+        case OpUSh:  print_unaop(p, "(unsigned short)"); break;
+        case OpIndAsn: printf("*");
+        case OpAsn:    print_unaop(p, "");  break;
+        case OpAddrOf: print_unaop(p, "&"); break;
+        case OpInd:    print_unaop(p, "*"); break;
 
         case OpLab:
-            printf("L%lu:", address(p[i].tar).cont.uval);
+            printf("L%ld:", address(p->tar).cont.val);
             break;
         case OpJmp:
-            printf("jmp L%lu", address(p[i].tar).cont.uval);
+            printf("jmp L%ld", address(p->tar).cont.val);
             break;
         // case OpIndJ:
         // case OpTbl:
         case OpCBr:
             printf("cbr ");
-            print_addr(p[i].tar);
-            printf(", L%lu, L%lu", address(p[i].arg1).cont.uval, address(p[i].arg2).cont.uval);
+            print_addr(p->tar);
+            printf(", L%ld, L%ld", address(p->arg1).cont.val, address(p->arg2).cont.val);
             break;
 
         case OpArg:
             printf("arg ");
-            print_addr(p[i].arg1);
+            print_addr(p->arg1);
             break;
         case OpCall:
         case OpIndCall:
-            if (p[i].tar) {
-                print_addr(p[i].tar);
+            if (p->tar) {
+                print_addr(p->tar);
                 printf(" = ");
             }
-            if (p[i].op == OpCall)
-                print_addr(p[i].arg1);
+            if (p->op == OpCall)
+                print_addr(p->arg1);
             else
-                printf("(*"), print_addr(p[i].arg1), printf(")");
+                printf("(*"), print_addr(p->arg1), printf(")");
             printf("()");
             break;
         case OpRet:
             printf("ret ");
-            print_addr(p[i].arg1);
+            print_addr(p->arg1);
             break;
         }
         printf("\n");

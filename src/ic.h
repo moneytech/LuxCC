@@ -15,7 +15,7 @@ typedef enum {
     OpSHR,
     OpAnd,
     OpOr,
-    OPXor,
+    OpXor,
     OpEQ,
     OpNEQ,
     OpLT,

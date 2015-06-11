@@ -135,7 +135,7 @@ void live_init_block(int b)
 
         case OpAdd: case OpSub: case OpMul: case OpDiv:
         case OpRem: case OpSHL: case OpSHR: case OpAnd:
-        case OpOr: case OPXor: case OpEQ: case OpNEQ:
+        case OpOr: case OpXor: case OpEQ: case OpNEQ:
         case OpLT: case OpLET: case OpGT: case OpGET:
             if (address(arg1).kind != IConstKind)
                 add_UEVar(arg1);
@@ -375,7 +375,7 @@ void compute_liveness_and_next_use(void)
 
             case OpAdd: case OpSub: case OpMul: case OpDiv:
             case OpRem: case OpSHL: case OpSHR: case OpAnd:
-            case OpOr: case OPXor: case OpEQ: case OpNEQ:
+            case OpOr: case OpXor: case OpEQ: case OpNEQ:
             case OpLT: case OpLET: case OpGT: case OpGET:
                 update_tar();
                 if (address(arg1).kind != IConstKind)
@@ -496,7 +496,7 @@ void print_liveness_and_next_use(void)
 
             case OpAdd: case OpSub: case OpMul: case OpDiv:
             case OpRem: case OpSHL: case OpSHR: case OpAnd:
-            case OpOr: case OPXor: case OpEQ: case OpNEQ:
+            case OpOr: case OpXor: case OpEQ: case OpNEQ:
             case OpLT: case OpLET: case OpGT: case OpGET:
                 print_tar();
                 if (address(arg1).kind != IConstKind) {
