@@ -815,8 +815,22 @@ void ptr_iteration(void)
             }
                 continue;
 
-            // case OpSub:
-                // continue;
+            case OpSub: {
+                PointToSet *s;
+
+                if (instruction(i).type == (Declaration *)1
+                && (address(arg1).kind==TempKind || address(arg1).kind==IdKind)
+                && (s=search_point_to(point_OUT[i-1], address_nid(arg1))) != NULL)
+                    cpy_point_to(i, address_nid(tar), s->tl);
+                else
+                    break;
+                for (s = point_OUT[i-1]; s != NULL; s = s->next) {
+                    if (s->ptr == address_nid(tar))
+                        continue;
+                    cpy_point_to(i, s->ptr, s->tl);
+                }
+            }
+                continue;
 
             case OpCall:
             case OpIndCall:

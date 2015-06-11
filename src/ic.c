@@ -1266,7 +1266,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                     a4 = new_temp_addr();
                     emit_i(OpMul, NULL, a4, a2, a3);
                     a5 = new_temp_addr();
-                    emit_i(OpSub, NULL, a5, a1, a4);
+                    emit_i(OpSub, (Declaration *)1, a5, a1, a4); /* the '1' is a mark for later pointer analysis */
                 } else { /* ptr-ptr */
                     a4 = new_temp_addr();
                     emit_i(OpSub, NULL, a4, a1, a2);
