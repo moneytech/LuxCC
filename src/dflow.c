@@ -1,7 +1,7 @@
 /*
  * Iterative data-flow analyses.
  */
-#define DEBUG 1
+#define DEBUG 0
 #include "dflow.h"
 #include <stdio.h>
 #include <string.h>

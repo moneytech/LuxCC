@@ -565,7 +565,6 @@ static struct Label {
 static int gotos_to_fix[64], gotos_to_fix_counter;
 static void register_label(char *str, unsigned addr);
 static unsigned get_label_address(char *str);
-// static void emit_label(unsigned L);
 
 static unsigned btarget_stack[128], ctarget_stack[128];
 static int bt_stack_top = -1, ct_stack_top = -1;
@@ -592,16 +591,6 @@ static unsigned ic_expression2(ExecNode *e);
 static unsigned ic_expr_convert(ExecNode *e, Declaration *dest);
 static void split_block(void);
 
-/*void emit_label(unsigned L)
-{
-    int iprev;
-
-    iprev = ic_instructions_counter-1;
-    if (instruction(iprev).op == OpLab)
-        address(L).cont.val = address(instruction(iprev).tar).cont.val;
-    else
-        emit_i(OpLab, NULL, L, 0, 0);
-}*/
 void split_block(void)
 {
     emit_i(OpLab, NULL, new_label(), 0, 0);
@@ -857,7 +846,7 @@ void ic_return_statement(ExecNode *s)
 
         ret_ty.decl_specs = (TypeExp *)s->child[1];
         ret_ty.idl = (TypeExp *)s->child[2];
-        emit_i(OpRet, NULL, 0, ic_expr_convert(s->child[0], &ret_ty), 0); /* TBD: type field */
+        emit_i(OpRet, NULL, 0, ic_expr_convert(s->child[0], &ret_ty), 0);
     }
     emit_i(OpJmp, NULL, exit_label, 0, 0);
     split_block();
@@ -925,10 +914,8 @@ void ic_compound_statement(ExecNode *s, int push_scope)
 
 void ic_expression_statement(ExecNode *s)
 {
-    if (s->child[0] == NULL)
-        return;
-
-    ic_expression2(s->child[0]);
+    if (s->child[0] != NULL)
+        ic_expression2(s->child[0]);
 }
 
 void register_label(char *str, unsigned addr)
@@ -978,6 +965,7 @@ static int number_expression_tree(ExecNode *e);
 static void print_addr(unsigned addr);
 static void function_argument(ExecNode *arg, DeclList *param);
 static unsigned ic_dereference(unsigned ptr, Declaration *ty);
+static unsigned get_step_size(ExecNode *e);
 static unsigned ic_expression(ExecNode *e, int is_addr);
 
 #define NREG(x) ((x)->nreg)
@@ -1080,40 +1068,58 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                 return a2;
             }
         }
-#if 0
+
         case TOK_MUL_ASSIGN:
-            return ic_compound_assignment(e, TOK_MUL);
         case TOK_DIV_ASSIGN:
-            return ic_compound_assignment(e, TOK_DIV);
         case TOK_REM_ASSIGN:
-            return ic_compound_assignment(e, TOK_REM);
         case TOK_PLUS_ASSIGN:
-            return ic_compound_assignment(e, TOK_PLUS);
         case TOK_MINUS_ASSIGN:
-            return ic_compound_assignment(e, TOK_MINUS);
         case TOK_LSHIFT_ASSIGN:
-            return ic_compound_assignment(e, TOK_LSHIFT);
         case TOK_RSHIFT_ASSIGN:
-            return ic_compound_assignment(e, TOK_RSHIFT);
         case TOK_BW_AND_ASSIGN:
-            return ic_compound_assignment(e, TOK_BW_AND);
         case TOK_BW_XOR_ASSIGN:
-            return ic_compound_assignment(e, TOK_BW_XOR);
-        case TOK_BW_OR_ASSIGN:
-            return ic_compound_assignment(e, TOK_BW_OR);
-#endif
-        case TOK_CONDITIONAL: {
+        case TOK_BW_OR_ASSIGN: {
+            ExecNode new_e;
+            unsigned a1, a2;
+
             /*
-            ==> <a> ? <b> : <c>
-            CBr <a>, L1, L2
-            L1:
-            t1 = <b>
-            Jmp L3
-            L2:
-            t1 = <c>
-            Jmp L3
-            L3:
-            */
+             * TOFIX:
+             * - This generates code that evaluates the left operand twice.
+             *  e.g.
+             *      *f() += 123; ==> *f() = *f()+123;
+             *  Instead, it should be somthing like
+             *      tmp = f();
+             *      *tmp = *tmp+123
+             */
+
+            new_e = *e;
+            switch (e->attr.op) {
+                case TOK_MUL_ASSIGN:    new_e.attr.op = TOK_MUL;     break;
+                case TOK_DIV_ASSIGN:    new_e.attr.op = TOK_DIV;     break;
+                case TOK_REM_ASSIGN:    new_e.attr.op = TOK_REM;     break;
+                case TOK_PLUS_ASSIGN:   new_e.attr.op = TOK_PLUS;    break;
+                case TOK_MINUS_ASSIGN:  new_e.attr.op = TOK_MINUS;   break;
+                case TOK_LSHIFT_ASSIGN: new_e.attr.op = TOK_LSHIFT;  break;
+                case TOK_RSHIFT_ASSIGN: new_e.attr.op = TOK_RSHIFT;  break;
+                case TOK_BW_AND_ASSIGN: new_e.attr.op = TOK_BW_AND;  break;
+                case TOK_BW_XOR_ASSIGN: new_e.attr.op = TOK_BW_XOR;  break;
+                case TOK_BW_OR_ASSIGN:  new_e.attr.op = TOK_BW_OR;   break;
+            }
+            new_e.type.decl_specs = (TypeExp *)e->child[2];
+            new_e.type.idl = (TypeExp *)e->child[3];
+            a2 = ic_expr_convert(&new_e, &e->type);
+            if (e->child[0]->kind.exp == IdExp) {
+                a1 = ic_expression(e->child[0], FALSE);
+                emit_i(OpAsn, &e->type, a1, a2, 0);
+                return a1;
+            } else {
+                a1 = ic_expression(e->child[0], TRUE);
+                emit_i(OpIndAsn, &e->type, a1, a2, 0);
+                return a2;
+            }
+        }
+
+        case TOK_CONDITIONAL: {
             unsigned a;
             unsigned L1, L2, L3;
 
@@ -1530,7 +1536,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
         if (e->attr.var.duration == DURATION_AUTO)
             address(a1).cont.var.offset = location_get_offset(e->attr.str);
 
-        if (is_addr || (cat=get_type_category(&e->type))==TOK_SUBSCRIPT || cat==TOK_FUNCTION) {
+        if (is_addr || (cat=get_type_category(&e->type))==TOK_SUBSCRIPT /*|| cat==TOK_FUNCTION*/) {
             unsigned a2;
 
             a2 = new_temp_addr();
