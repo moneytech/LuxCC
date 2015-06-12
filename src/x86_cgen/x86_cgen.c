@@ -66,7 +66,6 @@ static char *x86_lbreg_str[] = {
 
 extern int size_of_local_area;
 static char *curr_func;
-static Declaration ret_ty;
 static unsigned temp_struct_size;
 static int big_return;
 static unsigned arg_nb;
@@ -1289,7 +1288,7 @@ void x86_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
     } else {
         unsigned siz;
 
-        siz = compute_sizeof(&ret_ty);
+        siz = compute_sizeof(instruction(i).type);
         /*if (reg_descr_tab[X86_ESI].naddrs != 0)
             spill_reg(X86_ESI);*/
         x86_load(X86_ESI, arg1);
@@ -1368,15 +1367,16 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
 
     int b;
     Token cat;
+    Declaration ty;
 
     ic_function_definition(decl_specs, header);
     init_addr_descr_tab();
     size_of_local_area = round_up(size_of_local_area, 4);
     curr_func = header->str;
-    ret_ty.decl_specs = decl_specs;
-    ret_ty.idl = header->child->child;
+    ty.decl_specs = decl_specs;
+    ty.idl = header->child->child;
 
-    big_return = ((cat=get_type_category(&ret_ty))==TOK_STRUCT || cat==TOK_UNION);
+    big_return = ((cat=get_type_category(&ty))==TOK_STRUCT || cat==TOK_UNION);
 
     emit_prologln("\n; ==== start of definition of function `%s' ====", curr_func);
     emit_prologln("%s:", curr_func);

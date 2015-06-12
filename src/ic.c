@@ -847,11 +847,12 @@ void ic_break_statement(void)
 void ic_return_statement(ExecNode *s)
 {
     if (s->child[0] != NULL) {
-        Declaration ret_ty;
+        Declaration *ty;
 
-        ret_ty.decl_specs = (TypeExp *)s->child[1];
-        ret_ty.idl = (TypeExp *)s->child[2];
-        emit_i(OpRet, NULL, 0, ic_expr_convert(s->child[0], &ret_ty), 0);
+        ty = malloc(sizeof(Declaration));
+        ty->decl_specs = (TypeExp *)s->child[1];
+        ty->idl = (TypeExp *)s->child[2];
+        emit_i(OpRet, ty, 0, ic_expr_convert(s->child[0], ty), 0);
     }
     emit_i(OpJmp, NULL, exit_label, 0, 0);
     split_block();
@@ -1600,7 +1601,7 @@ unsigned ic_expr_convert(ExecNode *e, Declaration *dest)
     /* fall through */
     /* convert */
     a2 = new_temp_addr();
-    emit_i(op, dest, a2, a1, 0);
+    emit_i(op, NULL, a2, a1, 0);
     return a2;
 }
 
