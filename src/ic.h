@@ -101,7 +101,7 @@ struct Quad {
 struct CFGNode { /* CFG node == basic block */
     unsigned leader, last;
     unsigned out_edges[MAX_OUT_EDGES]; /* successors */
-    unsigned in_edges[MAX_IN_EDGES];   /* predecessors (TODO: make in_edges growable)*/
+    unsigned in_edges[MAX_IN_EDGES];   /* predecessors (TODO: make in_edges growable) */
     BSet *UEVar;    /* upward-exposed variables in the block */
     BSet *VarKill;  /* variables defined/killed in the block */
     BSet *LiveOut;  /* variables live on exit from the block */

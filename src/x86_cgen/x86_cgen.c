@@ -1320,7 +1320,7 @@ void x86_nop(int i, unsigned tar, unsigned arg1, unsigned arg2)
     /* nothing */
 }
 
-void (*instruction_handlers[])(int, unsigned, unsigned, unsigned) = {
+static void (*instruction_handlers[])(int, unsigned, unsigned, unsigned) = {
     x86_add, x86_sub, x86_mul, x86_div,
     x86_rem, x86_shl, x86_shr, x86_and,
     x86_or, x86_xor, x86_eq, x86_neq,
@@ -1373,9 +1373,9 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     init_addr_descr_tab();
     size_of_local_area = round_up(size_of_local_area, 4);
     curr_func = header->str;
+
     ty.decl_specs = decl_specs;
     ty.idl = header->child->child;
-
     big_return = ((cat=get_type_category(&ty))==TOK_STRUCT || cat==TOK_UNION);
 
     emit_prologln("\n; ==== start of definition of function `%s' ====", curr_func);

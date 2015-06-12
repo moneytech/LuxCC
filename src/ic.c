@@ -18,6 +18,10 @@
 #include "loc.h"
 #include "dflow.h"
 
+/*typedef struct CGNode CGNode;
+struct CFNode {
+}*/
+
 #define IINIT   1024
 #define IGROW   2
 unsigned ic_instructions_max;
@@ -313,7 +317,7 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
 
     fix_gotos();
 
-    // disassemble();
+    disassemble();
     if (ic_instructions_counter > 0) {
         build_CFG();
         // print_CFG();
