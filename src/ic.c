@@ -1040,6 +1040,23 @@ unsigned ic_dereference(unsigned ptr, Declaration *ty)
     return dst;
 }
 
+unsigned get_step_size(ExecNode *e)
+{
+    unsigned a;
+
+    a = new_address(IConstKind);
+    if (is_integer(get_type_category(&e->type))) {
+        address(a).cont.uval = 1;
+    } else {
+        Declaration ty;
+
+        ty = e->type;
+        ty.idl = ty.idl->child;
+        address(a).cont.uval = compute_sizeof(&ty);
+    }
+    return a;
+}
+
 unsigned ic_expression(ExecNode *e, int is_addr)
 {
     switch (e->kind.exp) {
@@ -1056,11 +1073,12 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             if (e->child[0]->kind.exp == IdExp) {
                 a1 = ic_expression(e->child[0], FALSE);
                 emit_i(OpAsn, &e->type, a1, a2, 0);
+                return a1;
             } else {
                 a1 = ic_expression(e->child[0], TRUE);
                 emit_i(OpIndAsn, &e->type, a1, a2, 0);
+                return a2;
             }
-            return a1;
         }
 #if 0
         case TOK_MUL_ASSIGN:
@@ -1316,13 +1334,65 @@ unsigned ic_expression(ExecNode *e, int is_addr)
 
         case TOK_CAST:
             return ic_expr_convert(e->child[0], (Declaration *)e->child[1]);
-#if 0
+
         case TOK_PRE_INC:
-        case TOK_PRE_DEC:
+        case TOK_PRE_DEC: {
+            Token cat;
+            unsigned a1, a2, a3, a4, a5;
+
+#define CAST()\
+    if ((cat=get_type_category(&e->type)) == TOK_UNSIGNED_CHAR) {\
+        a4 = new_temp_addr();\
+        emit_i(OpUCh, NULL, a4, a3, 0);\
+    } else if (cat == TOK_UNSIGNED_SHORT) {\
+        a4 = new_temp_addr();\
+        emit_i(OpUSh, NULL, a4, a3, 0);\
+    } else {\
+        a4 = a3;\
+    }
+            a1 = get_step_size(e);
+            if (e->child[0]->kind.exp == IdExp) {
+                a2 = ic_expression(e->child[0], FALSE);
+                a3 = new_temp_addr();
+                emit_i((e->attr.op==TOK_PRE_INC)?OpAdd:OpSub, NULL, a3, a2, a1);
+                CAST();
+                emit_i(OpAsn, NULL, a2, a4, 0);
+                return a2;
+            } else {
+                a2 = ic_expression(e->child[0], FALSE);
+                a3 = new_temp_addr();
+                emit_i((e->attr.op==TOK_PRE_INC)?OpAdd:OpSub, NULL, a3, a2, a1);
+                CAST();
+                a5 = ic_expression(e->child[0], TRUE);
+                emit_i(OpIndAsn, &e->type, a5, a4, 0);
+                return a4;
+            }
+        }
+#undef CAST
+
         case TOK_POS_INC:
-        case TOK_POS_DEC:
-            return ic_inc_dec(e);
-#endif
+        case TOK_POS_DEC: {
+            unsigned a1, a2, a3, a4;
+
+            a1 = get_step_size(e);
+            if (e->child[0]->kind.exp == IdExp) {
+                a2 = ic_expression(e->child[0], FALSE);
+                a3 = new_temp_addr();
+                emit_i(OpAsn, NULL, a3, a2, 0);
+                a4 = new_temp_addr();
+                emit_i((e->attr.op==TOK_POS_INC)?OpAdd:OpSub, NULL, a4, a3, a1);
+                emit_i(OpAsn, NULL, a2, a4, 0);
+                return a3;
+            } else {
+                a2 = ic_expression(e->child[0], FALSE);
+                a3 = new_temp_addr();
+                emit_i((e->attr.op==TOK_POS_INC)?OpAdd:OpSub, NULL, a3, a2, a1);
+                a4 = ic_expression(e->child[0], TRUE);
+                emit_i(OpIndAsn, &e->type, a4, a3, 0);
+                return a2;
+            }
+        }
+
         case TOK_ADDRESS_OF:
             return ic_expression(e->child[0], TRUE);
         case TOK_INDIRECTION:

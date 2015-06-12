@@ -818,6 +818,9 @@ void ptr_iteration(void)
             case OpSub: {
                 PointToSet *s;
 
+                /* the front-end put an '1' in the type fields to
+                   indicate a subtraction between a pointer and
+                   an integer */
                 if (instruction(i).type == (Declaration *)1
                 && (address(arg1).kind==TempKind || address(arg1).kind==IdKind)
                 && (s=search_point_to(point_OUT[i-1], address_nid(arg1))) != NULL)
