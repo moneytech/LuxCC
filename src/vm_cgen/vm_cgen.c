@@ -1184,7 +1184,7 @@ unsigned function_argument(ExecNode *arg, DeclList *param)
 
     if (param->decl->idl==NULL || param->decl->idl->op!=TOK_ELLIPSIS) {
         /*
-         * This argument match a declared (non-optional) parameter.
+         * This argument matches a declared (non-optional) parameter.
          */
         arg_area_size = function_argument(arg->sibling, param->next);
         ty.decl_specs = param->decl->decl_specs;
@@ -1197,7 +1197,7 @@ unsigned function_argument(ExecNode *arg, DeclList *param)
         real_arg_size = compute_sizeof(&ty);
     } else {
         /*
-         * This and the follow arguments match the `...'.
+         * This and the arguments that follow match the `...'.
          */
         arg_area_size = function_argument(arg->sibling, param);
         expression(arg, FALSE);

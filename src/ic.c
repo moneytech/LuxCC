@@ -1513,19 +1513,13 @@ unsigned ic_expression(ExecNode *e, int is_addr)
         address(a).cont.uval = e->attr.uval;
         return a;
     }
-    case StrLitExp:
-#if 0
-        /* ==> "abc"
-         (0) t1 = "abc"
-         */
-        arg1 = new_address(StrLitKind);
-        address(arg1).cont.str = e->attr.str;
-        tar = new_temp_addr();
-        append_instruction(op, tar, arg1, 0);
+    case StrLitExp: {
+        unsigned a;
 
-        return tar;
-#endif
-        assert(0);
+        a = new_address(StrLitKind);
+        address(a).cont.str = e->attr.str;
+        return a;
+    }
     case IdExp: {
         Token cat;
         unsigned a1;
@@ -1613,7 +1607,7 @@ void function_argument(ExecNode *arg, DeclList *param)
         return;
 
     if (param->decl->idl==NULL || param->decl->idl->op!=TOK_ELLIPSIS) {
-        /* this argument match a declared (non-optional) parameter */
+        /* this argument matches a declared (non-optional) parameter */
 
         Declaration ty;
 
@@ -1623,7 +1617,7 @@ void function_argument(ExecNode *arg, DeclList *param)
             ty.idl = ty.idl->child;
         emit_i(OpArg, param->decl, 0, ic_expr_convert(arg, &ty), 0);
     } else {
-        /* this and the follow arguments match the `...' */
+        /* this and the arguments that follow match the `...' */
 
         function_argument(arg->sibling, param);
         emit_i(OpArg, &arg->type, 0, ic_expression(arg, FALSE), 0);
@@ -1707,15 +1701,11 @@ void print_addr(unsigned addr)
         break;
     case TempKind:
     case IdKind:
-        // printf("%s (nid = %d)", address(addr).cont.id, address(addr).cont.com.nid);
         printf("%s", address_sid(addr));
         break;
-    /*case StrLitKind:
-        printf("%s", address(addr).cont.str);
+    case StrLitKind:
+        printf("\"%s\"", address(addr).cont.str);
         break;
-    case TempKind:
-        printf("t%u", address(addr).cont.tnum);
-        break;*/
     }
 }
 

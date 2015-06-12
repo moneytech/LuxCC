@@ -72,6 +72,7 @@ static int big_return;
 static unsigned arg_nb;
 static int calls_to_fix_counter;
 static char *calls_to_fix[64];
+static int string_literal_counter;
 
 typedef struct Temp Temp;
 struct Temp {
@@ -237,6 +238,7 @@ static char *get_operand(unsigned a);
 static void x86_store(X86_Reg r, unsigned a);
 static void spill_reg(X86_Reg r);
 static X86_Reg get_reg(int intr);
+static char *new_string_literal(unsigned a);
 
 X86_Reg get_empty_reg(void)
 {
@@ -319,6 +321,17 @@ X86_Reg get_reg(int intr)
 
 #define offset(a) (address(a).cont.var.offset)
 
+char *new_string_literal(unsigned a)
+{
+    static char s[16];
+
+    emitln("segment .rodata");
+    emitln("@S%d: db \"%s\", 0", string_literal_counter, address(a).cont.str);
+    emitln("segment .text");
+    sprintf(s, "@S%d", string_literal_counter++);
+    return s;
+}
+
 char *get_operand(unsigned a)
 {
     static char op[128];
@@ -326,7 +339,7 @@ char *get_operand(unsigned a)
     if (address(a).kind == IConstKind) {
         sprintf(op, "%lu", address(a).cont.uval);
     } else if (address(a).kind == StrLitKind) {
-        ;
+        strcpy(op, new_string_literal(a));
     } else if (address(a).kind == IdKind) {
         ExecNode *e;
 
@@ -424,7 +437,7 @@ void x86_load(X86_Reg r, unsigned a)
     if (address(a).kind == IConstKind) {
         emitln("mov %s, %lu", x86_reg_str[r], address(a).cont.uval);
     } else if (address(a).kind == StrLitKind) {
-        ;
+        emitln("mov %s, %s", x86_reg_str[r], new_string_literal(a));
     } else if (address(a).kind == IdKind) {
         ExecNode *e;
         char *siz_str, *mov_str;
@@ -622,7 +635,7 @@ void compare_against_zero(unsigned a)
     if (address(a).kind == IConstKind) {
         assert(0); /* can be folded */
     } else if (address(a).kind == StrLitKind) {
-        ;
+        assert(0); /* can be folded */
     } else if (address(a).kind == IdKind) {
         ExecNode *e;
         char *siz_str;
@@ -649,11 +662,11 @@ void compare_against_zero(unsigned a)
         }
 
         if (e->attr.var.duration == DURATION_STATIC) {
-            if (e->attr.var.linkage == LINKAGE_NONE) /* static local */
+            if (e->attr.var.linkage == LINKAGE_NONE)
                 emitln("cmp %s [%s@%s], 0", siz_str, curr_func, e->attr.str);
-            else /* global */
+            else
                 emitln("cmp %s [%s], 0", siz_str, e->attr.str);
-        } else { /* parameter or local */
+        } else {
             if (e->attr.var.is_param)
                 emitln("cmp %s [ebp+%d], 0", siz_str, offset(a));
             else

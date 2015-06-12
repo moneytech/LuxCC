@@ -12,6 +12,8 @@
 #include "expr.h"
 #include "bset.h"
 
+#define nonconst_addr(a) (address(a).kind!=IConstKind && address(a).kind!=StrLitKind)
+
 // =======================================================================================
 // Dominance
 // =======================================================================================
@@ -137,16 +139,16 @@ void live_init_block(int b)
         case OpRem: case OpSHL: case OpSHR: case OpAnd:
         case OpOr: case OpXor: case OpEQ: case OpNEQ:
         case OpLT: case OpLET: case OpGT: case OpGET:
-            if (address(arg1).kind != IConstKind)
+            if (nonconst_addr(arg1))
                 add_UEVar(arg1);
-            if (address(arg2).kind != IConstKind)
+            if (nonconst_addr(arg2))
                 add_UEVar(arg2);
             add_VarKill(tar);
             continue;
 
         case OpNeg: case OpCmpl: case OpNot: case OpCh:
         case OpUCh: case OpSh: case OpUSh: case OpAsn:
-            if (address(arg1).kind != IConstKind)
+            if (nonconst_addr(arg1))
                 add_UEVar(arg1);
             add_VarKill(tar);
 
@@ -159,7 +161,7 @@ void live_init_block(int b)
 
         case OpArg:
         case OpRet:
-            if (address(arg1).kind != IConstKind)
+            if (nonconst_addr(arg1))
                 add_UEVar(arg1);
             continue;
 
@@ -199,25 +201,25 @@ void live_init_block(int b)
              * assignments (assume no variables are modified).
              */
 
-            if (address(arg1).kind != IConstKind)
+            if (nonconst_addr(arg1))
                 add_UEVar(arg1);
             add_UEVar(tar);
         }
             continue;
 
+        /*
+         * TBD: fill UEVar set? (overestimate function calls)
+         */
+        // case OpCall:
         case OpIndCall:
-            /*
-             * TBD: fill UEVar set? (overestimate function calls)
-             */
-
-            if (address(arg1).kind != IConstKind)
+            if (nonconst_addr(arg1))
                 add_UEVar(arg1);
             if (tar)
                 add_VarKill(tar);
             continue;
 
         case OpCBr:
-            if (address(tar).kind != IConstKind)
+            if (nonconst_addr(tar))
                 add_UEVar(tar);
             continue;
 
@@ -378,22 +380,22 @@ void compute_liveness_and_next_use(void)
             case OpOr: case OpXor: case OpEQ: case OpNEQ:
             case OpLT: case OpLET: case OpGT: case OpGET:
                 update_tar();
-                if (address(arg1).kind != IConstKind)
+                if (nonconst_addr(arg1))
                     update_arg1();
-                if (address(arg2).kind != IConstKind)
+                if (nonconst_addr(arg2))
                     update_arg2();
                 continue;
 
             case OpNeg: case OpCmpl: case OpNot: case OpCh:
             case OpUCh: case OpSh: case OpUSh: case OpAsn:
                 update_tar();
-                if (address(arg1).kind != IConstKind)
+                if (nonconst_addr(arg1))
                     update_arg1();
                 continue;
 
             case OpArg:
             case OpRet:
-                if (address(arg1).kind != IConstKind)
+                if (nonconst_addr(arg1))
                     update_arg1();
                 continue;
 
@@ -427,7 +429,7 @@ void compute_liveness_and_next_use(void)
                 next_use[0] = operand_table[address_nid(tar)].next_use;
                 operand_table[address_nid(tar)].liveness = LIVE;
                 operand_table[address_nid(tar)].next_use = i;
-                if (address(arg1).kind != IConstKind)
+                if (nonconst_addr(arg1))
                     update_arg1();
                 continue;
 
@@ -439,12 +441,12 @@ void compute_liveness_and_next_use(void)
             case OpIndCall:
                 if (tar)
                     update_tar();
-                if (address(arg1).kind != IConstKind)
+                if (nonconst_addr(arg1))
                     update_arg1();
                 continue;
 
             case OpCBr:
-                if (address(tar).kind != IConstKind) {
+                if (nonconst_addr(tar)) {
                     liveness[0] = operand_table[address_nid(tar)].liveness;
                     next_use[0] = operand_table[address_nid(tar)].next_use;
                     operand_table[address_nid(tar)].liveness = LIVE;
@@ -499,11 +501,11 @@ void print_liveness_and_next_use(void)
             case OpOr: case OpXor: case OpEQ: case OpNEQ:
             case OpLT: case OpLET: case OpGT: case OpGET:
                 print_tar();
-                if (address(arg1).kind != IConstKind) {
+                if (nonconst_addr(arg1)) {
                     printf(" | ");
                     print_arg1();
                 }
-                if (address(arg2).kind != IConstKind) {
+                if (nonconst_addr(arg2)) {
                     printf(" | ");
                     print_arg2();
                 }
@@ -512,7 +514,7 @@ void print_liveness_and_next_use(void)
             case OpNeg: case OpCmpl: case OpNot: case OpCh:
             case OpUCh: case OpSh: case OpUSh: case OpAsn:
                 print_tar();
-                if (address(arg1).kind != IConstKind) {
+                if (nonconst_addr(arg1)) {
                     printf(" | ");
                     print_arg1();
                 }
@@ -520,7 +522,7 @@ void print_liveness_and_next_use(void)
 
             case OpArg:
             case OpRet:
-                if (address(arg1).kind != IConstKind) {
+                if (nonconst_addr(arg1)) {
                     print_arg1();
                 }
                 break;
@@ -537,7 +539,7 @@ void print_liveness_and_next_use(void)
 
             case OpIndAsn:
                 print_tar();
-                if (address(arg1).kind != IConstKind) {
+                if (nonconst_addr(arg1)) {
                     printf(" | ");
                     print_arg1();
                 }
@@ -551,14 +553,14 @@ void print_liveness_and_next_use(void)
             case OpIndCall:
                 if (tar)
                     print_tar();
-                if (address(arg1).kind != IConstKind) {
+                if (nonconst_addr(arg1)) {
                     printf(" | ");
                     print_arg1();
                 }
                 break;
 
             case OpCBr:
-                if (address(tar).kind != IConstKind)
+                if (nonconst_addr(tar))
                     print_tar();
                 break;
             default:
