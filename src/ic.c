@@ -256,6 +256,11 @@ void ic_reset(void)
     arena_reset(id_table_arena);
     memset(id_table, 0, sizeof(IDNode *)*ID_TABLE_SIZE);
     arena_reset(temp_names_arena);
+
+    true_addr = new_address(IConstKind);
+    address(true_addr).cont.uval = 1;
+    false_addr = new_address(IConstKind);
+    address(false_addr).cont.uval = 0;
 }
 
 static void build_CFG(void);
@@ -308,10 +313,10 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
 
     fix_gotos();
 
-    disassemble();
+    // disassemble();
     if (ic_instructions_counter > 0) {
         build_CFG();
-        print_CFG();
+        // print_CFG();
         dflow_dominance();
         dflow_PointOut();
         dflow_LiveOut();
@@ -956,6 +961,7 @@ void fix_gotos(void)
         np = np->next;
         free(temp);
     }
+    ic_labels = NULL;
 }
 // =============================================================================
 // Expressions

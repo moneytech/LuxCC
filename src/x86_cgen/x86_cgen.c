@@ -73,6 +73,7 @@ static unsigned arg_nb;
 static int calls_to_fix_counter;
 static char *calls_to_fix[64];
 static int string_literal_counter;
+static int new_string_literal(unsigned a);
 
 typedef struct Temp Temp;
 struct Temp {
@@ -121,6 +122,19 @@ void free_temp(unsigned a)
             break;
         }
     }
+}
+
+void free_all_temps(void)
+{
+    Temp *p, *q;
+
+    p = temp_list;
+    while (p != NULL) {
+        q = p;
+        p = p->next;
+        free(q);
+    }
+    temp_list = NULL;
 }
 
 typedef struct AddrDescr AddrDescr;
@@ -204,6 +218,27 @@ static String *func_body, *func_prolog, *func_epilog;
 #define emit_epilog(...)   (string_printf(func_epilog, __VA_ARGS__))
 #define emit_epilogln(...) (string_printf(func_epilog, __VA_ARGS__), string_printf(func_epilog, "\n"))
 
+int new_string_literal(unsigned a)
+{
+    char *s;
+    unsigned len, i;
+
+    emitln("segment .rodata");
+    emitln("@S%d:", string_literal_counter);
+
+    s = address(a).cont.str;
+    len = strlen(s)+1;
+    for (i = len/4; i; i--) {
+        emitln("dd 0x%x%x%x%x", s[3], s[2], s[1], s[0]);
+        s += 4;
+    }
+    for (i = len%4; i; i--)
+        emitln("db 0x%x", *s++);
+
+    emitln("segment .text");
+    return string_literal_counter++;
+}
+
 void x86_function_definition(TypeExp *decl_specs, TypeExp *header);
 
 void x86_cgen(void)
@@ -238,7 +273,6 @@ static char *get_operand(unsigned a);
 static void x86_store(X86_Reg r, unsigned a);
 static void spill_reg(X86_Reg r);
 static X86_Reg get_reg(int intr);
-static char *new_string_literal(unsigned a);
 
 X86_Reg get_empty_reg(void)
 {
@@ -321,17 +355,6 @@ X86_Reg get_reg(int intr)
 
 #define offset(a) (address(a).cont.var.offset)
 
-char *new_string_literal(unsigned a)
-{
-    static char s[16];
-
-    emitln("segment .rodata");
-    emitln("@S%d: db \"%s\", 0", string_literal_counter, address(a).cont.str);
-    emitln("segment .text");
-    sprintf(s, "@S%d", string_literal_counter++);
-    return s;
-}
-
 char *get_operand(unsigned a)
 {
     static char op[128];
@@ -339,7 +362,7 @@ char *get_operand(unsigned a)
     if (address(a).kind == IConstKind) {
         sprintf(op, "%lu", address(a).cont.uval);
     } else if (address(a).kind == StrLitKind) {
-        strcpy(op, new_string_literal(a));
+        sprintf(op, "@S%d", new_string_literal(a));
     } else if (address(a).kind == IdKind) {
         ExecNode *e;
 
@@ -437,7 +460,7 @@ void x86_load(X86_Reg r, unsigned a)
     if (address(a).kind == IConstKind) {
         emitln("mov %s, %lu", x86_reg_str[r], address(a).cont.uval);
     } else if (address(a).kind == StrLitKind) {
-        emitln("mov %s, %s", x86_reg_str[r], new_string_literal(a));
+        emitln("mov %s, @S%d", x86_reg_str[r], new_string_literal(a));
     } else if (address(a).kind == IdKind) {
         ExecNode *e;
         char *siz_str, *mov_str;
@@ -876,6 +899,16 @@ void x86_lt(int i, unsigned tar, unsigned arg1, unsigned arg2)
 }
 void x86_let(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
+    X86_Reg res;
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    pin_reg(res);
+    emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
+    unpin_reg(res);
+    emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"le":"be", x86_lbreg_str[res]);
+    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    UPDATE_ADDRESSES(res);
 }
 void x86_gt(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -892,6 +925,16 @@ void x86_gt(int i, unsigned tar, unsigned arg1, unsigned arg2)
 }
 void x86_get(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
+    X86_Reg res;
+
+    res = get_reg(i);
+    x86_load(res, arg1);
+    pin_reg(res);
+    emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
+    unpin_reg(res);
+    emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"ge":"ae", x86_lbreg_str[res]);
+    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    UPDATE_ADDRESSES(res);
 }
 
 void x86_neg(int i, unsigned tar, unsigned arg1, unsigned arg2)
@@ -1074,10 +1117,10 @@ void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
     /*update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);*/
 }
 
-#define emit_lab(n)         emitln(".L%ld:", n)
-#define emit_jmp(target)    emitln("jmp .L%ld", target)
-#define emit_jmpeq(target)  emitln("je .L%ld", target)
-#define emit_jmpneq(target) emitln("jne .L%ld", target)
+#define emit_lab(n)         emitln("@L%ld:", n)
+#define emit_jmp(target)    emitln("jmp @L%ld", target)
+#define emit_jmpeq(target)  emitln("je @L%ld", target)
+#define emit_jmpneq(target) emitln("jne @L%ld", target)
 
 void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -1400,5 +1443,6 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     memset(modified, 0, sizeof(int)*X86_NREG);
     free(addr_descr_tab);
     ic_reset();
-    // memset(reg_descr_tab, 0, sizeof(RegDescr)*X86_NREG);
+    free_all_temps();
+    /*memset(reg_descr_tab, 0, sizeof(RegDescr)*X86_NREG);*/
 }
