@@ -65,9 +65,9 @@ void dflow_dominance(void)
             int j;
             unsigned pred;
 
-            if ((pred = cfg_node(i).in_edges[0])) {
+            if ((pred = cfg_node(i).in.edges[0])) {
                 bset_cpy(temp, cfg_node(pred).Dom);
-                for (j = 1; j<MAX_IN_EDGES && (pred=cfg_node(i).in_edges[j]); j++)
+                for (j = 1; j<cfg_node(i).in.n && (pred=cfg_node(i).in.edges[j]); j++)
                     bset_inters(temp, cfg_node(pred).Dom);
             }
             bset_insert(temp, i);
@@ -277,7 +277,7 @@ void dflow_LiveOut(void)
              *              of each successor m is       __________
              *                  UEVar(m) U (LiveOut(m) ∩ VarKill(m))
              */
-            for (j = 0; j<MAX_OUT_EDGES && (succ=cfg_node(b).out_edges[j]); j++) {
+            for (j = 0; j<cfg_node(b).out.n && (succ=cfg_node(b).out.edges[j]); j++) {
                 bset_cpy(temp, cfg_node(succ).LiveOut);
                 bset_diff(temp, cfg_node(succ).VarKill);
                 bset_union(temp, cfg_node(succ).UEVar);
@@ -853,12 +853,12 @@ void ptr_iteration(void)
                 unsigned pred;
 
                 npred = 0;
-                while (cfg_node(b).in_edges[npred])
+                while (cfg_node(b).in.edges[npred])
                     ++npred;
                 if (npred == 0) {
                     ;
                 } else if (npred == 1) {
-                    pred = cfg_node(b).in_edges[0];
+                    pred = cfg_node(b).in.edges[0];
                     point_OUT[i] = point_OUT[cfg_node(pred).last];
                 } else {
 #if 1 /* to be in OUT[i], a pointer (that is, ptr -> {...}) must be in at least one predecessor (less safe) */
@@ -867,7 +867,7 @@ void ptr_iteration(void)
                     PointToSet *s;
 
                     for (j = 0; j < npred; j++) {
-                        pred = cfg_node(b).in_edges[j];
+                        pred = cfg_node(b).in.edges[j];
                         for (s = point_OUT[cfg_node(pred).last]; s != NULL; s = s->next)
                             union_point_to(i, s->ptr, s->tl);
                     }
@@ -875,14 +875,14 @@ void ptr_iteration(void)
                     PointToSet *p[MAX_IN_EDGES], *s;
 
                     /* take the ptr intersection */
-                    pred = cfg_node(b).in_edges[0];
+                    pred = cfg_node(b).in.edges[0];
                     for (s = point_OUT[cfg_node(pred).last]; s != NULL; s = s->next) {
                         int j;
 
                         memset(p, 0, sizeof(PointToSet *)*MAX_IN_EDGES);
                         p[0] = s;
                         for (j = 1; j < npred; j++) {
-                            pred = cfg_node(b).in_edges[j];
+                            pred = cfg_node(b).in.edges[j];
                             if ((p[j]=search_point_to(point_OUT[cfg_node(pred).last], s->ptr)) == NULL)
                                 break;
                         }

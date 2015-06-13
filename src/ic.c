@@ -18,9 +18,20 @@
 #include "loc.h"
 #include "dflow.h"
 
-/*typedef struct CGNode CGNode;
-struct CFNode {
-}*/
+/*typedef struct CGEdge CGEdge;
+typedef struct CGNode CGNode;
+
+struct CGEdge {
+    unsigned *p;
+    unsigned max, next;
+};
+struct CGNode {
+    unsigned bb_i, bb_f;
+    CGEdge out_edges;
+    CGEdge in_edges;
+};
+
+CGNode *ic_call_graph;*/
 
 #define IINIT   1024
 #define IGROW   2
@@ -82,6 +93,8 @@ static unsigned new_label(void);
 static void ic_compound_statement(ExecNode *s, int push_scope);
 static void new_nid(char *sid);
 static int get_var_nid(char *sid, int scope);
+static void node_edges_init(NodeEdges *p, unsigned max);
+static void node_edges_add(NodeEdges *p, unsigned e);
 
 void new_nid(char *sid)
 {
@@ -115,10 +128,28 @@ int get_var_nid(char *sid, int scope)
     return np->nid;
 }
 
+void node_edges_init(NodeEdges *p, unsigned max)
+{
+    p->edges = calloc(max, sizeof(unsigned));
+    p->max = max;
+    p->n = 0;
+}
+
+void node_edges_add(NodeEdges *p, unsigned e)
+{
+    if (p->n >= p->max) {
+        unsigned *new_edges;
+
+        p->max *= 2;
+        new_edges = realloc(p->edges, p->max*sizeof(unsigned));
+        assert(new_edges != NULL);
+        p->edges = new_edges;
+    }
+    p->edges[p->n++] = e;
+}
+
 void new_cfg_node(unsigned leader)
 {
-    int i;
-
     if (cfg_nodes_counter >= cfg_nodes_max) {
         CFGNode *new_p;
 
@@ -129,10 +160,8 @@ void new_cfg_node(unsigned leader)
         cfg_nodes = new_p;
     }
     cfg_nodes[cfg_nodes_counter].leader = leader;
-    cfg_nodes[cfg_nodes_counter].out_edges[0] = 0;
-    cfg_nodes[cfg_nodes_counter].out_edges[1] = 0;
-    for (i = 0; i < MAX_IN_EDGES; i++)
-        cfg_nodes[cfg_nodes_counter].in_edges[i] = 0;
+    node_edges_init(&cfg_node(cfg_nodes_counter).out, 2);
+    node_edges_init(&cfg_node(cfg_nodes_counter).in, 5);
     ++cfg_nodes_counter;
 }
 
@@ -247,12 +276,19 @@ void ic_reset(void)
     ic_addresses_counter = 1;
 
     for (i = 1; i < cfg_nodes_counter; i++) {
+        memset(cfg_node(i).out.edges, 0, cfg_node(i).out.n*sizeof(unsigned));
+        cfg_node(i).out.n = 0;
+        memset(cfg_node(i).in.edges, 0, cfg_node(i).in.n*sizeof(unsigned));
+        cfg_node(i).in.n = 0;
         bset_free(cfg_node(i).UEVar);
         bset_free(cfg_node(i).VarKill);
         bset_free(cfg_node(i).LiveOut);
         bset_free(cfg_node(i).Dom);
+        cfg_node(i).UEVar = NULL;
+        cfg_node(i).VarKill = NULL;
+        cfg_node(i).LiveOut = NULL;
+        cfg_node(i).Dom = NULL;
     }
-    memset(cfg_nodes, 0, sizeof(CFGNode)*cfg_nodes_counter);
     cfg_nodes_counter = 1;
 
     free_PointOut();
@@ -317,7 +353,7 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
 
     fix_gotos();
 
-    disassemble();
+    // disassemble();
     if (ic_instructions_counter > 0) {
         build_CFG();
         // print_CFG();
@@ -383,16 +419,16 @@ void print_CFG(void)
         printf("\"];\n");
 
         /*for (j = 0; j < MAX_IN_EDGES; j++)
-            if (cfg_node(i).in_edges[j])
-                printf("in_edges[%u]=%u, ", j, cfg_node(i).in_edges[j]);
+            if (cfg_node(i).in.edges[j])
+                printf("in_edges[%u]=%u, ", j, cfg_node(i).in.edges[j]);
         printf("\n");*/
 
-        if (cfg_node(i).out_edges[0]) {
-            if (cfg_node(i).out_edges[1]) {
-                printf("V%u -> V%u;\n", i, cfg_node(i).out_edges[0]);
-                printf("V%u -> V%u;\n", i, cfg_node(i).out_edges[1]);
+        if (cfg_node(i).out.edges[0]) {
+            if (cfg_node(i).out.edges[1]) {
+                printf("V%u -> V%u;\n", i, cfg_node(i).out.edges[0]);
+                printf("V%u -> V%u;\n", i, cfg_node(i).out.edges[1]);
             } else {
-                printf("V%u -> V%u;\n", i, cfg_node(i).out_edges[0]);
+                printf("V%u -> V%u;\n", i, cfg_node(i).out.edges[0]);
             }
         }
     }
@@ -405,10 +441,10 @@ void number_subCFG(unsigned n)
 
     visited[n] = TRUE;
     --nunvisited;
-    for (i = 0; i < MAX_OUT_EDGES; i++) {
+    for (i = 0; i < cfg_node(n).out.n; i++) {
         unsigned succ;
 
-        if (!(succ=cfg_node(n).out_edges[i]))
+        if (!(succ=cfg_node(n).out.edges[i]))
             break;
         if (!visited[succ])
             number_subCFG(succ);
@@ -424,10 +460,10 @@ void number_subRCFG(unsigned n)
 
     visited[n] = TRUE;
     --nunvisited;
-    for (i = 0; i < MAX_IN_EDGES; i++) {
+    for (i = 0; i < cfg_node(n).in.n; i++) {
         unsigned pred;
 
-        if (!(pred=cfg_node(n).in_edges[i]))
+        if (!(pred=cfg_node(n).in.edges[i]))
             break;
         if (!visited[pred])
             number_subRCFG(pred);
@@ -514,46 +550,25 @@ void build_CFG(void)
 
         /* add edges */
         if (instruction(last).op == OpCBr) {
-            unsigned j;
             unsigned succ1, succ2;
 
             succ1 = lab2node[address(instruction(last).arg1).cont.val];
             succ2 = lab2node[address(instruction(last).arg2).cont.val];
 
             /* set out edges of current node */
-            cfg_node(i).out_edges[0] = succ1;
-            cfg_node(i).out_edges[1] = succ2;
+            node_edges_add(&cfg_node(i).out, succ1);
+            node_edges_add(&cfg_node(i).out, succ2);
 
             /* set in edges of successors */
-            for (j = 0; j < MAX_IN_EDGES; j++) {
-                if (!cfg_node(succ1).in_edges[j]) {
-                    cfg_node(succ1).in_edges[j] = i;
-                    break;
-                }
-            }
-            assert(j != MAX_IN_EDGES);
-            for (j = 0; j < MAX_IN_EDGES; j++) {
-                if (!cfg_node(succ2).in_edges[j]) {
-                    cfg_node(succ2).in_edges[j] = i;
-                    break;
-                }
-            }
-            assert(j != MAX_IN_EDGES);
+            node_edges_add(&cfg_node(succ1).in, i);
+            node_edges_add(&cfg_node(succ2).in, i);
         } else if (instruction(last).op == OpJmp) {
-            unsigned j;
             unsigned succ;
 
             succ = lab2node[address(instruction(last).tar).cont.val];
 
-            cfg_node(i).out_edges[0] = succ;
-
-            for (j = 0; j < MAX_IN_EDGES; j++) {
-                if (!cfg_node(succ).in_edges[j]) {
-                    cfg_node(succ).in_edges[j] = i;
-                    break;
-                }
-            }
-            assert(j != MAX_IN_EDGES);
+            node_edges_add(&cfg_node(i).out, succ);
+            node_edges_add(&cfg_node(succ).in, i);
         }
     }
 

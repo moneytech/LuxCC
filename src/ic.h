@@ -65,7 +65,7 @@ typedef enum {
 
 typedef struct Address Address;
 typedef struct Quad Quad;
-typedef struct VarSet VarSet;
+typedef struct NodeEdges NodeEdges;
 typedef struct CFGNode CFGNode;
 
 struct Address {
@@ -95,13 +95,16 @@ struct Quad {
     int next_use[3];
 };
 
-#define MAX_OUT_EDGES   2
-#define MAX_IN_EDGES    5
+struct NodeEdges {
+    unsigned *edges;
+    unsigned max, n;
+};
+
 #define ENTRY_NODE      1
 struct CFGNode { /* CFG node == basic block */
     unsigned leader, last;
-    unsigned out_edges[MAX_OUT_EDGES]; /* successors */
-    unsigned in_edges[MAX_IN_EDGES];   /* predecessors (TODO: make in_edges growable) */
+    NodeEdges out;  /* successors */
+    NodeEdges in;   /* predecessors */
     BSet *UEVar;    /* upward-exposed variables in the block */
     BSet *VarKill;  /* variables defined/killed in the block */
     BSet *LiveOut;  /* variables live on exit from the block */
