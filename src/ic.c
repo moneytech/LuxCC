@@ -18,21 +18,6 @@
 #include "loc.h"
 #include "dflow.h"
 
-/*typedef struct CGEdge CGEdge;
-typedef struct CGNode CGNode;
-
-struct CGEdge {
-    unsigned *p;
-    unsigned max, next;
-};
-struct CGNode {
-    unsigned bb_i, bb_f;
-    CGEdge out_edges;
-    CGEdge in_edges;
-};
-
-CGNode *ic_call_graph;*/
-
 #define IINIT   1024
 #define IGROW   2
 unsigned ic_instructions_max;
@@ -51,6 +36,11 @@ unsigned cfg_nodes_max;
 unsigned cfg_nodes_counter;
 CFGNode *cfg_nodes;
 
+#define CINIT   32
+#define CGROW   2
+unsigned cg_nodes_max;
+unsigned cg_nodes_counter;
+CGNode *cg_nodes;
 
 static int label_counter = 1;
 static unsigned true_addr, false_addr;
@@ -93,8 +83,8 @@ static unsigned new_label(void);
 static void ic_compound_statement(ExecNode *s, int push_scope);
 static void new_nid(char *sid);
 static int get_var_nid(char *sid, int scope);
-static void node_edges_init(NodeEdges *p, unsigned max);
-static void node_edges_add(NodeEdges *p, unsigned e);
+static void edge_init(GraphEdge *p, unsigned max);
+static void edge_add(GraphEdge *p, unsigned e);
 
 void new_nid(char *sid)
 {
@@ -128,14 +118,14 @@ int get_var_nid(char *sid, int scope)
     return np->nid;
 }
 
-void node_edges_init(NodeEdges *p, unsigned max)
+void edge_init(GraphEdge *p, unsigned max)
 {
     p->edges = calloc(max, sizeof(unsigned));
     p->max = max;
     p->n = 0;
 }
 
-void node_edges_add(NodeEdges *p, unsigned e)
+void edge_add(GraphEdge *p, unsigned e)
 {
     if (p->n >= p->max) {
         unsigned *new_edges;
@@ -146,6 +136,42 @@ void node_edges_add(NodeEdges *p, unsigned e)
         p->edges = new_edges;
     }
     p->edges[p->n++] = e;
+}
+
+unsigned edge_iterate(GraphEdge *p)
+{
+    static unsigned n;
+    static unsigned *curr;
+
+    if (p != NULL) {
+        n = p->n;
+        curr = p->edges;
+    }
+    if (n) {
+        --n;
+        return *curr++;
+    }
+    return (unsigned)-1;
+}
+
+unsigned new_cg_node(char *func_id)
+{
+    unsigned i;
+
+    for (i = 0; i < cg_nodes_counter; i++)
+        if (equal(cg_nodes[i].func_id, func_id))
+            return i;
+    if (cg_nodes_counter >= cg_nodes_max) {
+        CGNode *new_p;
+
+        /* grow */
+        new_p = realloc(cg_nodes, CGROW*cg_nodes_max*sizeof(CGNode));
+        assert(new_p != NULL);
+        cg_nodes_max *= CGROW;
+        cg_nodes = new_p;
+    }
+    cg_nodes[cg_nodes_counter].func_id = func_id;
+    return cg_nodes_counter++;
 }
 
 void new_cfg_node(unsigned leader)
@@ -160,8 +186,8 @@ void new_cfg_node(unsigned leader)
         cfg_nodes = new_p;
     }
     cfg_nodes[cfg_nodes_counter].leader = leader;
-    node_edges_init(&cfg_node(cfg_nodes_counter).out, 2);
-    node_edges_init(&cfg_node(cfg_nodes_counter).in, 5);
+    edge_init(&cfg_node(cfg_nodes_counter).out, 2);
+    edge_init(&cfg_node(cfg_nodes_counter).in, 5);
     ++cfg_nodes_counter;
 }
 
@@ -246,6 +272,12 @@ void ic_init(void)
     cfg_nodes_max = NINIT;
     cfg_nodes_counter = 1; /* 0 reserved for null node */
 
+    /* init call graph buffer */
+    cg_nodes = malloc(CINIT*sizeof(CGNode));
+    assert(cg_nodes != NULL);
+    cg_nodes_max = CINIT;
+    cg_nodes_counter = 0;
+
     /* init nid -> sid table */
     nid2sid_tab = malloc(128*sizeof(char *));
     assert(nid2sid_tab != NULL);
@@ -264,43 +296,84 @@ void ic_init(void)
 
 void ic_reset(void)
 {
-    unsigned i;
+    // unsigned i;
 
     size_of_local_area = 0;
     local_offset = 0;
 
-    memset(ic_instructions, 0, sizeof(Quad)*ic_instructions_counter);
-    ic_instructions_counter = 0;
+    // memset(ic_instructions, 0, sizeof(Quad)*ic_instructions_counter);
+    // ic_instructions_counter = 0;
 
-    memset(ic_addresses, 0, sizeof(Address)*ic_addresses_counter);
-    ic_addresses_counter = 1;
+    // memset(ic_addresses, 0, sizeof(Address)*ic_addresses_counter);
+    // ic_addresses_counter = 1;
 
-    for (i = 1; i < cfg_nodes_counter; i++) {
-        memset(cfg_node(i).out.edges, 0, cfg_node(i).out.n*sizeof(unsigned));
-        cfg_node(i).out.n = 0;
-        memset(cfg_node(i).in.edges, 0, cfg_node(i).in.n*sizeof(unsigned));
-        cfg_node(i).in.n = 0;
-        bset_free(cfg_node(i).UEVar);
-        bset_free(cfg_node(i).VarKill);
-        bset_free(cfg_node(i).LiveOut);
-        bset_free(cfg_node(i).Dom);
-        cfg_node(i).UEVar = NULL;
-        cfg_node(i).VarKill = NULL;
-        cfg_node(i).LiveOut = NULL;
-        cfg_node(i).Dom = NULL;
+    // for (i = 1; i < cfg_nodes_counter; i++) {
+        // memset(cfg_node(i).out.edges, 0, cfg_node(i).out.n*sizeof(unsigned));
+        // cfg_node(i).out.n = 0;
+        // memset(cfg_node(i).in.edges, 0, cfg_node(i).in.n*sizeof(unsigned));
+        // cfg_node(i).in.n = 0;
+        // bset_free(cfg_node(i).UEVar);
+        // bset_free(cfg_node(i).VarKill);
+        // bset_free(cfg_node(i).LiveOut);
+        // bset_free(cfg_node(i).Dom);
+        // cfg_node(i).UEVar = NULL;
+        // cfg_node(i).VarKill = NULL;
+        // cfg_node(i).LiveOut = NULL;
+        // cfg_node(i).Dom = NULL;
+    // }
+    // cfg_nodes_counter = 1;
+
+    // free_PointOut();
+    // nid_counter = 0;
+    // arena_reset(id_table_arena);
+    // memset(id_table, 0, sizeof(IDNode *)*ID_TABLE_SIZE);
+    // arena_reset(temp_names_arena);
+
+    // true_addr = new_address(IConstKind);
+    // address(true_addr).cont.uval = 1;
+    // false_addr = new_address(IConstKind);
+    // address(false_addr).cont.uval = 0;
+}
+
+void print_CG(void)
+{
+    unsigned i;
+
+    printf("digraph {\n");
+    for (i = 0; i < cg_nodes_counter; i++) {
+        unsigned j;
+
+        printf("V%u[label=\"%s\"];\n", i, cg_node(i).func_id);
+        for (j = edge_iterate(&cg_node(i).out); j != -1; j = edge_iterate(NULL))
+            printf("V%u -> V%u;\n", i, j);
     }
-    cfg_nodes_counter = 1;
+    printf("}\n");
 
-    free_PointOut();
-    nid_counter = 0;
-    arena_reset(id_table_arena);
-    memset(id_table, 0, sizeof(IDNode *)*ID_TABLE_SIZE);
-    arena_reset(temp_names_arena);
+}
 
-    true_addr = new_address(IConstKind);
-    address(true_addr).cont.uval = 1;
-    false_addr = new_address(IConstKind);
-    address(false_addr).cont.uval = 0;
+unsigned curr_cg_node;
+
+void ic_main(void)
+{
+    ExternId *ed;
+
+    ic_init();
+    for (ed = get_extern_symtab(); ed != NULL; ed = ed->next) {
+        if (ed->status == REFERENCED) {
+            ;
+        } else {
+            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION) {
+                curr_cg_node = new_cg_node(ed->declarator->str);
+                cg_node(curr_cg_node).bb_i = cfg_nodes_counter;
+                ic_function_definition(ed->decl_specs, ed->declarator);
+                cg_node(curr_cg_node).bb_f = cfg_nodes_counter-1;
+                ic_reset();
+            } else {
+                ;
+            }
+        }
+    }
+    print_CG();
 }
 
 static void build_CFG(void);
@@ -357,10 +430,10 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
     if (ic_instructions_counter > 0) {
         build_CFG();
         // print_CFG();
-        dflow_dominance();
-        dflow_PointOut();
-        dflow_LiveOut();
-        compute_liveness_and_next_use();
+        // dflow_dominance();
+        // dflow_PointOut();
+        // dflow_LiveOut();
+        // compute_liveness_and_next_use();
     }
 }
 
@@ -556,19 +629,19 @@ void build_CFG(void)
             succ2 = lab2node[address(instruction(last).arg2).cont.val];
 
             /* set out edges of current node */
-            node_edges_add(&cfg_node(i).out, succ1);
-            node_edges_add(&cfg_node(i).out, succ2);
+            edge_add(&cfg_node(i).out, succ1);
+            edge_add(&cfg_node(i).out, succ2);
 
             /* set in edges of successors */
-            node_edges_add(&cfg_node(succ1).in, i);
-            node_edges_add(&cfg_node(succ2).in, i);
+            edge_add(&cfg_node(succ1).in, i);
+            edge_add(&cfg_node(succ2).in, i);
         } else if (instruction(last).op == OpJmp) {
             unsigned succ;
 
             succ = lab2node[address(instruction(last).tar).cont.val];
 
-            node_edges_add(&cfg_node(i).out, succ);
-            node_edges_add(&cfg_node(succ).in, i);
+            edge_add(&cfg_node(i).out, succ);
+            edge_add(&cfg_node(succ).in, i);
         }
     }
 
@@ -1486,7 +1559,12 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             OpKind op;
             unsigned a1;
 
-            op = (get_type_category(&e->child[0]->type) == TOK_STAR) ? OpIndCall : OpCall;
+            if (get_type_category(&e->child[0]->type) != TOK_STAR) {
+                op = OpCall;
+                edge_add(&cg_node(curr_cg_node).out, new_cg_node(e->child[0]->attr.str));
+            } else {
+                op = OpIndCall;
+            }
 
             function_argument(e->child[1], e->locals);
             a1 = ic_expression(e->child[0], FALSE);

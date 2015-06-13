@@ -65,8 +65,9 @@ typedef enum {
 
 typedef struct Address Address;
 typedef struct Quad Quad;
-typedef struct NodeEdges NodeEdges;
+typedef struct GraphEdge GraphEdge;
 typedef struct CFGNode CFGNode;
+typedef struct CGNode CGNode;
 
 struct Address {
     AddrKind kind;
@@ -95,7 +96,7 @@ struct Quad {
     int next_use[3];
 };
 
-struct NodeEdges {
+struct GraphEdge {
     unsigned *edges;
     unsigned max, n;
 };
@@ -103,12 +104,19 @@ struct NodeEdges {
 #define ENTRY_NODE      1
 struct CFGNode { /* CFG node == basic block */
     unsigned leader, last;
-    NodeEdges out;  /* successors */
-    NodeEdges in;   /* predecessors */
+    GraphEdge out;  /* successors */
+    GraphEdge in;   /* predecessors */
     BSet *UEVar;    /* upward-exposed variables in the block */
     BSet *VarKill;  /* variables defined/killed in the block */
     BSet *LiveOut;  /* variables live on exit from the block */
     BSet *Dom;      /* blocks that dominate this block */
+};
+
+struct CGNode {
+    char *func_id;
+    unsigned bb_i, bb_f;
+    GraphEdge out;
+    GraphEdge in;
 };
 
 extern unsigned *CFG_PO;
@@ -119,6 +127,7 @@ extern unsigned *RCFG_RPO;
 #define instruction(n)  (ic_instructions[n])
 #define address(n)      (ic_addresses[n])
 #define cfg_node(n)     (cfg_nodes[n])
+#define cg_node(n)      (cg_nodes[n])
 extern Quad *ic_instructions;
 extern Address *ic_addresses;
 extern CFGNode *cfg_nodes;
