@@ -3,6 +3,7 @@
 
 #include "parser.h"
 #include "bset.h"
+#include "decl.h" /* for ExternId */
 
 typedef enum {
     /* x = y op z */
@@ -68,6 +69,7 @@ typedef struct Quad Quad;
 typedef struct GraphEdge GraphEdge;
 typedef struct CFGNode CFGNode;
 typedef struct CGNode CGNode;
+typedef struct ParamNid ParamNid;
 
 struct Address {
     AddrKind kind;
@@ -84,16 +86,10 @@ struct Address {
     } cont; /* contents */
 };
 
-#define LIVE         1
-#define DEAD         0
-#define NO_NEXT_USE -1
-
 struct Quad {
     OpKind op;
     Declaration *type;
     unsigned tar, arg1, arg2;
-    unsigned char liveness[3];
-    int next_use[3];
 };
 
 struct GraphEdge {
@@ -112,11 +108,19 @@ struct CFGNode { /* CFG node == basic block */
     BSet *Dom;      /* blocks that dominate this block */
 };
 
+struct ParamNid {
+    char *sid;
+    int nid;
+    ParamNid *next;
+};
+
 struct CGNode {
     char *func_id;
     unsigned bb_i, bb_f;
     GraphEdge out;
     GraphEdge in;
+    ParamNid *pn;
+    unsigned size_of_local_area;
 };
 
 extern unsigned *CFG_PO;
@@ -124,24 +128,28 @@ extern unsigned *CFG_RPO;
 extern unsigned *RCFG_PO;
 extern unsigned *RCFG_RPO;
 
-#define instruction(n)  (ic_instructions[n])
-#define address(n)      (ic_addresses[n])
-#define cfg_node(n)     (cfg_nodes[n])
-#define cg_node(n)      (cg_nodes[n])
+#define instruction(n)      (ic_instructions[n])
+#define address(n)          (ic_addresses[n])
+#define cfg_node(n)         (cfg_nodes[n])
+#define cg_node(n)          (cg_nodes[n])
+#define cg_node_is_empty(n) (cg_node(n).bb_i == 0)
+#define cg_node_nbb(n)      (cg_node(n).bb_f-cg_node(n).bb_i+1)
 extern Quad *ic_instructions;
 extern Address *ic_addresses;
 extern CFGNode *cfg_nodes;
-extern unsigned cfg_nodes_counter;
+extern CGNode *cg_nodes;
 extern unsigned ic_instructions_counter;
+extern unsigned cfg_nodes_counter;
+extern unsigned cg_nodes_counter;
 
 extern int nid_counter;
 extern char **nid2sid_tab;
 #define address_nid(a)   (address(a).cont.nid)
 #define address_sid(a)   (nid2sid_tab[address_nid(a)])
+#define nonconst_addr(a) (address(a).kind!=IConstKind && address(a).kind!=StrLitKind)
 
-void ic_main(void);
-void ic_init(void);
-void ic_reset(void);
-void ic_function_definition(TypeExp *decl_specs, TypeExp *header);
+void ic_main(ExternId *func_def_list[]);
+void edge_add(GraphEdge *p, unsigned e);
+unsigned new_cg_node(char *func_id);
 
 #endif

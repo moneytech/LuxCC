@@ -154,11 +154,10 @@ int main(int argc, char *argv[])
     if (option_flags & OPT_ANALYZE)
         exit(EXIT_SUCCESS);
 
-    if (error_count == 0)
-        ic_main();
+    if (error_count == 0) {
         // vm_cgen((output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb"));
-        // x86_cgen();
-    else
+        x86_cgen();
+    } else
         return 1;
 
 	return 0;

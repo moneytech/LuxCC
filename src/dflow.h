@@ -1,13 +1,9 @@
 #ifndef DFLOW_H_
 #define DFLOW_H_
 
-void dflow_dominance(void);
-
-void dflow_LiveOut(void);
-void compute_liveness_and_next_use(void);
-
+void dflow_dominance(unsigned fn);
+void dflow_LiveOut(unsigned fn);
 #include "bset.h"
-
 void dflow_PointOut(void);
 /*
  * Return a list of targets we know the pointer p may point to at program point i.

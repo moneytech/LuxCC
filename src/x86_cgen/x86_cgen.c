@@ -22,6 +22,289 @@
 #include "../dflow.h"
 #include "../str.h"
 
+#define LIVE          0
+#define DEAD         -1
+#define NO_NEXT_USE  -1
+
+typedef struct QuadLiveNext QuadLiveNext;
+static struct QuadLiveNext {
+    char liveness[3];
+    int next_use[3];
+} *liveness_and_next_use;
+
+#define tar_liveness(i)  (liveness_and_next_use[i].liveness[0])
+#define arg1_liveness(i) (liveness_and_next_use[i].liveness[1])
+#define arg2_liveness(i) (liveness_and_next_use[i].liveness[2])
+#define tar_next_use(i)  (liveness_and_next_use[i].next_use[0])
+#define arg1_next_use(i) (liveness_and_next_use[i].next_use[1])
+#define arg2_next_use(i) (liveness_and_next_use[i].next_use[2])
+
+static char *operand_liveness;
+static int *operand_next_use;
+static void init_operand_table(BSet *bLO);
+static void compute_liveness_and_next_use(unsigned fn);
+static void print_liveness_and_next_use(unsigned fn);
+
+/*
+ * Initialize the operand table with the liveness
+ * and next use as of the end of the block.
+ * Liveness is determined using the LiveOut set.
+ */
+void init_operand_table(BSet *bLO)
+{
+    int i;
+
+    memset(operand_liveness, DEAD, nid_counter*sizeof(char));
+    memset(operand_next_use, NO_NEXT_USE, nid_counter*sizeof(int));
+    for (i = bset_iterate(bLO); i != -1; i = bset_iterate(NULL)) {
+        operand_liveness[i] = LIVE;
+        /*operand_next_use[i] = NO_NEXT_USE;*/
+    }
+}
+
+void compute_liveness_and_next_use(unsigned fn)
+{
+    int b;
+    unsigned entry_bb, last_bb;
+
+    if (cg_node_is_empty(fn))
+        return;
+
+    entry_bb = cg_node(fn).bb_i;
+    last_bb = cg_node(fn).bb_f;
+
+    /* annotate the quads of every block with liveness and next-use information */
+    for (b = entry_bb; b <= last_bb; b++) {
+        int i;
+
+        init_operand_table(cfg_node(b).LiveOut);
+
+        /* scan backward through the block */
+        for (i = cfg_node(b).last; i >= (int)cfg_node(b).leader; i--) {
+            unsigned tar, arg1, arg2;
+
+            tar = instruction(i).tar;
+            arg1 = instruction(i).arg1;
+            arg2 = instruction(i).arg2;
+            switch (instruction(i).op) {
+#define update_tar()\
+        tar_liveness(i) = operand_liveness[address_nid(tar)],\
+        tar_next_use(i) = operand_next_use[address_nid(tar)],\
+        operand_liveness[address_nid(tar)] = DEAD,\
+        operand_next_use[address_nid(tar)] = NO_NEXT_USE
+#define update_arg1()\
+        arg1_liveness(i) = operand_liveness[address_nid(arg1)],\
+        arg1_next_use(i) = operand_next_use[address_nid(arg1)],\
+        operand_liveness[address_nid(arg1)] = LIVE,\
+        operand_next_use[address_nid(arg1)] = i
+#define update_arg2()\
+        arg2_liveness(i) = operand_liveness[address_nid(arg2)],\
+        arg2_next_use(i) = operand_next_use[address_nid(arg2)],\
+        operand_liveness[address_nid(arg2)] = LIVE,\
+        operand_next_use[address_nid(arg2)] = i
+
+            case OpAdd: case OpSub: case OpMul: case OpDiv:
+            case OpRem: case OpSHL: case OpSHR: case OpAnd:
+            case OpOr: case OpXor: case OpEQ: case OpNEQ:
+            case OpLT: case OpLET: case OpGT: case OpGET:
+                update_tar();
+                if (nonconst_addr(arg1))
+                    update_arg1();
+                if (nonconst_addr(arg2))
+                    update_arg2();
+                continue;
+
+            case OpNeg: case OpCmpl: case OpNot: case OpCh:
+            case OpUCh: case OpSh: case OpUSh: case OpAsn:
+                update_tar();
+                if (nonconst_addr(arg1))
+                    update_arg1();
+                continue;
+
+            case OpArg:
+            case OpRet:
+                if (nonconst_addr(arg1))
+                    update_arg1();
+                continue;
+
+            case OpAddrOf:
+                update_tar();
+                continue;
+
+            case OpInd: {
+                int j;
+                BSet *s;
+
+                update_tar();
+                update_arg1();
+
+                if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
+                    for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
+                        operand_liveness[j] = LIVE;
+                } else {
+                    /*
+                     * TBD: if temporaries cannot cross basic block boundaries,
+                     * only programmer declared variables need to be marked 'LIVE'.
+                     */
+                    memset(operand_liveness, LIVE, nid_counter*sizeof(char));
+                }
+            }
+                continue;
+
+            case OpIndAsn:
+                tar_liveness(i) = operand_liveness[address_nid(tar)];
+                tar_next_use(i) = operand_next_use[address_nid(tar)];
+                operand_liveness[address_nid(tar)] = LIVE;
+                operand_next_use[address_nid(tar)] = i;
+                if (nonconst_addr(arg1))
+                    update_arg1();
+                continue;
+
+            case OpCall:
+                // if (tar)
+                    // update_tar();
+                // continue;
+
+            case OpIndCall:
+                if (tar)
+                    update_tar();
+                if (nonconst_addr(arg1))
+                    update_arg1();
+                continue;
+
+            case OpCBr:
+                if (nonconst_addr(tar)) {
+                    tar_liveness(i) = operand_liveness[address_nid(tar)];
+                    tar_next_use(i) = operand_next_use[address_nid(tar)];
+                    operand_liveness[address_nid(tar)] = LIVE;
+                    operand_next_use[address_nid(tar)] = i;
+                }
+                continue;
+
+            default: /* other */
+                continue;
+            } /* switch (instruction(i).op) */
+        } /* instructions */
+    } /* basic blocks */
+
+// #if DEBUG
+    print_liveness_and_next_use(fn);
+// #endif
+}
+
+void print_liveness_and_next_use(unsigned fn)
+{
+    int b;
+    unsigned entry_bb, last_bb;
+
+    entry_bb = cg_node(fn).bb_i;
+    last_bb = cg_node(fn).bb_f;
+
+    for (b = entry_bb; b <= last_bb; b++) {
+        int i;
+
+        printf("Block %d\n", b);
+
+        for (i = cfg_node(b).leader; i <= cfg_node(b).last; i++) {
+            unsigned tar, arg1, arg2;
+
+            tar = instruction(i).tar;
+            arg1 = instruction(i).arg1;
+            arg2 = instruction(i).arg2;
+
+            switch (instruction(i).op) {
+#define print_tar()\
+        printf("name=%s, ", address_sid(tar)),\
+        printf("status=%s, ", (tar_liveness(i)==LIVE)?"LIVE":"DEAD"),\
+        printf("next use=%d", tar_next_use(i))
+#define print_arg1()\
+        printf("name=%s, ", address_sid(arg1)),\
+        printf("status=%s, ", (arg1_liveness(i)==LIVE)?"LIVE":"DEAD"),\
+        printf("next use=%d", arg1_next_use(i))
+#define print_arg2()\
+        printf("name=%s, ", address_sid(arg2)),\
+        printf("status=%s, ", (arg2_liveness(i)==LIVE)?"LIVE":"DEAD"),\
+        printf("next use=%d", arg2_next_use(i))
+
+            case OpAdd: case OpSub: case OpMul: case OpDiv:
+            case OpRem: case OpSHL: case OpSHR: case OpAnd:
+            case OpOr: case OpXor: case OpEQ: case OpNEQ:
+            case OpLT: case OpLET: case OpGT: case OpGET:
+                print_tar();
+                if (nonconst_addr(arg1)) {
+                    printf(" | ");
+                    print_arg1();
+                }
+                if (nonconst_addr(arg2)) {
+                    printf(" | ");
+                    print_arg2();
+                }
+                break;
+
+            case OpNeg: case OpCmpl: case OpNot: case OpCh:
+            case OpUCh: case OpSh: case OpUSh: case OpAsn:
+                print_tar();
+                if (nonconst_addr(arg1)) {
+                    printf(" | ");
+                    print_arg1();
+                }
+                break;
+
+            case OpArg:
+            case OpRet:
+                if (nonconst_addr(arg1)) {
+                    print_arg1();
+                }
+                break;
+
+            case OpAddrOf:
+                print_tar();
+                break;
+
+            case OpInd:
+                print_tar();
+                printf(" | ");
+                print_arg1();
+                break;
+
+            case OpIndAsn:
+                print_tar();
+                if (nonconst_addr(arg1)) {
+                    printf(" | ");
+                    print_arg1();
+                }
+                break;
+
+            case OpCall:
+                // if (tar)
+                    // print_tar();
+                // break;
+
+            case OpIndCall:
+                if (tar)
+                    print_tar();
+                if (nonconst_addr(arg1)) {
+                    printf(" | ");
+                    print_arg1();
+                }
+                break;
+
+            case OpCBr:
+                if (nonconst_addr(tar))
+                    print_tar();
+                break;
+            default:
+                continue;
+            } /* instructions */
+            printf("\n--------------\n");
+        } /* basic blocks */
+        printf("\n\n");
+    }
+}
+/*
+ * ===
+ */
+
 typedef enum {
     X86_EAX,
     X86_EBX,
@@ -64,7 +347,7 @@ static char *x86_lbreg_str[] = {
     "??",
 };
 
-extern int size_of_local_area;
+static int size_of_local_area;
 static char *curr_func;
 static unsigned temp_struct_size;
 static int big_return;
@@ -242,24 +525,41 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header);
 
 void x86_cgen(void)
 {
-    int i;
-    ExternId *ed;
+    unsigned i;
+    ExternId *ed, *func_def_list[128] = { NULL };
 
-    ic_init();
-    func_body = string_new(1024);
-    func_prolog = string_new(1024);
-    func_epilog = string_new(1024);
-
-    for (ed = get_extern_symtab(); ed != NULL; ed = ed->next) {
+    for (ed = get_extern_symtab(), i = 0; ed != NULL; ed = ed->next) {
         if (ed->status == REFERENCED) {
             ;
         } else {
             if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION)
-                x86_function_definition(ed->decl_specs, ed->declarator);
+                func_def_list[i++] = ed;
             else
                 ;
         }
     }
+
+    /* generate intermediate code and do some analysis */
+    ic_main(func_def_list);
+
+    /* compute liveness and next use */
+    liveness_and_next_use = malloc(ic_instructions_counter*sizeof(QuadLiveNext));
+    operand_liveness = malloc(nid_counter*sizeof(char));
+    operand_next_use = malloc(nid_counter*sizeof(int));
+    for (i = 0; i < cg_nodes_counter; i++)
+        compute_liveness_and_next_use(i);
+    free(operand_liveness);
+    free(operand_next_use);
+
+    /* generate assembly for functions */
+    func_body = string_new(1024);
+    func_prolog = string_new(1024);
+    func_epilog = string_new(1024);
+    for (i = 0; (ed=func_def_list[i]) != NULL; i++)
+        x86_function_definition(ed->decl_specs, ed->declarator);
+    string_free(func_body);
+    string_free(func_prolog);
+    string_free(func_epilog);
 
     printf("\n");
     for (i = 0; i < X86_NREG; i++)
@@ -326,14 +626,14 @@ void spill_all(void)
         spill_reg((X86_Reg)i);
 }
 
-X86_Reg get_reg(int intr)
+X86_Reg get_reg(int i)
 {
     X86_Reg r;
     unsigned arg1;
 
-    arg1 = instruction(intr).arg1;
+    arg1 = instruction(i).arg1;
     if (address(arg1).kind==IdKind || address(arg1).kind==TempKind) {
-        if (addr_in_reg(arg1) && instruction(intr).liveness[1]==DEAD) {
+        if (addr_in_reg(arg1) && arg1_liveness(i)==DEAD) {
             /* if the register doesn't hold some other address, we are done */
             r = addr_reg(arg1);
             if (reg_descr_tab[r].naddrs == 1)
@@ -703,9 +1003,13 @@ void compare_against_zero(unsigned a)
 }
 
 #define UPDATE_ADDRESSES(res_reg) {\
-    update_tar_descriptors(res_reg, tar, instruction(i).liveness[0], instruction(i).next_use[0]);\
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);\
-    update_arg_descriptors(arg2, instruction(i).liveness[2], instruction(i).next_use[2]);\
+    update_tar_descriptors(res_reg, tar, tar_liveness(i), tar_next_use(i));\
+    update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));\
+    update_arg_descriptors(arg2, arg2_liveness(i), arg2_next_use(i));\
+}
+#define UPDATE_ADDRESSES_UNARY(res_reg) {\
+    update_tar_descriptors(res_reg, tar, tar_liveness(i), tar_next_use(i));\
+    update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));\
 }
 
 static void x86_pre_call(int i);
@@ -943,8 +1247,7 @@ void x86_neg(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     emitln("neg %s", x86_reg_str[res]);
-    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+    UPDATE_ADDRESSES_UNARY(res);
 }
 void x86_cmpl(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -953,8 +1256,7 @@ void x86_cmpl(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     emitln("not %s", x86_reg_str[res]);
-    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+    UPDATE_ADDRESSES_UNARY(res);
 }
 void x86_not(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -965,8 +1267,7 @@ void x86_not(int i, unsigned tar, unsigned arg1, unsigned arg2)
     emitln("cmp %s, 0", x86_reg_str[res]);
     emitln("sete %s", x86_lbreg_str[res]);
     emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
-    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+    UPDATE_ADDRESSES_UNARY(res);
 }
 void x86_ch(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -977,8 +1278,7 @@ void x86_ch(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     emitln("movsx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
-    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+    UPDATE_ADDRESSES_UNARY(res);
 }
 void x86_uch(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -989,8 +1289,7 @@ void x86_uch(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
-    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+    UPDATE_ADDRESSES_UNARY(res);
 }
 void x86_sh(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -999,8 +1298,7 @@ void x86_sh(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     emitln("movsx %s, %s", x86_reg_str[res], x86_lwreg_str[res]);
-    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+    UPDATE_ADDRESSES_UNARY(res);
 }
 void x86_ush(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -1009,8 +1307,7 @@ void x86_ush(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     emitln("movzx %s, %s", x86_reg_str[res], x86_lwreg_str[res]);
-    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+    UPDATE_ADDRESSES_UNARY(res);
 }
 void x86_addr_of(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -1018,8 +1315,7 @@ void x86_addr_of(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
     res = get_reg(i);
     x86_load_addr(res, arg1);
-    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+    UPDATE_ADDRESSES_UNARY(res);
 }
 
 void x86_ind(int i, unsigned tar, unsigned arg1, unsigned arg2)
@@ -1063,8 +1359,7 @@ void x86_ind(int i, unsigned tar, unsigned arg1, unsigned arg2)
         emitln("mov %s, dword [%s]", reg_str, reg_str);
         break;
     }
-    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+    UPDATE_ADDRESSES_UNARY(res);
 }
 void x86_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -1072,8 +1367,7 @@ void x86_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
     res = get_reg(i);
     x86_load(res, arg1);
-    update_tar_descriptors(res, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+    UPDATE_ADDRESSES_UNARY(res);
 }
 
 void x86_pre_call(int i)
@@ -1101,18 +1395,22 @@ void x86_indcall(int i, unsigned tar, unsigned arg1, unsigned arg2)
         emitln("add esp, %u", arg_nb);
     arg_nb = 0;
     if (tar)
-        update_tar_descriptors(X86_EAX, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+        update_tar_descriptors(X86_EAX, tar, tar_liveness(i), tar_next_use(i));
+    update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
 }
 void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
+    BSet *s;
+
     x86_pre_call(i);
-    emitln("call %s", address(arg1).cont.var.e->attr.str);
+    s = get_pointer_targets(i, address_nid(arg1));
+    assert(s != NULL);
+    emitln("call %s", nid2sid_tab[bset_iterate(s)]);
     if (arg_nb)
         emitln("add esp, %u", arg_nb);
     arg_nb = 0;
     if (tar)
-        update_tar_descriptors(X86_EAX, tar, instruction(i).liveness[0], instruction(i).next_use[0]);
+        update_tar_descriptors(X86_EAX, tar, tar_liveness(i), tar_next_use(i));
     /*update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);*/
 }
 
@@ -1208,8 +1506,8 @@ void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
     emitln("mov %s [%s], %s", siz_str, x86_reg_str[pr], reg_str);
     unpin_reg(res);
 done:
-    update_arg_descriptors(tar, instruction(i).liveness[0], instruction(i).next_use[0]);
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+    update_arg_descriptors(tar, tar_liveness(i), tar_next_use(i));
+    update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
 }
 void x86_lab(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -1279,7 +1577,7 @@ void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
         if (cluttered & 1)
             emitln("pop esi");
     }
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+    update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
 }
 void x86_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -1305,13 +1603,13 @@ void x86_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
             spill_reg(X86_EAX);
         emitln("mov eax, dword [ebp-4]");*/
     }
-    update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);
+    update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
 }
 void x86_cbr(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     compare_against_zero(tar);
     /* do any spilling before the jumps */
-    update_arg_descriptors(tar, instruction(i).liveness[0], instruction(i).next_use[0]);
+    update_arg_descriptors(tar, tar_liveness(i), tar_next_use(i));
     emit_jmpeq(address(arg2).cont.val);
     emit_jmp(address(arg1).cont.val);
 }
@@ -1364,15 +1662,15 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
         +-----------------------------------------------------------+
      => High addresses
     */
-
     int b;
     Token cat;
+    unsigned fn;
     Declaration ty;
 
-    ic_function_definition(decl_specs, header);
-    init_addr_descr_tab();
-    size_of_local_area = round_up(size_of_local_area, 4);
     curr_func = header->str;
+    fn = new_cg_node(curr_func);
+    size_of_local_area = round_up(cg_node(fn).size_of_local_area, 4);
+    init_addr_descr_tab();
 
     ty.decl_specs = decl_specs;
     ty.idl = header->child->child;
@@ -1388,7 +1686,7 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     emit_prologln("mov ebp, esp");
     emit_prolog("sub esp, ");
 
-    for (b = ENTRY_NODE; b < cfg_nodes_counter; b++) {
+    for (b = cg_node(fn).bb_i; b <= cg_node(fn).bb_f; b++) {
         int i;
 
         for (i = cfg_node(b).leader; i <= cfg_node(b).last; i++) {
@@ -1442,7 +1740,6 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     calls_to_fix_counter = 0;
     memset(modified, 0, sizeof(int)*X86_NREG);
     free(addr_descr_tab);
-    ic_reset();
     free_all_temps();
     /*memset(reg_descr_tab, 0, sizeof(RegDescr)*X86_NREG);*/
 }

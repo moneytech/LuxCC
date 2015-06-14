@@ -12,8 +12,6 @@
 #include "expr.h"
 #include "bset.h"
 
-#define nonconst_addr(a) (address(a).kind!=IConstKind && address(a).kind!=StrLitKind)
-
 // =======================================================================================
 // Dominance
 // =======================================================================================
@@ -27,7 +25,7 @@ void dom_print_set(BSet *s)
         printf("%d%s", i, (c--!=1)?", ":"");
 }
 
-void dflow_dominance(void)
+void dflow_dominance(unsigned fn)
 {
     /*
      * TBD:
@@ -37,18 +35,25 @@ void dflow_dominance(void)
 
     int i, changed;
     BSet *N, *temp;
+    unsigned entry_bb, last_bb;
+
+    if (cg_node_is_empty(fn))
+        return;
+
+    entry_bb = cg_node(fn).bb_i;
+    last_bb = cg_node(fn).bb_f;
 
     /* Dom(n0) = { n0 } */
-    cfg_node(ENTRY_NODE).Dom = bset_new(cfg_nodes_counter);
-    bset_insert(cfg_node(ENTRY_NODE).Dom, ENTRY_NODE);
+    cfg_node(entry_bb).Dom = bset_new(cfg_nodes_counter);
+    bset_insert(cfg_node(entry_bb).Dom, entry_bb);
 
     /* N = all nodes of the CFG */
     N = bset_new(cfg_nodes_counter);
-    for (i = ENTRY_NODE; i < cfg_nodes_counter; i++)
+    for (i = entry_bb; i <= last_bb; i++)
         bset_insert(N, i);
 
     /* for every n != n0, Dom(n) = N */
-    for (i = ENTRY_NODE+1; i < cfg_nodes_counter; i++) {
+    for (i = entry_bb+1; i <= last_bb; i++) {
         cfg_node(i).Dom = bset_new(cfg_nodes_counter);
         bset_cpy(cfg_node(i).Dom, N);
     }
@@ -61,7 +66,7 @@ void dflow_dominance(void)
     while (changed) {
         DEBUG_PRINTF("==> Dom solver iteration\n");
         changed = FALSE;
-        for (i = ENTRY_NODE+1; i < cfg_nodes_counter; i++) {
+        for (i = entry_bb+1; i <= last_bb; i++) {
             int j;
             unsigned pred;
 
@@ -80,13 +85,13 @@ void dflow_dominance(void)
         }
     }
     bset_free(N), bset_free(temp);
-
 #if DEBUG
-    for (i = ENTRY_NODE; i < cfg_nodes_counter; i++) {
-        printf("Dom(n%d) = { ", i);
-        dom_print_set(cfg_node(i).Dom);
-        printf(" }\n");
-    }
+        printf("Dominance, function: `%s'\n", cg_node(fn).func_id);
+        for (i = cg_node(fn).bb_i; i <= cg_node(fn).bb_f; i++) {
+            printf("Dom(n%d) = { ", i);
+            dom_print_set(cfg_node(i).Dom);
+            printf(" }\n");
+        }
 #endif
 }
 
@@ -106,7 +111,8 @@ void live_print_set(BSet *s)
 }
 
 /* compute UEVar(b) and VarKill(b) */
-void live_init_block(int b)
+static
+void live_init_block(int b, int last_bb)
 {
     int i;
     BSet *UEVar, *VarKill;
@@ -115,13 +121,12 @@ void live_init_block(int b)
     UEVar = bset_new(nid_counter);
     VarKill = bset_new(nid_counter);
 
-    if (b == cfg_nodes_counter-1) /* EXIT node */
+    if (last_bb) /* EXIT node */
         bset_cpy(UEVar, modified_static_objects);
 
     for (i = cfg_node(b).leader; i <= cfg_node(b).last; i++) {
         // TBD:
         // - What to do at function calls?
-        // - String literal operands
         unsigned tar, arg1, arg2;
 
         tar = instruction(i).tar;
@@ -210,7 +215,7 @@ void live_init_block(int b)
         /*
          * TBD: fill UEVar set? (overestimate function calls)
          */
-        // case OpCall:
+        case OpCall:
         case OpIndCall:
             if (nonconst_addr(arg1))
                 add_UEVar(arg1);
@@ -232,16 +237,23 @@ void live_init_block(int b)
 }
 
 /* compute LiveOut for all the blocks of the CFG */
-void dflow_LiveOut(void)
+void dflow_LiveOut(unsigned fn)
 {
     int i, changed;
     BSet *temp, *new_out;
+    unsigned entry_bb, last_bb;
+
+    if (cg_node_is_empty(fn))
+        return;
+
+    entry_bb = cg_node(fn).bb_i;
+    last_bb = cg_node(fn).bb_f;
 
     modified_static_objects = bset_new(nid_counter);
 
     /* gather initial information */
-    for (i = ENTRY_NODE; i < cfg_nodes_counter; i++) {
-        live_init_block(i);
+    for (i = entry_bb; i <= last_bb; i++) {
+        live_init_block(i, i == last_bb);
 
 #if DEBUG
         printf("UEVar[%d]=", i);
@@ -267,11 +279,11 @@ void dflow_LiveOut(void)
     while (changed) {
         DEBUG_PRINTF("==> LiveOut solver iteration\n");
         changed = FALSE;
-        for (i = ENTRY_NODE; i < cfg_nodes_counter; i++) {
+        for (i = entry_bb; i <= last_bb; i++) {
             int j, b;
             unsigned succ;
 
-            b = RCFG_RPO[i];
+            b = i;//RCFG_RPO[i];
             /*
              * LiveOut(b) = the union of all successors of b, where the contribution
              *              of each successor m is       __________
@@ -293,283 +305,12 @@ void dflow_LiveOut(void)
     bset_free(temp), bset_free(new_out);
 
 #if DEBUG
-    for (i = ENTRY_NODE; i < cfg_nodes_counter; i++) {
+    for (i = entry_bb; i <= last_bb; i++) {
         printf("LiveOut[%d]=", i);
         live_print_set(cfg_node(i).LiveOut);
         printf("\n\n");
     }
 #endif
-}
-
-
-/*
- * Compute liveness & next-use required for code generation.
- */
-typedef struct Operand Operand;
-static struct Operand {
-    int liveness;
-    int next_use;
-} *operand_table;
-
-static void print_liveness_and_next_use(void);
-
-/*
- * Initialize the operand table with the liveness
- * and next use as of the end of the block.
- * Liveness is determined using the LiveOut set.
- */
-void init_operand_table(BSet *bLO)
-{
-    int i;
-
-    for (i = 0; i < nid_counter; i++) {
-        operand_table[i].liveness = DEAD;
-        operand_table[i].next_use = NO_NEXT_USE;
-    }
-
-    for (i = bset_iterate(bLO); i != -1; i = bset_iterate(NULL)) {
-        operand_table[i].liveness = LIVE;
-        operand_table[i].next_use = NO_NEXT_USE;
-    }
-}
-
-void compute_liveness_and_next_use(void)
-{
-    int b;
-
-    /* allocate operand table */
-    operand_table = malloc(nid_counter*sizeof(Operand));
-
-    /* annotate the quads of every block with liveness and next-use information */
-    for (b = ENTRY_NODE; b < cfg_nodes_counter; b++) {
-        int i;
-
-        init_operand_table(cfg_node(b).LiveOut);
-
-        /* scan backward through the block */
-        for (i = cfg_node(b).last; i >= (int)cfg_node(b).leader; i--) {
-            unsigned tar, arg1, arg2;
-            unsigned char *liveness;
-            int *next_use;
-
-            tar = instruction(i).tar;
-            arg1 = instruction(i).arg1;
-            arg2 = instruction(i).arg2;
-            liveness = instruction(i).liveness;
-            next_use = instruction(i).next_use;
-
-            switch (instruction(i).op) {
-#define update_tar()\
-        liveness[0] = operand_table[address_nid(tar)].liveness,\
-        next_use[0] = operand_table[address_nid(tar)].next_use,\
-        operand_table[address_nid(tar)].liveness = DEAD,\
-        operand_table[address_nid(tar)].next_use = NO_NEXT_USE
-#define update_arg1()\
-        liveness[1] = operand_table[address_nid(arg1)].liveness,\
-        next_use[1] = operand_table[address_nid(arg1)].next_use,\
-        operand_table[address_nid(arg1)].liveness = LIVE,\
-        operand_table[address_nid(arg1)].next_use = i
-#define update_arg2()\
-        liveness[2] = operand_table[address_nid(arg2)].liveness,\
-        next_use[2] = operand_table[address_nid(arg2)].next_use,\
-        operand_table[address_nid(arg2)].liveness = LIVE,\
-        operand_table[address_nid(arg2)].next_use = i
-
-            case OpAdd: case OpSub: case OpMul: case OpDiv:
-            case OpRem: case OpSHL: case OpSHR: case OpAnd:
-            case OpOr: case OpXor: case OpEQ: case OpNEQ:
-            case OpLT: case OpLET: case OpGT: case OpGET:
-                update_tar();
-                if (nonconst_addr(arg1))
-                    update_arg1();
-                if (nonconst_addr(arg2))
-                    update_arg2();
-                continue;
-
-            case OpNeg: case OpCmpl: case OpNot: case OpCh:
-            case OpUCh: case OpSh: case OpUSh: case OpAsn:
-                update_tar();
-                if (nonconst_addr(arg1))
-                    update_arg1();
-                continue;
-
-            case OpArg:
-            case OpRet:
-                if (nonconst_addr(arg1))
-                    update_arg1();
-                continue;
-
-            case OpAddrOf:
-                update_tar();
-                continue;
-
-            case OpInd: {
-                int j;
-                BSet *s;
-
-                update_tar();
-                update_arg1();
-
-                if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
-                    for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
-                        operand_table[j].liveness = LIVE;
-                } else {
-                    /*
-                     * TBD: if temporaries cannot cross basic block boundaries,
-                     * only programmer declared variables need to be marked 'LIVE'.
-                     */
-                    for (j = 0; j < nid_counter; j++)
-                        operand_table[j].liveness = LIVE;
-                }
-            }
-                continue;
-
-            case OpIndAsn:
-                liveness[0] = operand_table[address_nid(tar)].liveness;
-                next_use[0] = operand_table[address_nid(tar)].next_use;
-                operand_table[address_nid(tar)].liveness = LIVE;
-                operand_table[address_nid(tar)].next_use = i;
-                if (nonconst_addr(arg1))
-                    update_arg1();
-                continue;
-
-            case OpCall:
-                if (tar)
-                    update_tar();
-                continue;
-
-            case OpIndCall:
-                if (tar)
-                    update_tar();
-                if (nonconst_addr(arg1))
-                    update_arg1();
-                continue;
-
-            case OpCBr:
-                if (nonconst_addr(tar)) {
-                    liveness[0] = operand_table[address_nid(tar)].liveness;
-                    next_use[0] = operand_table[address_nid(tar)].next_use;
-                    operand_table[address_nid(tar)].liveness = LIVE;
-                    operand_table[address_nid(tar)].next_use = i;
-                }
-                continue;
-
-            default: /* other */
-                continue;
-            } /* switch (instruction(i).op) */
-        } /* instructions */
-    } /* basic blocks */
-
-    free(operand_table);
-#if DEBUG
-    print_liveness_and_next_use();
-#endif
-}
-
-void print_liveness_and_next_use(void)
-{
-    int b;
-
-    for (b = ENTRY_NODE; b < cfg_nodes_counter; b++) {
-        int i;
-
-        printf("Block %d\n", b);
-
-        for (i = cfg_node(b).leader; i <= cfg_node(b).last; i++) {
-            unsigned tar, arg1, arg2;
-
-            tar = instruction(i).tar;
-            arg1 = instruction(i).arg1;
-            arg2 = instruction(i).arg2;
-
-            switch (instruction(i).op) {
-#define print_tar()\
-        printf("name=%s, ", address_sid(tar)),\
-        printf("status=%s, ", instruction(i).liveness[0]?"LIVE":"DEAD"),\
-        printf("next use=%d", instruction(i).next_use[0])
-#define print_arg1()\
-        printf("name=%s, ", address_sid(arg1)),\
-        printf("status=%s, ", instruction(i).liveness[1]?"LIVE":"DEAD"),\
-        printf("next use=%d", instruction(i).next_use[1])
-#define print_arg2()\
-        printf("name=%s, ", address_sid(arg2)),\
-        printf("status=%s, ", instruction(i).liveness[2]?"LIVE":"DEAD"),\
-        printf("next use=%d", instruction(i).next_use[2])
-
-            case OpAdd: case OpSub: case OpMul: case OpDiv:
-            case OpRem: case OpSHL: case OpSHR: case OpAnd:
-            case OpOr: case OpXor: case OpEQ: case OpNEQ:
-            case OpLT: case OpLET: case OpGT: case OpGET:
-                print_tar();
-                if (nonconst_addr(arg1)) {
-                    printf(" | ");
-                    print_arg1();
-                }
-                if (nonconst_addr(arg2)) {
-                    printf(" | ");
-                    print_arg2();
-                }
-                break;
-
-            case OpNeg: case OpCmpl: case OpNot: case OpCh:
-            case OpUCh: case OpSh: case OpUSh: case OpAsn:
-                print_tar();
-                if (nonconst_addr(arg1)) {
-                    printf(" | ");
-                    print_arg1();
-                }
-                break;
-
-            case OpArg:
-            case OpRet:
-                if (nonconst_addr(arg1)) {
-                    print_arg1();
-                }
-                break;
-
-            case OpAddrOf:
-                print_tar();
-                break;
-
-            case OpInd:
-                print_tar();
-                printf(" | ");
-                print_arg1();
-                break;
-
-            case OpIndAsn:
-                print_tar();
-                if (nonconst_addr(arg1)) {
-                    printf(" | ");
-                    print_arg1();
-                }
-                break;
-
-            case OpCall:
-                if (tar)
-                    print_tar();
-                break;
-
-            case OpIndCall:
-                if (tar)
-                    print_tar();
-                if (nonconst_addr(arg1)) {
-                    printf(" | ");
-                    print_arg1();
-                }
-                break;
-
-            case OpCBr:
-                if (nonconst_addr(tar))
-                    print_tar();
-                break;
-            default:
-                continue;
-            } /* instructions */
-            printf("\n--------------\n");
-        } /* basic blocks */
-        printf("\n\n");
-    }
 }
 
 // =======================================================================================
@@ -582,7 +323,7 @@ struct PointToSet {
     PointToSet *next;
 };
 
-static BSet *ptr_tmp;
+static BSet *tl_tmp;
 static PointToSet **point_OUT;
 static int ptr_changed;
 
@@ -591,7 +332,7 @@ static void add_point_to(int i, int ptr, int tgt);
 static void union_point_to(int i, int ptr, BSet *s2);
 static void cpy_point_to(int i, int ptr, BSet *src);
 static PointToSet *search_point_to(PointToSet *setp, int ptr);
-static void ptr_iteration(void);
+static void ptr_iteration(unsigned fn);
 static PointToSet *get_ptr(int i, int ptr);
 
 PointToSet *new_ptr(int ptr, PointToSet *next)
@@ -624,9 +365,9 @@ void add_point_to(int i, int ptr, int tgt)
     PointToSet *s;
 
     s = get_ptr(i, ptr);
-    bset_cpy(ptr_tmp, s->tl);
+    bset_cpy(tl_tmp, s->tl);
     bset_insert(s->tl, tgt);
-    if (!bset_eq(s->tl, ptr_tmp))
+    if (!bset_eq(s->tl, tl_tmp))
         ptr_changed = TRUE;
 }
 
@@ -635,9 +376,9 @@ void union_point_to(int i, int ptr, BSet *s2)
     PointToSet *s;
 
     s = get_ptr(i, ptr);
-    bset_cpy(ptr_tmp, s->tl);
+    bset_cpy(tl_tmp, s->tl);
     bset_union(s->tl, s2);
-    if (!bset_eq(s->tl, ptr_tmp))
+    if (!bset_eq(s->tl, tl_tmp))
         ptr_changed = TRUE;
 }
 
@@ -699,11 +440,16 @@ void print_point_OUT(void)
     }
 }
 
-void ptr_iteration(void)
+static int arg_stack[32], arg_stack_top;
+
+void ptr_iteration(unsigned fn)
 {
     int b;
 
-    for (b = ENTRY_NODE; b < cfg_nodes_counter; b++) {
+    if (cg_node_is_empty(fn))
+        return;
+
+    for (b = cg_node(fn).bb_i; b <= cg_node(fn).bb_f; b++) {
         int i;
 
         for (i = cfg_node(b).leader; i <= cfg_node(b).last; i++) {
@@ -837,11 +583,65 @@ void ptr_iteration(void)
             }
                 continue;
 
-            case OpCall:
-            case OpIndCall:
-                /* currently, assume worst-case (that every pointer is modified) */
-                point_OUT[i] = NULL;
+            case OpIndCall: {
+                int p, tmp;
+                ParamNid *pn;
+                PointToSet *s;
+                unsigned tar_fn, arg;
+
+                if ((s=search_point_to(point_OUT[i-1], address_nid(arg1))) == NULL)
+                    goto ind_call_done; /* TBD (add edges from this to every node?) */
+
+                for (p = bset_iterate(s->tl); p != -1; p = bset_iterate(NULL)) {
+                    tar_fn = new_cg_node(nid2sid_tab[p]);
+                    edge_add(&cg_node(fn).out, tar_fn);
+                    tmp = arg_stack_top;
+                    for (pn = cg_node(tar_fn).pn; pn != NULL; pn = pn->next) {
+                        if (pn->nid == -1) { /* unreferenced parameter */
+                            --arg_stack_top;
+                            continue;
+                        }
+                        arg = instruction(arg_stack[--arg_stack_top]).arg1;
+                        if ((address(arg).kind==TempKind || address(arg).kind==IdKind)
+                        && (s=search_point_to(point_OUT[i-1], address_nid(arg))) != NULL)
+                            union_point_to(cfg_node(cg_node(tar_fn).bb_i).leader, pn->nid, s->tl);
+                    }
+                    arg_stack_top = tmp;
+                }
+                arg_stack_top = 0;
+ind_call_done:
+                point_OUT[i] = NULL; /* worst case; TBD */
+            }
                 continue;
+
+            case OpCall: {
+                ParamNid *pn;
+                PointToSet *s;
+                unsigned tar_fn, arg;
+
+                s = search_point_to(point_OUT[i-1], address_nid(arg1));
+                assert(s != NULL);
+                tar_fn = new_cg_node(nid2sid_tab[bset_iterate(s->tl)]);
+                edge_add(&cg_node(fn).out, tar_fn);
+                for (pn = cg_node(tar_fn).pn; pn != NULL; pn = pn->next) {
+                    if (pn->nid == -1) { /* unreferenced parameter */
+                        --arg_stack_top;
+                        continue;
+                    }
+                    arg = instruction(arg_stack[--arg_stack_top]).arg1;
+                    if ((address(arg).kind==TempKind || address(arg).kind==IdKind)
+                    && (s=search_point_to(point_OUT[i-1], address_nid(arg))) != NULL)
+                        union_point_to(cfg_node(cg_node(tar_fn).bb_i).leader, pn->nid, s->tl);
+                }
+                arg_stack_top = 0;
+
+                point_OUT[i] = NULL; /* worst case; TBD */
+            }
+                continue;
+
+            case OpArg:
+                arg_stack[arg_stack_top++] = i;
+                break;
 
             default:
                 break;
@@ -903,16 +703,19 @@ void ptr_iteration(void)
 
 void dflow_PointOut(void)
 {
-    ptr_tmp = bset_new(nid_counter);
+    tl_tmp = bset_new(nid_counter);
 
     point_OUT = calloc(ic_instructions_counter, sizeof(PointToSet *));
     ptr_changed = TRUE;
     while (ptr_changed) {
+        unsigned i;
+
         ptr_changed = FALSE;
         DEBUG_PRINTF("==> Point-to solver iteration\n");
-        ptr_iteration();
+        for (i = 0; i < cg_nodes_counter; i++)
+            ptr_iteration(i);
     }
-    bset_free(ptr_tmp);
+    bset_free(tl_tmp);
 #if DEBUG
     print_point_OUT();
 #endif

@@ -1,7 +1,6 @@
 /*
  * Intermediate code generator
  *  AST ==> IC
- * Generate code for a single function each time.
  */
 #define DEBUG 0
 #include "ic.h"
@@ -73,18 +72,18 @@ int nid_counter;
 static int nid_max;
 char **nid2sid_tab;
 
-void ic_reset(void);
-static void disassemble(void);
+static void ic_reset(void);
 static void new_cfg_node(unsigned leader);
 static void emit_i(OpKind op, Declaration *type, unsigned tar, unsigned arg1, unsigned arg2);
 static unsigned new_address(AddrKind kind);
 static unsigned new_temp_addr(void);
 static unsigned new_label(void);
 static void ic_compound_statement(ExecNode *s, int push_scope);
+static void ic_function_definition(TypeExp *decl_specs, TypeExp *header);
 static void new_nid(char *sid);
 static int get_var_nid(char *sid, int scope);
 static void edge_init(GraphEdge *p, unsigned max);
-static void edge_add(GraphEdge *p, unsigned e);
+static unsigned edge_iterate(GraphEdge *p);
 
 void new_nid(char *sid)
 {
@@ -127,6 +126,12 @@ void edge_init(GraphEdge *p, unsigned max)
 
 void edge_add(GraphEdge *p, unsigned e)
 {
+    unsigned i;
+
+    for (i = 0; i < p->n; i++)
+        if (p->edges[i] == e)
+            return;
+
     if (p->n >= p->max) {
         unsigned *new_edges;
 
@@ -140,8 +145,7 @@ void edge_add(GraphEdge *p, unsigned e)
 
 unsigned edge_iterate(GraphEdge *p)
 {
-    static unsigned n;
-    static unsigned *curr;
+    static unsigned n, *curr;
 
     if (p != NULL) {
         n = p->n;
@@ -171,6 +175,11 @@ unsigned new_cg_node(char *func_id)
         cg_nodes = new_p;
     }
     cg_nodes[cg_nodes_counter].func_id = func_id;
+    cg_nodes[cg_nodes_counter].bb_i = 0;
+    cg_nodes[cg_nodes_counter].bb_f = 0;
+    cg_nodes[cg_nodes_counter].pn = NULL;
+    edge_init(&cg_nodes[cg_nodes_counter].out, 1);
+    edge_init(&cg_nodes[cg_nodes_counter].in, 1);
     return cg_nodes_counter++;
 }
 
@@ -186,8 +195,8 @@ void new_cfg_node(unsigned leader)
         cfg_nodes = new_p;
     }
     cfg_nodes[cfg_nodes_counter].leader = leader;
-    edge_init(&cfg_node(cfg_nodes_counter).out, 2);
-    edge_init(&cfg_node(cfg_nodes_counter).in, 5);
+    edge_init(&cfg_nodes[cfg_nodes_counter].out, 2);
+    edge_init(&cfg_nodes[cfg_nodes_counter].in, 5);
     ++cfg_nodes_counter;
 }
 
@@ -339,45 +348,51 @@ void print_CG(void)
 {
     unsigned i;
 
+    printf("Program Call-Graph\n");
     printf("digraph {\n");
     for (i = 0; i < cg_nodes_counter; i++) {
         unsigned j;
 
-        printf("V%u[label=\"%s\"];\n", i, cg_node(i).func_id);
+        printf("V%u[label=\"%s\\n", i, cg_node(i).func_id);
+        printf("[%u, %u]\"];\n", cg_node(i).bb_i, cg_node(i).bb_f);
         for (j = edge_iterate(&cg_node(i).out); j != -1; j = edge_iterate(NULL))
             printf("V%u -> V%u;\n", i, j);
     }
     printf("}\n");
-
 }
 
-unsigned curr_cg_node;
+static unsigned curr_cg_node;
+static unsigned ic_func_first_instr;
+static void disassemble(unsigned fn);
+static void build_CFG(void);
+static void print_CFG(unsigned fn);
 
-void ic_main(void)
+void ic_main(ExternId *func_def_list[])
 {
+    unsigned i;
     ExternId *ed;
 
     ic_init();
-    for (ed = get_extern_symtab(); ed != NULL; ed = ed->next) {
-        if (ed->status == REFERENCED) {
-            ;
-        } else {
-            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION) {
-                curr_cg_node = new_cg_node(ed->declarator->str);
-                cg_node(curr_cg_node).bb_i = cfg_nodes_counter;
-                ic_function_definition(ed->decl_specs, ed->declarator);
-                cg_node(curr_cg_node).bb_f = cfg_nodes_counter-1;
-                ic_reset();
-            } else {
-                ;
-            }
-        }
+    for (ed = func_def_list[i=0]; ed != NULL; ed = func_def_list[i++]) {
+        ic_func_first_instr = ic_instructions_counter;
+        curr_cg_node = new_cg_node(ed->declarator->str);
+        ic_function_definition(ed->decl_specs, ed->declarator);
+        build_CFG();
+        ic_reset();
+    }
+    if (i == 0)
+        return;
+
+    dflow_PointOut(); /* must be done first; add edges (and more nodes) to the call graph */
+    for (i = 0; i < cg_nodes_counter; i++) {
+        disassemble(i);
+        print_CFG(i);
+        dflow_dominance(i);
+        dflow_LiveOut(i);
     }
     print_CG();
 }
 
-static void build_CFG(void);
-static void print_CFG(void);
 static void fix_gotos(void);
 static unsigned exit_label;
 
@@ -405,7 +420,21 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
         ty.idl = p->decl->idl->child;
         param_offs += round_up(compute_sizeof(&ty), 4);
 
-        /*add_potential_target(get_nid(p->decl->idl->str));*/
+        if (cg_node(curr_cg_node).pn == NULL) {
+            cg_node(curr_cg_node).pn = malloc(sizeof(ParamNid));
+            cg_node(curr_cg_node).pn->sid = p->decl->idl->str;
+            cg_node(curr_cg_node).pn->nid = -1;
+            cg_node(curr_cg_node).pn->next = NULL;
+        } else {
+            ParamNid *pn;
+
+            for (pn = cg_node(curr_cg_node).pn; pn->next != NULL; pn = pn->next);
+            pn->next = malloc(sizeof(ParamNid));
+            pn = pn->next;
+            pn->sid = p->decl->idl->str;
+            pn->nid = -1;
+            pn->next = NULL;
+        }
 
         p = p->next;
     }
@@ -423,18 +452,8 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
     emit_i(OpJmp, NULL, exit_label, 0, 0);
     emit_i(OpLab, NULL, exit_label, 0, 0);
     location_pop_scope();
-
     fix_gotos();
-
-    // disassemble();
-    if (ic_instructions_counter > 0) {
-        build_CFG();
-        // print_CFG();
-        // dflow_dominance();
-        // dflow_PointOut();
-        // dflow_LiveOut();
-        // compute_liveness_and_next_use();
-    }
+    cg_node(curr_cg_node).size_of_local_area = size_of_local_area;
 }
 
 // =============================================================================
@@ -455,6 +474,7 @@ static void number_subRCFG(unsigned n);
 
 void print_CFG_ordering(void)
 {
+#if 0
     unsigned i;
 
     printf("CFG PO = [ ");
@@ -473,17 +493,20 @@ void print_CFG_ordering(void)
     for (i = ENTRY_NODE; i < cfg_nodes_counter; i++)
         printf("%u, ", RCFG_RPO[i]);
     printf("]\n");
+#endif
 }
 
 /* emit a DOT definition of the CFG */
-void print_CFG(void)
+void print_CFG(unsigned fn)
 {
     unsigned i;
 
-    print_CFG_ordering();
+    // print_CFG_ordering();
+    if (cg_node_is_empty(fn))
+        return;
 
     printf("digraph {\n");
-    for (i = ENTRY_NODE; i < cfg_nodes_counter; i++) {
+    for (i = cg_node(fn).bb_i; i <= cg_node(fn).bb_f; i++) {
         unsigned j;
 
         printf("V%u[label=\"B%u ", i, i);
@@ -508,6 +531,7 @@ void print_CFG(void)
     printf("}\n");
 }
 
+#if 0
 void number_subCFG(unsigned n)
 {
     int i;
@@ -545,9 +569,11 @@ void number_subRCFG(unsigned n)
     RCFG_RPO[cfg_nodes_counter-pocount] = n;
     RCFG_PO[pocount++] = n;
 }
+#endif
 
 void number_CFG(void)
 {
+#if 0
     unsigned n;
 
     visited = calloc(cfg_nodes_counter, sizeof(int));
@@ -577,8 +603,10 @@ void number_CFG(void)
     }
 
     free(visited);
+#endif
 }
 
+/* fn: function node in the call-graph */
 void build_CFG(void)
 {
     /*
@@ -592,25 +620,29 @@ void build_CFG(void)
     /* allocate table used to map labels to CFG nodes */
     lab2node = malloc(sizeof(unsigned)*label_counter);
 
+    cg_node(curr_cg_node).bb_i = cfg_nodes_counter;
+
     /*
      * 1st step: find leaders.
      */
     /* first instruction (always a leader) */
-    if (instruction(0).op == OpLab)
-        lab2node[address(instruction(0).tar).cont.val] = cfg_nodes_counter;
-    new_cfg_node(0);
+    if (instruction(ic_func_first_instr).op == OpLab)
+        lab2node[address(instruction(ic_func_first_instr).tar).cont.val] = cfg_nodes_counter;
+    new_cfg_node(ic_func_first_instr);
     /* remaining instructions */
-    for (i = 1; i < ic_instructions_counter; i++) {
+    for (i = ic_func_first_instr+1; i < ic_instructions_counter; i++) {
         if (instruction(i).op == OpLab) {
             lab2node[address(instruction(i).tar).cont.val] = cfg_nodes_counter;
             new_cfg_node(i);
         }
     }
 
+    cg_node(curr_cg_node).bb_f = cfg_nodes_counter-1;
+
     /*
      * 2nd step: find last and add edges.
      */
-    for (i = 1; i < cfg_nodes_counter; i++) {
+    for (i = cg_node(curr_cg_node).bb_i; i < cfg_nodes_counter; i++) {
         unsigned last;
 
         if (i != cfg_nodes_counter-1)
@@ -646,7 +678,7 @@ void build_CFG(void)
     }
 
     free(lab2node);
-    number_CFG();
+    // number_CFG();
 }
 
 // =============================================================================
@@ -1561,7 +1593,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
 
             if (get_type_category(&e->child[0]->type) != TOK_STAR) {
                 op = OpCall;
-                edge_add(&cg_node(curr_cg_node).out, new_cg_node(e->child[0]->attr.str));
+                /*edge_add(&cg_node(curr_cg_node).out, new_cg_node(e->child[0]->attr.str));*/
             } else {
                 op = OpIndCall;
             }
@@ -1633,8 +1665,19 @@ unsigned ic_expression(ExecNode *e, int is_addr)
         address(a1).cont.nid = get_var_nid(e->attr.str, e->attr.var.scope);
         if (e->attr.var.duration == DURATION_AUTO)
             address(a1).cont.var.offset = location_get_offset(e->attr.str);
+        if (e->attr.var.is_param) {
+            ParamNid *pn;
 
-        if (is_addr || (cat=get_type_category(&e->type))==TOK_SUBSCRIPT /*|| cat==TOK_FUNCTION*/) {
+            for (pn = cg_node(curr_cg_node).pn; pn != NULL; pn = pn->next) {
+                if (equal(pn->sid, e->attr.str)) {
+                    pn->nid = address(a1).cont.nid;
+                    break;
+                }
+            }
+            assert(pn != NULL);
+        }
+
+        if (is_addr || (cat=get_type_category(&e->type))==TOK_SUBSCRIPT || cat==TOK_FUNCTION) {
             unsigned a2;
 
             a2 = new_temp_addr();
@@ -1831,11 +1874,17 @@ void print_unaop(Quad *i, char *op)
     print_addr(i->arg1);
 }
 
-void disassemble(void)
+void disassemble(unsigned fn)
 {
     unsigned i;
+    unsigned first, last;
 
-    for (i = 0; i < ic_instructions_counter; i++) {
+    if (cg_node_is_empty(fn))
+        return;
+
+    first = cfg_node(cg_node(fn).bb_i).leader;
+    last  = cfg_node(cg_node(fn).bb_f).last;
+    for (i = first; i <= last; i++) {
         Quad *p;
 
         p = &ic_instructions[i];
