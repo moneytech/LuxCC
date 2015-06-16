@@ -32,8 +32,8 @@ extern int colored_diagnostics;
 #define FATAL_ERROR(tok, ...) emit_error(TRUE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
 
 #define HASH_SIZE       4093
-#define FILE_SCOPE      0
 #define OUTERMOST_LEVEL 0
+#define FILE_SCOPE      0
 #define HASH_VAL(s)     (hash(s)%HASH_SIZE)
 #define HASH_VAL2(x)    (hash2(x)%HASH_SIZE)
 
@@ -473,7 +473,7 @@ int is_external_id(char *id)
     return lookup_external_id(id)!=NULL;
 }
 
-/* set attributes to an identifier node */
+/* set attributes of an identifier node */
 void set_attributes(ExecNode *e, Symbol *sym)
 {
     TypeExp *scs;
@@ -509,6 +509,9 @@ void set_attributes(ExecNode *e, Symbol *sym)
     } else {
         e->attr.var.linkage = LINKAGE_NONE;
     }
+
+    if (e->attr.var.linkage == LINKAGE_EXTERNAL)
+        e->attr.var.scope = FILE_SCOPE;
 
     e->attr.var.is_param = (char)sym->is_param;
 }

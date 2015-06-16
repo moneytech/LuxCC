@@ -5,6 +5,7 @@ void dflow_dominance(unsigned fn);
 void dflow_LiveOut(unsigned fn);
 #include "bset.h"
 void dflow_PointOut(void);
+void dflow_summaries(void);
 /*
  * Return a list of targets we know the pointer p may point to at program point i.
  * Return NULL if we know nothing about where p may point to at program point i.

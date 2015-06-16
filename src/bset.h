@@ -20,6 +20,6 @@ int bset_card(BSet *s); /* |s| */
  * Note the least-significant bit is at position zero.
  */
 int bset_iterate(BSet *s);
-void bset_fill(BSet *s, int n); /* add membership to everything up to (and excluding) n */
+void bset_fill(BSet *s, int n); /* give membership to everything up to (and excluding) n */
 
 #endif

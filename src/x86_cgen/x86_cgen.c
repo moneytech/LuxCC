@@ -187,9 +187,9 @@ void compute_liveness_and_next_use(unsigned fn)
         } /* instructions */
     } /* basic blocks */
 
-// #if DEBUG
+#if DEBUG
     print_liveness_and_next_use(fn);
-// #endif
+#endif
 }
 
 void print_liveness_and_next_use(unsigned fn)
@@ -506,7 +506,7 @@ int new_string_literal(unsigned a)
     unsigned len, i;
 
     emitln("segment .rodata");
-    emitln("@S%d:", string_literal_counter);
+    emitln("_@S%d:", string_literal_counter);
 
     s = address(a).cont.str;
     len = strlen(s)+1;
@@ -540,7 +540,7 @@ void x86_cgen(void)
     }
 
     /* generate intermediate code and do some analysis */
-    ic_main(func_def_list);
+    ic_main(func_def_list); exit(0);
 
     /* compute liveness and next use */
     liveness_and_next_use = malloc(ic_instructions_counter*sizeof(QuadLiveNext));
@@ -661,7 +661,7 @@ char *get_operand(unsigned a)
     if (address(a).kind == IConstKind) {
         sprintf(op, "%lu", address(a).cont.uval);
     } else if (address(a).kind == StrLitKind) {
-        sprintf(op, "@S%d", new_string_literal(a));
+        sprintf(op, "_@S%d", new_string_literal(a));
     } else if (address(a).kind == IdKind) {
         ExecNode *e;
 
@@ -759,7 +759,7 @@ void x86_load(X86_Reg r, unsigned a)
     if (address(a).kind == IConstKind) {
         emitln("mov %s, %lu", x86_reg_str[r], address(a).cont.uval);
     } else if (address(a).kind == StrLitKind) {
-        emitln("mov %s, @S%d", x86_reg_str[r], new_string_literal(a));
+        emitln("mov %s, _@S%d", x86_reg_str[r], new_string_literal(a));
     } else if (address(a).kind == IdKind) {
         ExecNode *e;
         char *siz_str, *mov_str;
@@ -1400,12 +1400,8 @@ void x86_indcall(int i, unsigned tar, unsigned arg1, unsigned arg2)
 }
 void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    BSet *s;
-
     x86_pre_call(i);
-    s = get_pointer_targets(i, address_nid(arg1));
-    assert(s != NULL);
-    emitln("call %s", nid2sid_tab[bset_iterate(s)]);
+    emitln("call %s", address(arg1).cont.var.e->attr.str);
     if (arg_nb)
         emitln("add esp, %u", arg_nb);
     arg_nb = 0;
@@ -1414,10 +1410,10 @@ void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
     /*update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);*/
 }
 
-#define emit_lab(n)         emitln("@L%ld:", n)
-#define emit_jmp(target)    emitln("jmp @L%ld", target)
-#define emit_jmpeq(target)  emitln("je @L%ld", target)
-#define emit_jmpneq(target) emitln("jne @L%ld", target)
+#define emit_lab(n)         emitln("_@L%ld:", n)
+#define emit_jmp(target)    emitln("jmp _@L%ld", target)
+#define emit_jmpeq(target)  emitln("je _@L%ld", target)
+#define emit_jmpneq(target) emitln("jne _@L%ld", target)
 
 void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {

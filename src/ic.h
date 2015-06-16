@@ -114,12 +114,16 @@ struct ParamNid {
     ParamNid *next;
 };
 
-struct CGNode {
+struct CGNode { /* CG node == function */
     char *func_id;
     unsigned bb_i, bb_f;
     GraphEdge out;
     GraphEdge in;
     ParamNid *pn;
+    BSet *LocalMod; /* outside-visible names that may be modified by this function */
+    BSet *MayMod;   /* LocalMod + LocalMod of all the functions called by this function */
+    BSet *LocalRef; /* outside-visible names that may be referenced by this function */
+    BSet *MayRef;   /* LocalRef + LocalRef of all the functions called by this function */
     unsigned size_of_local_area;
 };
 
@@ -127,6 +131,9 @@ extern unsigned *CFG_PO;
 extern unsigned *CFG_RPO;
 extern unsigned *RCFG_PO;
 extern unsigned *RCFG_RPO;
+
+extern unsigned *CG_PO;
+extern unsigned *CG_RPO;
 
 #define instruction(n)      (ic_instructions[n])
 #define address(n)          (ic_addresses[n])
@@ -147,9 +154,11 @@ extern char **nid2sid_tab;
 #define address_nid(a)   (address(a).cont.nid)
 #define address_sid(a)   (nid2sid_tab[address_nid(a)])
 #define nonconst_addr(a) (address(a).kind!=IConstKind && address(a).kind!=StrLitKind)
+#define const_addr(a)    (address(a).kind==IConstKind || address(a).kind==StrLitKind)
 
 void ic_main(ExternId *func_def_list[]);
 void edge_add(GraphEdge *p, unsigned e);
 unsigned new_cg_node(char *func_id);
+unsigned edge_iterate(GraphEdge *p);
 
 #endif

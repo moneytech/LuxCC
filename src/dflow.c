@@ -13,9 +13,188 @@
 #include "bset.h"
 
 // =======================================================================================
+// MayMod/MayRef summaries
+// =======================================================================================
+static void print_summary(BSet *s);
+static void init_summary(unsigned fn);
+
+void print_summary(BSet *s)
+{
+    int i, c;
+
+    c = bset_card(s);
+    for (i = bset_iterate(s); i != -1; i = bset_iterate(NULL))
+        printf("%s%s", nid2sid_tab[i], (c--!=1)?", ":"");
+}
+
+/* compute LocalMod(fn) & LocalRef(fn) */
+void init_summary(unsigned fn)
+{
+    unsigned i;
+    BSet *LocalMod, *LocalRef;
+
+    LocalMod = bset_new(nid_counter);
+    LocalRef = bset_new(nid_counter);
+
+    for (i = cfg_node(cg_node(fn).bb_i).leader; i <= cfg_node(cg_node(fn).bb_f).last; i++) {
+        unsigned tar, arg1, arg2;
+
+        tar = instruction(i).tar;
+        arg1 = instruction(i).arg1;
+        arg2 = instruction(i).arg2;
+
+        switch (instruction(i).op) {
+#define add_LocalRef(addr)\
+    if (address(addr).kind==IdKind && address(addr).cont.var.e->attr.var.linkage!=LINKAGE_NONE)\
+        bset_insert(LocalRef, address_nid(addr))
+#define add_LocalMod(addr)\
+    if (address(addr).kind==IdKind && address(addr).cont.var.e->attr.var.linkage!=LINKAGE_NONE)\
+        bset_insert(LocalMod, address_nid(addr))
+
+        case OpAdd: case OpSub: case OpMul: case OpDiv:
+        case OpRem: case OpSHL: case OpSHR: case OpAnd:
+        case OpOr: case OpXor: case OpEQ: case OpNEQ:
+        case OpLT: case OpLET: case OpGT: case OpGET:
+            if (nonconst_addr(arg1))
+                add_LocalRef(arg1);
+            if (nonconst_addr(arg2))
+                add_LocalRef(arg2);
+            continue;
+
+        case OpNeg: case OpCmpl: case OpNot: case OpCh:
+        case OpUCh: case OpSh: case OpUSh: case OpAsn:
+            if (nonconst_addr(arg1))
+                add_LocalRef(arg1);
+
+            if (instruction(i).op == OpAsn)
+                add_LocalMod(tar);
+            continue;
+
+        case OpArg:
+        case OpRet:
+            if (nonconst_addr(arg1))
+                add_LocalRef(arg1);
+            continue;
+
+        case OpInd: {
+            BSet *s;
+
+            if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL)
+                bset_union(LocalRef, s);
+            else
+                bset_fill(LocalRef, nid_counter);
+        }
+            continue;
+
+        case OpIndAsn: {
+            BSet *s;
+
+            if ((s=get_pointer_targets(i, address_nid(tar))) != NULL)
+                bset_union(LocalMod, s);
+            else
+                bset_fill(LocalMod, nid_counter);
+        }
+            continue;
+
+        case OpIndCall:
+            if (nonconst_addr(arg1))
+                add_LocalRef(arg1);
+            continue;
+
+        case OpCBr:
+            if (nonconst_addr(tar))
+                add_LocalRef(tar);
+            continue;
+
+        default:
+            continue;
+        }
+    }
+    cg_node(fn).LocalMod = LocalMod;
+    cg_node(fn).LocalRef = LocalRef;
+}
+
+void dflow_summaries(void)
+{
+    int changed;
+    BSet *new_out;
+    unsigned i, i2;
+
+    for (i = 0; i < cg_nodes_counter; i++) {
+        init_summary(i);
+        cg_node(i).MayMod = bset_new(nid_counter);
+        cg_node(i).MayRef = bset_new(nid_counter);
+    }
+    new_out = bset_new(nid_counter);
+
+    /* MayMod */
+    changed = TRUE;
+    while (changed) {
+        DEBUG_PRINTF("==> MayMod solver iteration\n");
+        changed = FALSE;
+        for (i = 0; i < cg_nodes_counter; i++) {
+            unsigned j;
+
+            i2 = CG_PO[i];
+            /*
+             * MayMod(p) = LocalMod(p) U MayMod(q)
+             *                       q ∈ called(p)
+             */
+            bset_cpy(new_out, cg_node(i2).LocalMod);
+            for (j = edge_iterate(&cg_node(i2).out); j != -1; j = edge_iterate(NULL))
+                bset_union(new_out, cg_node(j).MayMod);
+            if (!bset_eq(cg_node(i2).MayMod, new_out)) {
+                bset_cpy(cg_node(i2).MayMod, new_out);
+                changed = TRUE;
+            }
+            bset_clear(new_out);
+         }
+     }
+
+    /* MayRef */
+    changed = TRUE;
+    while (changed) {
+        DEBUG_PRINTF("==> MayRef solver iteration\n");
+        changed = FALSE;
+        for (i = 0; i < cg_nodes_counter; i++) {
+            unsigned j;
+
+            i2 = CG_PO[i];
+            /*
+             * MayRef(p) = LocalRef(p) U MayRef(q)
+             *                       q ∈ called(p)
+             */
+            bset_cpy(new_out, cg_node(i2).LocalRef);
+            for (j = edge_iterate(&cg_node(i2).out); j != -1; j = edge_iterate(NULL))
+                bset_union(new_out, cg_node(j).MayRef);
+            if (!bset_eq(cg_node(i2).MayRef, new_out)) {
+                bset_cpy(cg_node(i2).MayRef, new_out);
+                changed = TRUE;
+            }
+            bset_clear(new_out);
+         }
+     }
+
+     bset_free(new_out);
+// #if DEBUG
+    for (i = 0; i < cg_nodes_counter; i++) {
+        printf("MayMod(%s) = { ", cg_node(i).func_id);
+        print_summary(cg_node(i).MayMod);
+        printf(" }\n");
+    }
+    for (i = 0; i < cg_nodes_counter; i++) {
+        printf("MayRef(%s) = { ", cg_node(i).func_id);
+        print_summary(cg_node(i).MayRef);
+        printf(" }\n");
+    }
+// #endif
+}
+
+// =======================================================================================
 // Dominance
 // =======================================================================================
-static
+static void dom_print_set(BSet *s);
+
 void dom_print_set(BSet *s)
 {
     int i, c;
@@ -99,8 +278,9 @@ void dflow_dominance(unsigned fn)
 // Live analysis.
 // =======================================================================================
 static BSet *modified_static_objects;
+static void live_print_set(BSet *s);
+static void live_init_block(int b, int last_bb);
 
-static
 void live_print_set(BSet *s)
 {
     int i, c;
@@ -111,7 +291,6 @@ void live_print_set(BSet *s)
 }
 
 /* compute UEVar(b) and VarKill(b) */
-static
 void live_init_block(int b, int last_bb)
 {
     int i;
@@ -283,7 +462,7 @@ void dflow_LiveOut(unsigned fn)
             int j, b;
             unsigned succ;
 
-            b = i;//RCFG_RPO[i];
+            b = RCFG_RPO[i];
             /*
              * LiveOut(b) = the union of all successors of b, where the contribution
              *              of each successor m is       __________
@@ -327,13 +506,16 @@ static BSet *tl_tmp;
 static PointToSet **point_OUT;
 static int ptr_changed;
 
-static PointToSet *new_ptr(int ptr, PointToSet *next);
 static void add_point_to(int i, int ptr, int tgt);
 static void union_point_to(int i, int ptr, BSet *s2);
 static void cpy_point_to(int i, int ptr, BSet *src);
 static PointToSet *search_point_to(PointToSet *setp, int ptr);
-static void ptr_iteration(unsigned fn);
 static PointToSet *get_ptr(int i, int ptr);
+static PointToSet *new_ptr(int ptr, PointToSet *next);
+static void ptr_iteration(unsigned fn);
+static void ptr_print_set(BSet *s);
+static void print_point_to_set(PointToSet *setp);
+static void print_point_OUT(void);
 
 PointToSet *new_ptr(int ptr, PointToSet *next)
 {
@@ -401,7 +583,6 @@ PointToSet *search_point_to(PointToSet *setp, int ptr)
     return setp;
 }
 
-static
 void ptr_print_set(BSet *s)
 {
     int i, c;
@@ -619,9 +800,7 @@ ind_call_done:
                 PointToSet *s;
                 unsigned tar_fn, arg;
 
-                s = search_point_to(point_OUT[i-1], address_nid(arg1));
-                assert(s != NULL);
-                tar_fn = new_cg_node(nid2sid_tab[bset_iterate(s->tl)]);
+                tar_fn = new_cg_node(address(arg1).cont.var.e->attr.str);
                 edge_add(&cg_node(fn).out, tar_fn);
                 for (pn = cg_node(tar_fn).pn; pn != NULL; pn = pn->next) {
                     if (pn->nid == -1) { /* unreferenced parameter */
