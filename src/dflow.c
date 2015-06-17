@@ -839,10 +839,8 @@ void ptr_iteration(unsigned fn)
                 PointToSet *s;
                 unsigned tar_fn, arg;
 
-                if ((s=search_point_to(point_OUT[i-1], address_nid(arg1))) == NULL) {
-                    edge_add(&cg_node(fn).out, get_unknown_cg_node());
-                    goto ind_call_done;
-                }
+                if ((s=search_point_to(point_OUT[i-1], address_nid(arg1))) == NULL)
+                    assert(0); /* TBD */
 
                 for (p = bset_iterate(s->tl); p != -1; p = bset_iterate(NULL)) {
                     tar_fn = new_cg_node(nid2sid_tab[p]);
@@ -861,7 +859,7 @@ void ptr_iteration(unsigned fn)
                     arg_stack_top = tmp;
                 }
                 arg_stack_top = 0;
-ind_call_done:
+
 #if 0
                 for (s = point_OUT[i-1]; s != NULL; s = s->next) {
                     if (bset_member(cg_node(tar_fn).MayMod, s->ptr))

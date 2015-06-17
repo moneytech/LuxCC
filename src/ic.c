@@ -188,18 +188,14 @@ unsigned new_cg_node(char *func_id)
     return cg_nodes_counter++;
 }
 
-unsigned get_unknown_cg_node(void)
+/*unsigned get_unknown_cg_node(void)
 {
-    /*
-     * 'black box' node used when calling
-     * through an unknown function pointer.
-     */
     static unsigned u = -1;
 
     if (u == -1)
         u = new_cg_node("<Unknown>");
     return u;
-}
+}*/
 
 void new_cfg_node(unsigned leader)
 {
