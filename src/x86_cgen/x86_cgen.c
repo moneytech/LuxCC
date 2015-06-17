@@ -540,7 +540,7 @@ void x86_cgen(void)
     }
 
     /* generate intermediate code and do some analysis */
-    ic_main(func_def_list); exit(0);
+    ic_main(func_def_list);
 
     /* compute liveness and next use */
     liveness_and_next_use = malloc(ic_instructions_counter*sizeof(QuadLiveNext));

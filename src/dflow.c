@@ -36,6 +36,13 @@ void init_summary(unsigned fn)
     LocalMod = bset_new(nid_counter);
     LocalRef = bset_new(nid_counter);
 
+    if (cg_node_is_empty(fn)) { /* external function */
+        /* we don't know what it does, be conservative */
+        bset_fill(LocalMod, nid_counter);
+        bset_fill(LocalRef, nid_counter);
+        goto done;
+    }
+
     for (i = cfg_node(cg_node(fn).bb_i).leader; i <= cfg_node(cg_node(fn).bb_f).last; i++) {
         unsigned tar, arg1, arg2;
 
@@ -61,13 +68,12 @@ void init_summary(unsigned fn)
                 add_LocalRef(arg2);
             continue;
 
+        case OpAsn:
+            add_LocalMod(tar);
         case OpNeg: case OpCmpl: case OpNot: case OpCh:
-        case OpUCh: case OpSh: case OpUSh: case OpAsn:
+        case OpUCh: case OpSh: case OpUSh:
             if (nonconst_addr(arg1))
                 add_LocalRef(arg1);
-
-            if (instruction(i).op == OpAsn)
-                add_LocalMod(tar);
             continue;
 
         case OpArg:
@@ -110,6 +116,7 @@ void init_summary(unsigned fn)
             continue;
         }
     }
+done:
     cg_node(fn).LocalMod = LocalMod;
     cg_node(fn).LocalRef = LocalRef;
 }
@@ -176,7 +183,7 @@ void dflow_summaries(void)
      }
 
      bset_free(new_out);
-// #if DEBUG
+#if DEBUG
     for (i = 0; i < cg_nodes_counter; i++) {
         printf("MayMod(%s) = { ", cg_node(i).func_id);
         print_summary(cg_node(i).MayMod);
@@ -187,7 +194,7 @@ void dflow_summaries(void)
         print_summary(cg_node(i).MayRef);
         printf(" }\n");
     }
-// #endif
+#endif
 }
 
 // =======================================================================================
@@ -330,17 +337,15 @@ void live_init_block(int b, int last_bb)
             add_VarKill(tar);
             continue;
 
+        case OpAsn: /* keep track of modified static objects */
+            if ((address(tar).kind == IdKind)
+            && (address(tar).cont.var.e->attr.var.duration == DURATION_STATIC))
+                bset_insert(modified_static_objects, address_nid(tar));
         case OpNeg: case OpCmpl: case OpNot: case OpCh:
-        case OpUCh: case OpSh: case OpUSh: case OpAsn:
+        case OpUCh: case OpSh: case OpUSh:
             if (nonconst_addr(arg1))
                 add_UEVar(arg1);
             add_VarKill(tar);
-
-            /* keep track of modified static objects */
-            if ((instruction(i).op == OpAsn)
-            && (address(tar).kind == IdKind)
-            && (address(tar).cont.var.e->attr.var.duration == DURATION_STATIC))
-                bset_insert(modified_static_objects, address_nid(tar));
             continue;
 
         case OpArg:
@@ -391,15 +396,46 @@ void live_init_block(int b, int last_bb)
         }
             continue;
 
-        /*
-         * TBD: fill UEVar set? (overestimate function calls)
-         */
-        case OpCall:
-        case OpIndCall:
+        case OpCall: {
+            BSet *temp;
+            unsigned fn;
+
+            fn = new_cg_node(address(arg1).cont.var.e->attr.str);
+            temp = bset_new(nid_counter);
+            bset_cpy(temp, cg_node(fn).MayRef);
+            bset_diff(temp, VarKill);
+            bset_union(UEVar, temp);
+            bset_free(temp);
+            if (tar)
+                add_VarKill(tar);
+        }
+            continue;
+
+        case OpIndCall: {
+            BSet *s;
+
+            if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
+                unsigned j;
+
+                for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL)) {
+                    BSet *temp;
+                    unsigned fn;
+
+                    fn = new_cg_node(nid2sid_tab[j]);
+                    temp = bset_new(nid_counter);
+                    bset_cpy(temp, cg_node(fn).MayRef);
+                    bset_diff(temp, VarKill);
+                    bset_union(UEVar, temp);
+                    bset_free(temp);
+                }
+            } else {
+                bset_fill(UEVar, nid_counter);
+            }
             if (nonconst_addr(arg1))
                 add_UEVar(arg1);
             if (tar)
                 add_VarKill(tar);
+        }
             continue;
 
         case OpCBr:
@@ -764,37 +800,6 @@ void ptr_iteration(unsigned fn)
             }
                 continue;
 
-            case OpIndCall: {
-                int p, tmp;
-                ParamNid *pn;
-                PointToSet *s;
-                unsigned tar_fn, arg;
-
-                if ((s=search_point_to(point_OUT[i-1], address_nid(arg1))) == NULL)
-                    goto ind_call_done; /* TBD (add edges from this to every node?) */
-
-                for (p = bset_iterate(s->tl); p != -1; p = bset_iterate(NULL)) {
-                    tar_fn = new_cg_node(nid2sid_tab[p]);
-                    edge_add(&cg_node(fn).out, tar_fn);
-                    tmp = arg_stack_top;
-                    for (pn = cg_node(tar_fn).pn; pn != NULL; pn = pn->next) {
-                        if (pn->nid == -1) { /* unreferenced parameter */
-                            --arg_stack_top;
-                            continue;
-                        }
-                        arg = instruction(arg_stack[--arg_stack_top]).arg1;
-                        if ((address(arg).kind==TempKind || address(arg).kind==IdKind)
-                        && (s=search_point_to(point_OUT[i-1], address_nid(arg))) != NULL)
-                            union_point_to(cfg_node(cg_node(tar_fn).bb_i).leader, pn->nid, s->tl);
-                    }
-                    arg_stack_top = tmp;
-                }
-                arg_stack_top = 0;
-ind_call_done:
-                point_OUT[i] = NULL; /* worst case; TBD */
-            }
-                continue;
-
             case OpCall: {
                 ParamNid *pn;
                 PointToSet *s;
@@ -814,7 +819,60 @@ ind_call_done:
                 }
                 arg_stack_top = 0;
 
-                point_OUT[i] = NULL; /* worst case; TBD */
+#if 0 /* unviable: we don't compute MayMod sets yet :( */
+                for (s = point_OUT[i-1]; s != NULL; s = s->next) {
+                    if (bset_member(cg_node(tar_fn).MayMod, s->ptr))
+                        continue;
+                    cpy_point_to(i, s->ptr, s->tl);
+                }
+#elif 0 /* worst case, always correct */
+                point_OUT[i] = NULL;
+#elif 1 /* be optimistic and assume that no pointer is modified [ TOFIX! ] */
+                break;
+#endif
+            }
+                continue;
+
+            case OpIndCall: {
+                int p, tmp;
+                ParamNid *pn;
+                PointToSet *s;
+                unsigned tar_fn, arg;
+
+                if ((s=search_point_to(point_OUT[i-1], address_nid(arg1))) == NULL) {
+                    edge_add(&cg_node(fn).out, get_unknown_cg_node());
+                    goto ind_call_done;
+                }
+
+                for (p = bset_iterate(s->tl); p != -1; p = bset_iterate(NULL)) {
+                    tar_fn = new_cg_node(nid2sid_tab[p]);
+                    edge_add(&cg_node(fn).out, tar_fn);
+                    tmp = arg_stack_top;
+                    for (pn = cg_node(tar_fn).pn; pn != NULL; pn = pn->next) {
+                        if (pn->nid == -1) { /* unreferenced parameter */
+                            --arg_stack_top;
+                            continue;
+                        }
+                        arg = instruction(arg_stack[--arg_stack_top]).arg1;
+                        if ((address(arg).kind==TempKind || address(arg).kind==IdKind)
+                        && (s=search_point_to(point_OUT[i-1], address_nid(arg))) != NULL)
+                            union_point_to(cfg_node(cg_node(tar_fn).bb_i).leader, pn->nid, s->tl);
+                    }
+                    arg_stack_top = tmp;
+                }
+                arg_stack_top = 0;
+ind_call_done:
+#if 0
+                for (s = point_OUT[i-1]; s != NULL; s = s->next) {
+                    if (bset_member(cg_node(tar_fn).MayMod, s->ptr))
+                        continue;
+                    cpy_point_to(i, s->ptr, s->tl);
+                }
+#elif 0
+                point_OUT[i] = NULL;
+#elif 1
+                break;
+#endif
             }
                 continue;
 

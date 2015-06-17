@@ -159,6 +159,7 @@ extern char **nid2sid_tab;
 void ic_main(ExternId *func_def_list[]);
 void edge_add(GraphEdge *p, unsigned e);
 unsigned new_cg_node(char *func_id);
+unsigned get_unknown_cg_node(void);
 unsigned edge_iterate(GraphEdge *p);
 
 #endif

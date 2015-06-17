@@ -188,6 +188,19 @@ unsigned new_cg_node(char *func_id)
     return cg_nodes_counter++;
 }
 
+unsigned get_unknown_cg_node(void)
+{
+    /*
+     * 'black box' node used when calling
+     * through an unknown function pointer.
+     */
+    static unsigned u = -1;
+
+    if (u == -1)
+        u = new_cg_node("<Unknown>");
+    return u;
+}
+
 void new_cfg_node(unsigned leader)
 {
     if (cfg_nodes_counter >= cfg_nodes_max) {
@@ -372,9 +385,9 @@ void ic_main(ExternId *func_def_list[])
         // disassemble(i);
         // print_CFG(i);
         // dflow_dominance(i);
-        // dflow_LiveOut(i);
+        dflow_LiveOut(i);
     }
-    print_CG();
+    // print_CG();
 }
 
 static void fix_gotos(void);
