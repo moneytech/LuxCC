@@ -120,6 +120,7 @@ struct CGNode { /* CG node == function */
     GraphEdge out;
     GraphEdge in;
     ParamNid *pn;
+    BSet *PtrRet;   /* pointers returned by this function */
     BSet *LocalMod; /* outside-visible names that may be modified by this function */
     BSet *MayMod;   /* LocalMod + LocalMod of all the functions called by this function */
     BSet *LocalRef; /* outside-visible names that may be referenced by this function */
@@ -159,7 +160,6 @@ extern char **nid2sid_tab;
 void ic_main(ExternId *func_def_list[]);
 void edge_add(GraphEdge *p, unsigned e);
 unsigned new_cg_node(char *func_id);
-/*unsigned get_unknown_cg_node(void);*/
 unsigned edge_iterate(GraphEdge *p);
 
 #endif

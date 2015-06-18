@@ -39,6 +39,7 @@ void bset_clear(BSet *s)
 
 int bset_eq(BSet *s1, BSet *s2)
 {
+    assert(s1->siz == s2->siz);
     return (memcmp(s1->v, s2->v, s1->siz*sizeof(unsigned)) == 0);
 }
 

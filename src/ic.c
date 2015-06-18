@@ -183,19 +183,11 @@ unsigned new_cg_node(char *func_id)
     cg_nodes[cg_nodes_counter].bb_i = 0;
     cg_nodes[cg_nodes_counter].bb_f = 0;
     cg_nodes[cg_nodes_counter].pn = NULL;
+    cg_nodes[cg_nodes_counter].PtrRet = NULL;
     edge_init(&cg_nodes[cg_nodes_counter].out, 1);
     edge_init(&cg_nodes[cg_nodes_counter].in, 1);
     return cg_nodes_counter++;
 }
-
-/*unsigned get_unknown_cg_node(void)
-{
-    static unsigned u = -1;
-
-    if (u == -1)
-        u = new_cg_node("<Unknown>");
-    return u;
-}*/
 
 void new_cfg_node(unsigned leader)
 {
@@ -378,8 +370,8 @@ void ic_main(ExternId *func_def_list[])
     number_CFGs();
     dflow_summaries();
     for (i = 0; i < cg_nodes_counter; i++) {
-        // disassemble(i);
-        // print_CFG(i);
+        disassemble(i);
+        print_CFG(i);
         // dflow_dominance(i);
         dflow_LiveOut(i);
     }

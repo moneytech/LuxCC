@@ -819,17 +819,41 @@ void ptr_iteration(unsigned fn)
                 }
                 arg_stack_top = 0;
 
-#if 0 /* unviable: we don't compute MayMod sets yet :( */
+#if 0 /* OPTION-1 */
+                /*
+                 * Unviable: we don't (because we can't: no call-graph)
+                 * compute MayMod sets yet.
+                 */
                 for (s = point_OUT[i-1]; s != NULL; s = s->next) {
                     if (bset_member(cg_node(tar_fn).MayMod, s->ptr))
                         continue;
                     cpy_point_to(i, s->ptr, s->tl);
                 }
-#elif 0 /* worst case, always correct */
-                point_OUT[i] = NULL;
-#elif 1 /* be optimistic and assume that no pointer is modified [ TOFIX! ] */
-                break;
+                continue;
 #endif
+
+#if 0 /* OPTION-2 */
+                /*
+                 * Worst case, always correct.
+                 */
+                point_OUT[i] = NULL;
+                continue;
+#endif
+
+                /*
+                 * OPTION-3: be optimistic and assume that
+                 * no pointer is modified [ unsafe! ].
+                 */
+                if (cg_node(tar_fn).PtrRet != NULL) {
+                    cpy_point_to(i, address_nid(tar), cg_node(tar_fn).PtrRet);
+                    for (s = point_OUT[i-1]; s != NULL; s = s->next) {
+                        if (s->ptr == address_nid(tar))
+                            continue;
+                        cpy_point_to(i, s->ptr, s->tl);
+                    }
+                } else {
+                    break;
+                }
             }
                 continue;
 
@@ -837,11 +861,13 @@ void ptr_iteration(unsigned fn)
                 int p, tmp;
                 ParamNid *pn;
                 PointToSet *s;
+                BSet *fn_PtrRet; /* cumulative set for all possible callees */
                 unsigned tar_fn, arg;
 
                 if ((s=search_point_to(point_OUT[i-1], address_nid(arg1))) == NULL)
                     assert(0); /* TBD */
 
+                fn_PtrRet = NULL;
                 for (p = bset_iterate(s->tl); p != -1; p = bset_iterate(NULL)) {
                     tar_fn = new_cg_node(nid2sid_tab[p]);
                     edge_add(&cg_node(fn).out, tar_fn);
@@ -857,25 +883,49 @@ void ptr_iteration(unsigned fn)
                             union_point_to(cfg_node(cg_node(tar_fn).bb_i).leader, pn->nid, s->tl);
                     }
                     arg_stack_top = tmp;
+
+                    if (cg_node(tar_fn).PtrRet != NULL) {
+                        if (fn_PtrRet == NULL)
+                            fn_PtrRet = bset_new(nid_counter);
+                        bset_union(fn_PtrRet, cg_node(tar_fn).PtrRet);
+                    }
                 }
                 arg_stack_top = 0;
 
-#if 0
-                for (s = point_OUT[i-1]; s != NULL; s = s->next) {
-                    if (bset_member(cg_node(tar_fn).MayMod, s->ptr))
-                        continue;
-                    cpy_point_to(i, s->ptr, s->tl);
+                if (fn_PtrRet != NULL) {
+                    cpy_point_to(i, address_nid(tar), fn_PtrRet);
+                    for (s = point_OUT[i-1]; s != NULL; s = s->next) {
+                        if (s->ptr == address_nid(tar))
+                            continue;
+                        cpy_point_to(i, s->ptr, s->tl);
+                    }
+                    bset_free(fn_PtrRet);
+                } else {
+                    break;
                 }
-#elif 0
-                point_OUT[i] = NULL;
-#elif 1
-                break;
-#endif
             }
                 continue;
 
             case OpArg:
                 arg_stack[arg_stack_top++] = i;
+                break;
+
+            case OpRet: {
+                PointToSet *s;
+
+                if ((s=search_point_to(point_OUT[i-1], address_nid(arg1))) != NULL) {
+                    if (cg_node(fn).PtrRet == NULL) {
+                        cg_node(fn).PtrRet = bset_new(nid_counter);
+                        bset_cpy(cg_node(fn).PtrRet, s->tl);
+                        ptr_changed = TRUE;
+                    } else {
+                        bset_cpy(tl_tmp, cg_node(fn).PtrRet);
+                        bset_union(cg_node(fn).PtrRet, s->tl);
+                        if (!bset_eq(cg_node(fn).PtrRet, tl_tmp))
+                            ptr_changed = TRUE;
+                    }
+                }
+            }
                 break;
 
             default:
@@ -951,9 +1001,9 @@ void dflow_PointOut(void)
             ptr_iteration(i);
     }
     bset_free(tl_tmp);
-#if DEBUG
+// #if DEBUG
     print_point_OUT();
-#endif
+// #endif
 }
 
 BSet *get_pointer_targets(int i, int p)

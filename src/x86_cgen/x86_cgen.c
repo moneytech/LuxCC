@@ -187,9 +187,9 @@ void compute_liveness_and_next_use(unsigned fn)
         } /* instructions */
     } /* basic blocks */
 
-#if DEBUG
+// #if DEBUG
     print_liveness_and_next_use(fn);
-#endif
+// #endif
 }
 
 void print_liveness_and_next_use(unsigned fn)
@@ -540,7 +540,7 @@ void x86_cgen(void)
     }
 
     /* generate intermediate code and do some analysis */
-    ic_main(func_def_list);
+    ic_main(func_def_list); //exit(0);
 
     /* compute liveness and next use */
     liveness_and_next_use = malloc(ic_instructions_counter*sizeof(QuadLiveNext));
