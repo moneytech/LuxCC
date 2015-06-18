@@ -933,22 +933,21 @@ void ptr_iteration(unsigned fn)
             } /* switch (instruction(i).op) */
 
             /* fall through; some instruction that doesn't contribute to point-to information */
-            if (i == cfg_node(b).leader) {
+            if (i != cfg_node(b).leader) {
+                point_OUT[i] = point_OUT[i-1];
+            } else {
                 int npred;
                 unsigned pred;
 
-                npred = 0;
-                while (cfg_node(b).in.edges[npred])
-                    ++npred;
+                npred = cfg_node(b).in.n;
                 if (npred == 0) {
                     ;
                 } else if (npred == 1) {
                     pred = cfg_node(b).in.edges[0];
                     point_OUT[i] = point_OUT[cfg_node(pred).last];
                 } else {
-#if 1 /* to be in OUT[i], a pointer (that is, ptr -> {...}) must be in at least one predecessor (less safe) */
+#if 1 /* to be in point_OUT[i], a pointer (that is, ptr -> {...}) must be in at least one predecessor (less safe) */
                     int j;
-                    unsigned pred;
                     PointToSet *s;
 
                     for (j = 0; j < npred; j++) {
@@ -956,15 +955,17 @@ void ptr_iteration(unsigned fn)
                         for (s = point_OUT[cfg_node(pred).last]; s != NULL; s = s->next)
                             union_point_to(i, s->ptr, s->tl);
                     }
-#else /* to be in OUT[i], a pointer must be in all predecessors (more safe) */
-                    PointToSet *p[MAX_IN_EDGES], *s;
+#else /* to be in point_OUT[i], a pointer must be in all predecessors (more safe) */
+                    PointToSet **p, *s;
+
+                    p = malloc(sizeof(PointToSet *)*cfg_node(b).in.n);
 
                     /* take the ptr intersection */
                     pred = cfg_node(b).in.edges[0];
                     for (s = point_OUT[cfg_node(pred).last]; s != NULL; s = s->next) {
                         int j;
 
-                        memset(p, 0, sizeof(PointToSet *)*MAX_IN_EDGES);
+                        memset(p, 0, sizeof(PointToSet *)*cfg_node(b).in.n);
                         p[0] = s;
                         for (j = 1; j < npred; j++) {
                             pred = cfg_node(b).in.edges[j];
@@ -977,10 +978,9 @@ void ptr_iteration(unsigned fn)
                         for (j = 0; j < npred; j++)
                             union_point_to(i, s->ptr, p[j]->tl);
                     }
+                    free(p);
 #endif
                 }
-            } else {
-                point_OUT[i] = point_OUT[i-1];
             }
         } /* instructions */
     } /* CFG nodes */
