@@ -84,5 +84,6 @@ StructDescriptor *lookup_struct_descriptor(char *tag);
 void init_symbol_tables(void);
 ExternId *lookup_external_id(char *id);
 StructMember *get_member_descriptor(TypeExp *ty, char *id);
+int get_curr_scope_id(void);
 
 #endif

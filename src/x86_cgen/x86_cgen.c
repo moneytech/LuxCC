@@ -4,7 +4,7 @@
  * Of interest:
  *   => System V ABI-i386: http://www.sco.com/developers/devspecs/abi386-4.pdf
  * TOFIX:
- * - The code acts as if byte versions of ESI and EDI existed.
+ * - The code ignores the fact that byte versions of ESI and EDI don't exist.
  */
 #include "x86_cgen.h"
 #include <stdio.h>
@@ -187,9 +187,9 @@ void compute_liveness_and_next_use(unsigned fn)
         } /* instructions */
     } /* basic blocks */
 
-// #if DEBUG
+#if DEBUG
     print_liveness_and_next_use(fn);
-// #endif
+#endif
 }
 
 void print_liveness_and_next_use(unsigned fn)
@@ -1638,7 +1638,7 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
                         [ Stack frame layout ]
      => Low addresses
         +-----------------------------------------------------------+ <- ESP    EBP-?
-        |               Calle save registers                        |
+        |               Callee save registers                       |
         +-----------------------------------------------------------+ <- EBP-?
         |               Space for temp struct/union                 |
         |   (used when calling a struct/union valued function)      |

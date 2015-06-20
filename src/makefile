@@ -2,8 +2,8 @@ CC=gcc
 CFLAGS=-c -g -pg -Wall -Wconversion -Wextra -Wno-switch -Wno-parentheses -Wno-missing-field-initializers \
 -fwrapv -Wno-sign-conversion -Wno-unused-parameter -Wno-sign-compare #-Wno-enum-compare
 PROG = luxcc
-OBJS = main.o pre.o lexer.o parser.o util.o decl.o expr.o stmt.o ic.o arena.o error.o loc.o bset.o str.o dflow.o
-SRCS = main.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c error.c loc.c bset.c str.c dflow.c
+OBJS = main.o pre.o lexer.o parser.o util.o decl.o expr.o stmt.o ic.o arena.o error.o loc.o bset.o str.o dflow.o opt.o
+SRCS = main.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c error.c loc.c bset.c str.c dflow.c opt.c
 LFLAGS = -lm
 
 all: $(PROG)
@@ -33,6 +33,7 @@ loc.o: loc.h util.h imp_lim.h arena.h
 bset.o: bset.h
 str.o: str.h
 dflow.o: dflow.h bset.h util.h ic.h parser.h lexer.h pre.h expr.h
+opt.o: opt.h bset.h util.h ic.h expr.h
 vm_cgen.o: vm_cgen/vm_cgen.h vm_cgen/vm_cgen.c decl.h parser.h lexer.h pre.h util.h expr.h stmt.h arena.h imp_lim.h error.h loc.h
 	$(CC) $(CFLAGS) vm_cgen/vm_cgen.c
 x86_cgen.o: x86_cgen/x86_cgen.c x86_cgen/x86_cgen.h decl.h util.h expr.h ic.h arena.h imp_lim.h error.h bset.h str.h dflow.h

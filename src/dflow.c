@@ -1001,9 +1001,9 @@ void dflow_PointOut(void)
             ptr_iteration(i);
     }
     bset_free(tl_tmp);
-// #if DEBUG
+#if DEBUG
     print_point_OUT();
-// #endif
+#endif
 }
 
 BSet *get_pointer_targets(int i, int p)

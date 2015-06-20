@@ -1300,6 +1300,7 @@ ExecNode *compound_statement(int new_scope, int in_loop, int in_switch)
         if (new_scope)
             push_scope();
         n->locals = declaration_list();
+        n->attr.var.scope = get_curr_scope_id();
     }
     if (lookahead(1) != TOK_RBRACE)
         n->child[0] = statement_list(in_loop, in_switch);

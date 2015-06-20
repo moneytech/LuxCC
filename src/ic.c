@@ -16,6 +16,7 @@
 #include "imp_lim.h"
 #include "loc.h"
 #include "dflow.h"
+#include "opt.h"
 
 #define IINIT   1024
 #define IGROW   2
@@ -43,8 +44,12 @@ CGNode *cg_nodes;
 
 static int label_counter = 1;
 static unsigned true_addr, false_addr;
+static unsigned memset_addr, memcpy_addr;
+static ExecNode memset_node, memcpy_node;
 static TypeExp int_expr = { TOK_INT };
 static Declaration int_ty = { &int_expr };
+static TypeExp unsigned_expr = { TOK_UNSIGNED };
+static Declaration unsigned_ty = { &unsigned_expr };
 
 /*
  * X86 stuff.
@@ -307,6 +312,16 @@ void ic_init(void)
     address(true_addr).cont.uval = 1;
     false_addr = new_address(IConstKind);
     address(false_addr).cont.uval = 0;
+
+    memset_node.attr.str = "memset";
+    memset_addr = new_address(IdKind);
+    address(memset_addr).cont.nid = get_var_nid("memset", 0);
+    address(memset_addr).cont.var.e = &memset_node;
+
+    memcpy_node.attr.str = "memcpy";
+    memcpy_addr = new_address(IdKind);
+    address(memcpy_addr).cont.nid = get_var_nid("memcpy", 0);
+    address(memcpy_addr).cont.var.e = &memcpy_node;
 }
 
 void ic_reset(void)
@@ -369,9 +384,10 @@ void ic_main(ExternId *func_def_list[])
     number_CG();
     number_CFGs();
     dflow_summaries();
+    // opt_main();
     for (i = 0; i < cg_nodes_counter; i++) {
-        disassemble(i);
-        print_CFG(i);
+        // disassemble(i);
+        // print_CFG(i);
         // dflow_dominance(i);
         dflow_LiveOut(i);
     }
@@ -791,6 +807,8 @@ static void ic_statement(ExecNode *s);
 static unsigned ic_expression2(ExecNode *e);
 static unsigned ic_expr_convert(ExecNode *e, Declaration *dest);
 static void split_block(void);
+static void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned offset);
+static void ic_zero(unsigned id, unsigned offset, unsigned nb);
 
 void split_block(void)
 {
@@ -1096,8 +1114,27 @@ void ic_compound_statement(ExecNode *s, int push_scope)
                 local_offset -= compute_sizeof(&lty);
                 location_new(dct->str, local_offset);
                 DEBUG_PRINTF("==> var: %s, offset: %d\n", dct->str, local_offset);
-                /*if (dct->attr.e != NULL)
-                    do_auto_init(lty.decl_specs, lty.idl, dct->attr.e, local_offset);*/
+                if (dct->attr.e != NULL) {
+                    unsigned a;
+                    ExecNode *id_node;
+
+                    id_node = calloc(1, sizeof(ExecNode));
+                    id_node->node_kind = ExpNode;
+                    id_node->kind.exp = IdExp;
+                    id_node->attr.var.id = dct->str;
+                    id_node->attr.var.scope = s->attr.var.scope;
+                    id_node->attr.var.linkage = LINKAGE_NONE;
+                    id_node->attr.var.duration = DURATION_AUTO;
+                    id_node->attr.var.is_param = FALSE;
+                    id_node->type = lty;
+
+                    a = new_address(IdKind);
+                    address(a).cont.var.e = id_node;
+                    address(a).cont.nid = get_var_nid(dct->str, s->attr.var.scope);
+                    address(a).cont.var.offset = local_offset;
+
+                    ic_auto_init(lty.decl_specs, lty.idl, dct->attr.e, a, 0);
+                }
             }
         }
     }
@@ -1159,6 +1196,206 @@ void fix_gotos(void)
         free(temp);
     }
     ic_labels = NULL;
+}
+
+void ic_zero(unsigned id, unsigned offset, unsigned nb)
+{
+    /*
+     * Do memset(arg #1, arg #2, arg #3);
+     * where:
+     *  - arg #1: &id+offset
+     *  - arg #2: 0
+     *  - arg #3: nb
+     * Also assume sizeof(int) == sizeof(void *)
+     */
+    unsigned a1;
+
+    /* arg #3 */
+    a1 = new_address(IConstKind);
+    address(a1).cont.uval = nb;
+    emit_i(OpArg, &unsigned_ty, 0, a1, 0);
+    /* arg #2 */
+    a1 = new_address(IConstKind);
+    address(a1).cont.uval = 0;
+    emit_i(OpArg, &int_ty, 0, a1, 0);
+    /* arg #1 */
+    a1 = new_temp_addr();
+    emit_i(OpAddrOf, NULL, a1, id, 0);
+    if (offset > 0) {
+        unsigned a2, a3;
+
+        a2 = new_address(IConstKind);
+        address(a2).cont.uval = offset;
+        a3 = new_temp_addr();
+        emit_i(OpAdd, NULL, a3, a1, a2);
+        a1 = a3;
+    }
+    emit_i(OpArg, &int_ty, 0, a1, 0);
+    /* do the call */
+    emit_i(OpCall, &int_ty, new_temp_addr(), memset_addr, 0);
+}
+
+void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned offset)
+{
+    TypeExp *ts;
+
+    if (dct != NULL) {
+        unsigned nelem;
+
+        if (dct->op != TOK_SUBSCRIPT)
+            goto scalar; /* pointer */
+
+        /*
+         * Array.
+         */
+        nelem = dct->attr.e->attr.uval;
+        if (e->kind.exp == StrLitExp) { /* char array initialized by string literal */
+            unsigned a1, n, nfill;
+
+            a1 = new_address(IConstKind);
+            n = strlen(e->attr.str)+1;
+            nfill = 0;
+            if (nelem == n) { /* fits nicely */
+                address(a1).cont.uval = n;
+            } else if (nelem < n) { /* no enough room; just copy the first nelem chars of the string */
+                address(a1).cont.uval = nelem;
+            } else { /* copy all the string and zero the trailing elements */
+                address(a1).cont.uval = n;
+                nfill = nelem-n;
+            }
+            emit_i(OpArg, &int_ty, 0, a1, 0);
+            a1 = new_address(StrLitKind);
+            address(a1).cont.str = e->attr.str;
+            emit_i(OpArg, &int_ty, 0, a1, 0);
+            a1 = new_temp_addr();
+            emit_i(OpAddrOf, NULL, a1, id, 0);
+            if (offset > 0) {
+                unsigned a2, a3;
+
+                a2 = new_address(IConstKind);
+                address(a2).cont.uval = offset;
+                a3 = new_temp_addr();
+                emit_i(OpAdd, NULL, a3, a1, a2);
+                a1 = a3;
+            }
+            emit_i(OpArg, &int_ty, 0, a1, 0);
+            emit_i(OpCall, &int_ty, new_temp_addr(), memcpy_addr, 0);
+            if (nfill > 0)
+                ic_zero(id, offset+n, nfill);
+        } else {
+            unsigned elem_size;
+            Declaration elem_ty;
+
+            /* get element size */
+            elem_ty.decl_specs = ds;
+            elem_ty.idl = dct->child;
+            elem_size = compute_sizeof(&elem_ty);
+
+            /* handle elements with explicit initializer */
+            for (e = e->child[0]; e!=NULL && nelem!=0; e=e->sibling, --nelem) {
+                ic_auto_init(ds, dct->child, e, id, offset);
+                offset += elem_size;
+            }
+
+            /* handle elements without explicit initializer */
+            if (nelem != 0)
+                ic_zero(id, offset, nelem*elem_size);
+        }
+    } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
+        /*
+         * Struct.
+         */
+        DeclList *d;
+        int full_init;
+
+
+        if (e->attr.op != TOK_INIT_LIST)
+            goto scalar;
+        e = e->child[0];
+
+        /* handle members with explicit initializer */
+        d = ts->attr.dl;
+        full_init = FALSE;
+        for (; d != NULL; d = d->next) {
+            dct = d->decl->idl;
+            for (; e!=NULL && dct!=NULL; e=e->sibling, dct=dct->sibling) {
+                unsigned mem_offs;
+
+                mem_offs = get_member_descriptor(ts, dct->str)->offset;
+                ic_auto_init(d->decl->decl_specs, dct->child, e, id, offset+mem_offs);
+            }
+
+            if (e == NULL) {
+                if (dct==NULL && d->next==NULL)
+                    full_init = TRUE;
+                break;
+            }
+        }
+
+        /* handle members without explicit initializer */
+        if (!full_init) {
+            unsigned p1, p2;
+
+            if (dct == NULL) {
+                d = d->next;
+                dct = d->decl->idl;
+            }
+            p1 = -1;
+            while (TRUE) {
+                while (dct != NULL) {
+                    StructMember *md;
+
+                    md = get_member_descriptor(ts, dct->str);
+                    if (p1 == -1) {
+                        p1 = offset+md->offset;
+                        p2 = p1+md->size;
+                    } else {
+                        p2 = offset+md->offset+md->size;
+                    }
+                    dct = dct->sibling;
+                }
+                d = d->next;
+                if (d != NULL)
+                    dct = d->decl->idl;
+                else
+                    break;
+            }
+            ic_zero(id, p1, p2-p1);
+        }
+    } else if (ts->op == TOK_UNION) {
+        /*
+         * Union.
+         */
+
+        if (e->attr.op != TOK_INIT_LIST)
+            goto scalar;
+        e = e->child[0];
+
+        /* initialize the first named member */
+        ic_auto_init(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e, id, offset);
+    } else {
+        /*
+         * Scalar.
+         */
+        unsigned a1;
+        Declaration *ty;
+scalar:
+        a1 = new_temp_addr();
+        emit_i(OpAddrOf, NULL, a1, id, 0);
+        if (offset > 0) {
+            unsigned a2, a3;
+
+            a2 = new_address(IConstKind);
+            address(a2).cont.uval = offset;
+            a3 = new_temp_addr();
+            emit_i(OpAdd, NULL, a3, a1, a2);
+            a1 = a3;
+        }
+        ty = malloc(sizeof(Declaration));
+        ty->decl_specs = ds;
+        ty->idl = dct;
+        emit_i(OpIndAsn, ty, a1, ic_expr_convert(e, ty), 0);
+    }
 }
 // =============================================================================
 // Expressions
@@ -1250,6 +1487,7 @@ void ic_indirect_assignment(unsigned ptr, unsigned expr, Declaration *ty)
         emit_i(OpAsn, NULL, tmp, ptr, 0);
         ptr = tmp;
     }
+    /* *(ty *)ptr = expr */
     emit_i(OpIndAsn, ty, ptr, expr, 0);
 }
 

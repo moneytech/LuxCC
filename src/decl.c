@@ -264,6 +264,11 @@ void pop_scope(void)
     delayed_delete = TRUE;
 }
 
+int get_curr_scope_id(void)
+{
+    return scope_id;
+}
+
 
 TypeTag *lookup_tag(char *id, int all)
 {
@@ -473,7 +478,7 @@ int is_external_id(char *id)
     return lookup_external_id(id)!=NULL;
 }
 
-/* set attributes of an identifier node */
+/* set attributes to identifier node */
 void set_attributes(ExecNode *e, Symbol *sym)
 {
     TypeExp *scs;
