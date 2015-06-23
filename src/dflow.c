@@ -78,6 +78,7 @@ void init_summary(unsigned fn)
 
         case OpArg:
         case OpRet:
+        case OpSwitch:
             if (nonconst_addr(arg1))
                 add_LocalRef(arg1);
             continue;
@@ -350,6 +351,7 @@ void live_init_block(int b, int last_bb)
 
         case OpArg:
         case OpRet:
+        case OpSwitch:
             if (nonconst_addr(arg1))
                 add_UEVar(arg1);
             continue;

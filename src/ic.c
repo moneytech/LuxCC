@@ -387,9 +387,9 @@ void ic_main(ExternId *func_def_list[])
     dflow_summaries();
     // opt_main();
     for (i = 0; i < cg_nodes_counter; i++) {
-        // disassemble(i);
-        // print_CFG(i);
-        // dflow_dominance(i);
+        disassemble(i);
+        print_CFG(i);
+        dflow_dominance(i);
         dflow_LiveOut(i);
     }
     // print_CG();
@@ -601,14 +601,8 @@ void print_CFG(unsigned fn)
             printf("(%u), ", j);
         printf("\"];\n");
 
-        if (cfg_node(i).out.edges[0]) {
-            if (cfg_node(i).out.edges[1]) {
-                printf("V%u -> V%u;\n", i, cfg_node(i).out.edges[0]);
-                printf("V%u -> V%u;\n", i, cfg_node(i).out.edges[1]);
-            } else {
-                printf("V%u -> V%u;\n", i, cfg_node(i).out.edges[0]);
-            }
-        }
+        for (j = 0; j < cfg_node(i).out.n; j++)
+            printf("V%u -> V%u;\n", i, cfg_node(i).out.edges[j]);
     }
     printf("}\n");
 }
@@ -764,6 +758,16 @@ void build_CFG(void)
 
             edge_add(&cfg_node(i).out, succ);
             edge_add(&cfg_node(succ).in, i);
+        } else if (instruction(last).op == OpCase) {
+            unsigned succ;
+
+            do {
+                succ = lab2node[address(instruction(last).arg1).cont.val];
+
+                edge_add(&cfg_node(i).out, succ);
+                edge_add(&cfg_node(succ).in, i);
+                --last;
+            } while (instruction(last).op == OpCase);
         }
     }
 
@@ -773,6 +777,14 @@ void build_CFG(void)
 // =============================================================================
 // Statements
 // =============================================================================
+typedef struct SwitchLabel SwitchLabel;
+struct SwitchLabel {
+    unsigned lab;
+    long val;
+    SwitchLabel *next;
+} *ic_case_labels[MAX_SWITCH_NEST], *ic_default_labels[MAX_SWITCH_NEST];
+static int ic_switch_nesting_level = -1;
+
 typedef struct Label Label;
 static struct Label {
     char *str;
@@ -792,7 +804,7 @@ static void push_continue_target(unsigned lab);
 static void pop_continue_target(void);
 
 static void ic_if_statement(ExecNode *s);
-// static void ic_switch_statement(ExecNode *s);
+static void ic_switch_statement(ExecNode *s);
 static void ic_while_statement(ExecNode *s);
 static void ic_do_statement(ExecNode *s);
 static void ic_for_statement(ExecNode *s);
@@ -800,8 +812,8 @@ static void ic_goto_statement(ExecNode *s);
 static void ic_continue_statement(void);
 static void ic_break_statement(void);
 static void ic_return_statement(ExecNode *s);
-// static void ic_case_statement(ExecNode *s);
-// static void ic_default_statement(ExecNode *s);
+static void ic_case_statement(ExecNode *s);
+static void ic_default_statement(ExecNode *s);
 static void ic_expression_statement(ExecNode *s);
 static void ic_label_statement(ExecNode *s);
 static void ic_statement(ExecNode *s);
@@ -845,7 +857,9 @@ void ic_statement(ExecNode *s)
     case IfStmt:
         ic_if_statement(s);
         break;
-    // case SwitchStmt: break;
+    case SwitchStmt:
+        ic_switch_statement(s);
+        break;
     case WhileStmt:
         ic_while_statement(s);
         break;
@@ -867,8 +881,12 @@ void ic_statement(ExecNode *s)
     case ReturnStmt:
         ic_return_statement(s);
         break;
-    // case CaseStmt: break;
-    // case DefaultStmt: break;
+    case CaseStmt:
+        ic_case_statement(s);
+        break;
+    case DefaultStmt:
+        ic_default_statement(s);
+        break;
     case ExpStmt:
         ic_expression_statement(s);
         break;
@@ -881,7 +899,7 @@ void ic_statement(ExecNode *s)
 void ic_if_statement(ExecNode *s)
 {
     /*
-    ==> if <e> <stmt1> else <stmt2>
+    ==> if (<e>) <stmt1> else <stmt2>
     CBr <e>, L1, L2
     L1:
     <stmt1>
@@ -1071,6 +1089,110 @@ void ic_return_statement(ExecNode *s)
     }
     emit_i(OpJmp, NULL, exit_label, 0, 0);
     split_block();
+}
+
+void ic_switch_statement(ExecNode *s)
+{
+    /*
+    ==> switch (<e>) <stmt>
+    switch <e>
+    ...
+    EXIT:
+     */
+    unsigned EXIT, i;
+    SwitchLabel *np, *temp;
+
+    ++ic_switch_nesting_level;
+
+    EXIT = new_label();
+    push_break_target(EXIT);
+    emit_i(OpSwitch, NULL, 0, ic_expression2(s->child[0]), 0);
+    i = ic_instructions_counter;
+    ic_instructions_counter += s->attr.val-1;
+    emit_i(OpCase, NULL, 0, 0, 0); /* just so case/default code can test for 'OpCase' */
+    ic_statement(s->child[1]);
+    pop_break_target();
+    emit_i(OpJmp, NULL, EXIT, 0, 0);
+    emit_i(OpLab, NULL, EXIT, 0, 0);
+
+    for (np = ic_case_labels[ic_switch_nesting_level]; np != NULL; ) {
+        unsigned a;
+
+        a = new_address(IConstKind);
+        address(a).cont.val = np->val;
+
+        ic_instructions[i].op = OpCase;
+        ic_instructions[i].tar = a;
+        ic_instructions[i].arg1 = np->lab;
+        ic_instructions[i].arg2 = false_addr;
+        ++i;
+
+        temp = np;
+        np = np->next;
+        free(temp);
+    }
+    ic_case_labels[ic_switch_nesting_level] = NULL;
+
+    np = ic_default_labels[ic_switch_nesting_level];
+    ic_default_labels[ic_switch_nesting_level] = NULL;
+    ic_instructions[i].op = OpCase;
+    ic_instructions[i].tar = false_addr;
+    if (np != NULL) {
+        ic_instructions[i].arg1 = np->lab;
+        free(np);
+    } else {
+        ic_instructions[i].arg1 = EXIT;
+    }
+    ic_instructions[i].arg2 = true_addr;
+
+    --ic_switch_nesting_level;
+}
+
+void ic_case_statement(ExecNode *s)
+{
+    unsigned iprev;
+    OpKind prev_op;
+    SwitchLabel *np;
+
+    iprev = ic_instructions_counter-1;
+    prev_op = instruction(iprev).op;
+
+    np = malloc(sizeof(SwitchLabel));
+    np->val = s->child[0]->attr.val;
+    if (prev_op == OpLab) {
+        np->lab = instruction(iprev).tar;
+    } else {
+        np->lab = new_label();
+        if (prev_op!=OpJmp && prev_op!=OpCase) /* fall-through behavior */
+            emit_i(OpJmp, NULL, np->lab, 0, 0);
+        emit_i(OpLab, NULL, np->lab, 0, 0);
+    }
+    ic_statement(s->child[1]);
+    np->next = ic_case_labels[ic_switch_nesting_level];
+    ic_case_labels[ic_switch_nesting_level] = np;
+}
+
+void ic_default_statement(ExecNode *s)
+{
+    unsigned iprev;
+    OpKind prev_op;
+    SwitchLabel *np;
+
+    iprev = ic_instructions_counter-1;
+    prev_op = instruction(iprev).op;
+
+    np = malloc(sizeof(SwitchLabel));
+    if (prev_op == OpLab) {
+        np->lab = instruction(iprev).tar;
+    } else {
+        np->lab = new_label();
+        if (prev_op!=OpJmp && prev_op!=OpCase) /* fall-through behavior */
+            emit_i(OpJmp, NULL, np->lab, 0, 0);
+        emit_i(OpLab, NULL, np->lab, 0, 0);
+    }
+    ic_statement(s->child[0]);
+    np->next = ic_default_labels[ic_switch_nesting_level];
+    ic_default_labels[ic_switch_nesting_level] = np;
 }
 
 void ic_compound_statement(ExecNode *s, int push_scope)
@@ -2265,8 +2387,15 @@ void disassemble(unsigned fn)
         case OpJmp:
             printf("jmp L%ld", address(p->tar).cont.val);
             break;
-        // case OpIndJ:
-        // case OpTbl:
+        case OpSwitch:
+            printf("switch ");
+            print_addr(p->arg1);
+            break;
+        case OpCase:
+            printf("case ");
+            print_addr(p->tar);
+            printf(", L%ld, %ld", address(p->arg1).cont.val, address(p->arg2).cont.val);
+            break;
         case OpCBr:
             printf("cbr ");
             print_addr(p->tar);

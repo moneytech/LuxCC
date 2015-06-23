@@ -34,7 +34,7 @@ typedef enum {
     OpUSh,
     OpAddrOf,
     OpInd,
-    OpAsn,      /* x = y   */
+    OpAsn,      /* x = y */
     OpCall,     /* x = y() or, if void-valued, y() */
     OpIndCall,  /* x = (*y)() */
 
@@ -44,11 +44,11 @@ typedef enum {
     OpLab,
     OpJmp,
 
-    /*OpIndJ,*/
     OpArg,
     OpRet,
 
-    /*OpTbl,*/
+    OpSwitch,
+    OpCase,
 
     OpCBr,
     OpNOp,

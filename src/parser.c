@@ -1393,7 +1393,7 @@ ExecNode *selection_statement(int in_loop, int in_switch)
         match(TOK_RPAREN);
         increase_switch_nesting_level();
         n->child[1] = statement(in_loop, TRUE);
-        decrease_switch_nesting_level();
+        n->attr.val = decrease_switch_nesting_level();
         break;
     }
     analyze_selection_statement(n);

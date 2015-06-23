@@ -1,6 +1,6 @@
 /*
  * Simple x86 code generator
- *      IC ==> x86 ASM.
+ *      IC ==> x86 ASM (NASM syntax).
  * Of interest:
  *   => System V ABI-i386: http://www.sco.com/developers/devspecs/abi386-4.pdf
  * TOFIX:
@@ -123,6 +123,7 @@ void compute_liveness_and_next_use(unsigned fn)
 
             case OpArg:
             case OpRet:
+            case OpSwitch:
                 if (nonconst_addr(arg1))
                     update_arg1();
                 continue;
@@ -252,6 +253,7 @@ void print_liveness_and_next_use(unsigned fn)
 
             case OpArg:
             case OpRet:
+            case OpSwitch:
                 if (nonconst_addr(arg1)) {
                     print_arg1();
                 }
@@ -579,6 +581,7 @@ void x86_cgen(FILE *outf)
 
     /* generate intermediate code and do some analysis */
     ic_main(func_def_list); //exit(0);
+    init_addr_descr_tab();
 
     /* compute liveness and next use */
     liveness_and_next_use = malloc(ic_instructions_counter*sizeof(QuadLiveNext));
@@ -614,6 +617,7 @@ static void x86_load(X86_Reg r, unsigned a);
 static void x86_load_addr(X86_Reg r, unsigned a);
 static char *get_operand(unsigned a);
 static void x86_store(X86_Reg r, unsigned a);
+static void compare_against_constant(unsigned a, long c);
 static void spill_reg(X86_Reg r);
 static X86_Reg get_reg(int intr);
 
@@ -996,7 +1000,7 @@ void update_tar_descriptors(X86_Reg res, unsigned tar, unsigned char liveness, i
     }
 }
 
-void compare_against_zero(unsigned a)
+void compare_against_constant(unsigned a, long c)
 {
     if (address(a).kind == IConstKind) {
         assert(0); /* can be folded */
@@ -1007,7 +1011,7 @@ void compare_against_zero(unsigned a)
         char *siz_str;
 
         if (addr_in_reg(a)) {
-            emitln("cmp %s, 0", x86_reg_str[addr_reg(a)]);
+            emitln("cmp %s, %lu", x86_reg_str[addr_reg(a)], c);
             return;
         }
 
@@ -1029,20 +1033,20 @@ void compare_against_zero(unsigned a)
 
         if (e->attr.var.duration == DURATION_STATIC) {
             if (e->attr.var.linkage == LINKAGE_NONE)
-                emitln("cmp %s [%s@%s], 0", siz_str, curr_func, e->attr.str);
+                emitln("cmp %s [%s@%s], %lu", siz_str, curr_func, e->attr.str, c);
             else
-                emitln("cmp %s [%s], 0", siz_str, e->attr.str);
+                emitln("cmp %s [%s], %lu", siz_str, e->attr.str, c);
         } else {
             if (e->attr.var.is_param)
-                emitln("cmp %s [ebp+%d], 0", siz_str, offset(a));
+                emitln("cmp %s [ebp+%d], %lu", siz_str, offset(a), c);
             else
-                emitln("cmp %s [ebp-%d], 0", siz_str, -offset(a));
+                emitln("cmp %s [ebp-%d], %lu", siz_str, -offset(a), c);
         }
     } else if (address(a).kind == TempKind) {
         if (addr_in_reg(a))
-            emitln("cmp %s, 0", x86_reg_str[addr_reg(a)]);
+            emitln("cmp %s, %lu", x86_reg_str[addr_reg(a)], c);
         else
-            emitln("cmp dword [ebp-%d], 0", -get_temp_offs(a));
+            emitln("cmp dword [ebp-%d], %lu", -get_temp_offs(a), c);
     }
 }
 
@@ -1647,13 +1651,45 @@ void x86_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
 }
 void x86_cbr(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    compare_against_zero(tar);
-    /* do any spilling before the jumps */
-    update_arg_descriptors(tar, tar_liveness(i), tar_next_use(i));
+    compare_against_constant(tar, 0);
+    update_arg_descriptors(tar, tar_liveness(i), tar_next_use(i)); /* do any spilling before the jumps */
     emit_jmpeq(address(arg2).cont.val);
     emit_jmp(address(arg1).cont.val);
 }
 void x86_nop(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    /* nothing */
+}
+
+void x86_switch(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    X86_Reg res;
+
+    if (!addr_in_reg(arg1)) {
+        res = get_reg(i);
+        x86_load(res, arg1);
+    } else {
+        res = addr_reg(arg1);
+    }
+    update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
+    ++i;
+    do {
+        tar = instruction(i).tar;
+        arg1 = instruction(i).arg1;
+        arg2 = instruction(i).arg2;
+
+        /* the last case is the 'default' and it is always present */
+        if (address(arg2).cont.val) {
+            emit_jmp(address(arg1).cont.val);
+            break;
+        }
+
+        emitln("cmp %s, %lu", x86_reg_str[res], address(tar).cont.uval);
+        emitln("je _@L%ld", address(arg1).cont.val);
+        ++i;
+    } while (TRUE);
+}
+void x86_case(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     /* nothing */
 }
@@ -1669,7 +1705,8 @@ static void (*instruction_handlers[])(int, unsigned, unsigned, unsigned) = {
     x86_ind, x86_asn, x86_call, x86_indcall,
 
     x86_ind_asn, x86_lab, x86_jmp, x86_arg,
-    x86_ret, x86_cbr, x86_nop
+    x86_ret, x86_switch, x86_case, x86_cbr,
+    x86_nop
 };
 
 void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
@@ -1711,7 +1748,6 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     curr_func = header->str;
     fn = new_cg_node(curr_func);
     size_of_local_area = round_up(cg_node(fn).size_of_local_area, 4);
-    init_addr_descr_tab();
 
     ty.decl_specs = decl_specs;
     ty.idl = header->child->child;
@@ -1784,7 +1820,7 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     temp_struct_size = 0;
     calls_to_fix_counter = 0;
     memset(modified, 0, sizeof(int)*X86_NREG);
-    free(addr_descr_tab);
+    /*memset(addr_descr_tab, 0, sizeof(AddrDescr)*nid_counter);*/
     free_all_temps();
     /*memset(reg_descr_tab, 0, sizeof(RegDescr)*X86_NREG);*/
 }

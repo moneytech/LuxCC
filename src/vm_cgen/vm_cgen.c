@@ -978,6 +978,8 @@ void expression_statement(ExecNode *s)
 
 /*
  * Switch statement.
+ * TOIMPROVE:
+ *  - avoid the HASH_SIZE iterations when building the search table.
  */
 
 typedef struct SwitchLabel SwitchLabel;

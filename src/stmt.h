@@ -11,6 +11,6 @@ void set_return_type(TypeExp *ds, TypeExp *dct);
 void empty_label_table(void);
 void resolve_gotos(void);
 void increase_switch_nesting_level(void);
-void decrease_switch_nesting_level(void);
+int decrease_switch_nesting_level(void);
 
 #endif

@@ -40,6 +40,7 @@ static struct SwitchLabel {
 } *switch_labels[MAX_SWITCH_NEST][HASH_SIZE];
 
 static int switch_nesting_level = -1;
+static int switch_case_counter[MAX_SWITCH_NEST];
 
 static
 int install_switch_label(long val, int is_default)
@@ -74,10 +75,10 @@ int install_switch_label(long val, int is_default)
 
 void increase_switch_nesting_level(void)
 {
-    ++switch_nesting_level;
+    switch_case_counter[++switch_nesting_level] = 1;
 }
 
-void decrease_switch_nesting_level(void)
+int decrease_switch_nesting_level(void)
 {
     int i;
     SwitchLabel *np, *temp;
@@ -92,7 +93,7 @@ void decrease_switch_nesting_level(void)
             switch_labels[switch_nesting_level][i] = NULL;
         }
     }
-    --switch_nesting_level;
+    return switch_case_counter[switch_nesting_level--];
 }
 
 
@@ -227,6 +228,8 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
      */
     case CaseStmt: {
         Token ty;
+
+        ++switch_case_counter[switch_nesting_level];
 
         if (!in_switch)
             ERROR(s, "case label not within a switch statement");
