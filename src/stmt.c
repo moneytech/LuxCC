@@ -285,7 +285,7 @@ void analyze_iteration_statement(ExecNode *s)
      */
     Token ty;
 
-    /* the cotrolling expression of a for statement can be missing */
+    /* the controlling expression of a for statement can be missing */
     if (s->child[0] == NULL)
         return; /* OK */
 

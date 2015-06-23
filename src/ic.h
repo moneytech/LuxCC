@@ -149,6 +149,7 @@ extern CGNode *cg_nodes;
 extern unsigned ic_instructions_counter;
 extern unsigned cfg_nodes_counter;
 extern unsigned cg_nodes_counter;
+extern ExternId *static_objects_list;
 
 extern int nid_counter;
 extern char **nid2sid_tab;

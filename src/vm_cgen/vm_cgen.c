@@ -715,10 +715,7 @@ void compound_statement(ExecNode *s, int push_scope)
                         static_object_definition(dl->decl->decl_specs, dct, TRUE);
                     emit(".text");
                     continue;
-                } else if (scs->op == TOK_EXTERN) {
-                    /*emit(".extern %s", dl->decl->idl->str);*/
-                    continue;
-                } else if (scs->op == TOK_TYPEDEF) {
+                } else if (scs->op==TOK_EXTERN || scs->op==TOK_TYPEDEF) {
                     continue;
                 }
             }

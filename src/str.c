@@ -69,3 +69,13 @@ char *string_curr(String *s)
 {
     return s->buf+s->buf_next;
 }
+
+unsigned string_get_pos(String *s)
+{
+    return s->buf_next;
+}
+
+void string_set_pos(String *s, unsigned n)
+{
+    s->buf_next = n;
+}

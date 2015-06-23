@@ -50,6 +50,7 @@ static TypeExp int_expr = { TOK_INT };
 static Declaration int_ty = { &int_expr };
 static TypeExp unsigned_expr = { TOK_UNSIGNED };
 static Declaration unsigned_ty = { &unsigned_expr };
+ExternId *static_objects_list;
 
 /*
  * X86 stuff.
@@ -1091,15 +1092,18 @@ void ic_compound_statement(ExecNode *s, int push_scope)
             /* check for extern/static local variables */
             if ((scs=get_sto_class_spec(dl->decl->decl_specs)) != NULL) {
                 if (scs->op == TOK_STATIC) {
-                    for (dct = dl->decl->idl; dct != NULL; dct = dct->sibling)
-                        /*static_object_definition(dl->decl->decl_specs, dct, TRUE);*/
-                        ;
-                    // emit(".text");
+                    for (dct = dl->decl->idl; dct != NULL; dct = dct->sibling) {
+                        ExternId *np;
+
+                        np = malloc(sizeof(ExternId));
+                        np->decl_specs = dl->decl->decl_specs;
+                        np->declarator = dct;
+                        np->status = (ExtIdStatus)cg_node(curr_cg_node).func_id;
+                        np->next = static_objects_list;
+                        static_objects_list = np;
+                    }
                     continue;
-                } else if (scs->op == TOK_EXTERN) {
-                    // emit(".extern %s", dl->decl->idl->str);
-                    continue;
-                } else if (scs->op == TOK_TYPEDEF) {
+                } else if (scs->op==TOK_EXTERN || scs->op==TOK_TYPEDEF) {
                     continue;
                 }
             }
@@ -1284,12 +1288,12 @@ void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned 
                 ic_zero(id, offset+n, nfill);
         } else {
             unsigned elem_size;
-            Declaration elem_ty;
+            Declaration ty;
 
             /* get element size */
-            elem_ty.decl_specs = ds;
-            elem_ty.idl = dct->child;
-            elem_size = compute_sizeof(&elem_ty);
+            ty.decl_specs = ds;
+            ty.idl = dct->child;
+            elem_size = compute_sizeof(&ty);
 
             /* handle elements with explicit initializer */
             for (e = e->child[0]; e!=NULL && nelem!=0; e=e->sibling, --nelem) {

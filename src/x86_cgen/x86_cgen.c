@@ -356,6 +356,25 @@ static int calls_to_fix_counter;
 static char *calls_to_fix[64];
 static int string_literal_counter;
 static int new_string_literal(unsigned a);
+static FILE *x86_output_file;
+#define DATA_SEG 0
+#define TEXT_SEG 1
+#define BSS_SEG  2
+#define ROD_SEG  3
+static int curr_segment = -1;
+static char *str_segment[] = {
+    ".data",
+    ".text",
+    ".bss",
+    ".rodata"
+};
+#define SET_SEGMENT(seg, f)\
+    do {\
+        if (curr_segment != seg) {\
+            f("segment %s", str_segment[seg]);\
+            curr_segment = seg;\
+        }\
+    } while(0)
 
 typedef struct Temp Temp;
 struct Temp {
@@ -492,50 +511,69 @@ void clear_reg_descr(X86_Reg r)
     reg_descr_tab[r].naddrs = 0;
 }
 
-static String *func_body, *func_prolog, *func_epilog;
+static String *func_body, *func_prolog, *func_epilog, *asm_decls;
 #define emit(...)   (string_printf(func_body, __VA_ARGS__))
 #define emitln(...) (string_printf(func_body, __VA_ARGS__), string_printf(func_body, "\n"))
 #define emit_prolog(...)   (string_printf(func_prolog, __VA_ARGS__))
 #define emit_prologln(...) (string_printf(func_prolog, __VA_ARGS__), string_printf(func_prolog, "\n"))
 #define emit_epilog(...)   (string_printf(func_epilog, __VA_ARGS__))
 #define emit_epilogln(...) (string_printf(func_epilog, __VA_ARGS__), string_printf(func_epilog, "\n"))
+#define emit_decl(...)   (string_printf(asm_decls, __VA_ARGS__))
+#define emit_declln(...) (string_printf(asm_decls, __VA_ARGS__), string_printf(asm_decls, "\n"))
 
-int new_string_literal(unsigned a)
+static
+void emit_raw_string(String *q, char *s)
 {
-    char *s;
     unsigned len, i;
 
-    emitln("segment .rodata");
-    emitln("_@S%d:", string_literal_counter);
-
-    s = address(a).cont.str;
     len = strlen(s)+1;
     for (i = len/4; i; i--) {
-        emitln("dd 0x%x%x%x%x", s[3], s[2], s[1], s[0]);
+        string_printf(q, "dd 0x%x%x%x%x\n", s[3], s[2], s[1], s[0]);
         s += 4;
     }
     for (i = len%4; i; i--)
-        emitln("db 0x%x", *s++);
+        string_printf(q, "db 0x%x\n", *s++);
+}
 
-    emitln("segment .text");
+int new_string_literal(unsigned a)
+{
+    SET_SEGMENT(ROD_SEG, emitln);
+    emitln("_@S%d:", string_literal_counter);
+    emit_raw_string(func_body, address(a).cont.str);
+    SET_SEGMENT(TEXT_SEG, emitln);
     return string_literal_counter++;
 }
 
-void x86_function_definition(TypeExp *decl_specs, TypeExp *header);
+static void x86_function_definition(TypeExp *decl_specs, TypeExp *header);
+static void x86_allocate_static_objects(void);
 
-void x86_cgen(void)
+void x86_cgen(FILE *outf)
 {
     unsigned i;
     ExternId *ed, *func_def_list[128] = { NULL };
 
-    for (ed = get_extern_symtab(), i = 0; ed != NULL; ed = ed->next) {
+    x86_output_file = outf;
+    asm_decls = string_new(1024);
+    emit_declln("\n; == declarations & definitions");
+    for (ed=get_extern_symtab(), i=0; ed != NULL; ed = ed->next) {
+        TypeExp *scs;
+
         if (ed->status == REFERENCED) {
-            ;
+            if ((scs=get_sto_class_spec(ed->decl_specs))==NULL || scs->op!=TOK_STATIC)
+                emit_declln("extern %s", ed->declarator->str);
         } else {
-            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION)
+            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION) {
                 func_def_list[i++] = ed;
-            else
-                ;
+            } else {
+                ExternId *np;
+
+                np = malloc(sizeof(ExternId));
+                np->decl_specs = ed->decl_specs;
+                np->declarator = ed->declarator;
+                np->status = 0;
+                np->next = static_objects_list;
+                static_objects_list = np;
+            }
         }
     }
 
@@ -561,13 +599,19 @@ void x86_cgen(void)
     string_free(func_prolog);
     string_free(func_epilog);
 
+    x86_allocate_static_objects();
+    string_write(asm_decls, x86_output_file);
+    string_free(asm_decls);
+
     printf("\n");
     for (i = 0; i < X86_NREG; i++)
         printf("reg%d = %d\n", i, reg_descr_tab[i].naddrs);
+    // printf("=> %d\n", nid_counter);
 }
 
 static X86_Reg get_empty_reg(void);
 static void x86_load(X86_Reg r, unsigned a);
+static void x86_load_addr(X86_Reg r, unsigned a);
 static char *get_operand(unsigned a);
 static void x86_store(X86_Reg r, unsigned a);
 static void spill_reg(X86_Reg r);
@@ -653,6 +697,78 @@ X86_Reg get_reg(int i)
 }
 
 #define offset(a) (address(a).cont.var.offset)
+
+void x86_load(X86_Reg r, unsigned a)
+{
+    if (address(a).kind == IConstKind) {
+        emitln("mov %s, %lu", x86_reg_str[r], address(a).cont.uval);
+    } else if (address(a).kind == StrLitKind) {
+        emitln("mov %s, _@S%d", x86_reg_str[r], new_string_literal(a));
+    } else if (address(a).kind == IdKind) {
+        ExecNode *e;
+        char *siz_str, *mov_str;
+
+        if (addr_in_reg(a)) {
+            if (addr_reg(a) == r)
+                ; /* already in the register */
+            else
+                emitln("mov %s, %s", x86_reg_str[r], x86_reg_str[addr_reg(a)]);
+            return;
+        }
+
+        e = address(a).cont.var.e;
+        switch (get_type_category(&e->type)) {
+        case TOK_STRUCT:
+        case TOK_UNION:
+        case TOK_SUBSCRIPT:
+        case TOK_FUNCTION:
+            x86_load_addr(r, a);
+            return;
+        case TOK_SHORT:
+            mov_str = "movsx";
+            siz_str = "word";
+            break;
+        case TOK_UNSIGNED_SHORT:
+            mov_str = "movzx";
+            siz_str = "word";
+            break;
+        case TOK_CHAR:
+        case TOK_SIGNED_CHAR:
+            mov_str = "movsx";
+            siz_str = "byte";
+            break;
+        case TOK_UNSIGNED_CHAR:
+            mov_str = "movzx";
+            siz_str = "byte";
+            break;
+        default:
+            mov_str = "mov";
+            siz_str = "dword";
+            break;
+        }
+
+        if (e->attr.var.duration == DURATION_STATIC) {
+            if (e->attr.var.linkage == LINKAGE_NONE) /* static local */
+                emitln("%s %s, %s [%s@%s]", mov_str, x86_reg_str[r], siz_str, curr_func, e->attr.str);
+            else /* global */
+                emitln("%s %s, %s [%s]", mov_str, x86_reg_str[r], siz_str, e->attr.str);
+        } else { /* parameter or local */
+            if (e->attr.var.is_param)
+                emitln("%s %s, %s [ebp+%d]", mov_str, x86_reg_str[r], siz_str, offset(a));
+            else
+                emitln("%s %s, %s [ebp-%d]", mov_str, x86_reg_str[r], siz_str, -offset(a));
+        }
+    } else if (address(a).kind == TempKind) {
+        if (addr_in_reg(a)) {
+            if (addr_reg(a) == r)
+                return; /* already in the register */
+            else
+                emitln("mov %s, %s", x86_reg_str[r], x86_reg_str[addr_reg(a)]);
+        } else {
+            emitln("mov %s, dword [ebp-%d]", x86_reg_str[r], -get_temp_offs(a));
+        }
+    }
+}
 
 char *get_operand(unsigned a)
 {
@@ -751,78 +867,6 @@ void x86_load_addr(X86_Reg r, unsigned a)
             emitln("lea %s, [ebp+%d]", x86_reg_str[r], offset(a));
         else
             emitln("lea %s, [ebp-%d]", x86_reg_str[r], -offset(a));
-    }
-}
-
-void x86_load(X86_Reg r, unsigned a)
-{
-    if (address(a).kind == IConstKind) {
-        emitln("mov %s, %lu", x86_reg_str[r], address(a).cont.uval);
-    } else if (address(a).kind == StrLitKind) {
-        emitln("mov %s, _@S%d", x86_reg_str[r], new_string_literal(a));
-    } else if (address(a).kind == IdKind) {
-        ExecNode *e;
-        char *siz_str, *mov_str;
-
-        if (addr_in_reg(a)) {
-            if (addr_reg(a) == r)
-                ; /* already in the register */
-            else
-                emitln("mov %s, %s", x86_reg_str[r], x86_reg_str[addr_reg(a)]);
-            return;
-        }
-
-        e = address(a).cont.var.e;
-        switch (get_type_category(&e->type)) {
-        case TOK_STRUCT:
-        case TOK_UNION:
-        case TOK_SUBSCRIPT:
-        case TOK_FUNCTION:
-            x86_load_addr(r, a);
-            return;
-        case TOK_SHORT:
-            mov_str = "movsx";
-            siz_str = "word";
-            break;
-        case TOK_UNSIGNED_SHORT:
-            mov_str = "movzx";
-            siz_str = "word";
-            break;
-        case TOK_CHAR:
-        case TOK_SIGNED_CHAR:
-            mov_str = "movsx";
-            siz_str = "byte";
-            break;
-        case TOK_UNSIGNED_CHAR:
-            mov_str = "movzx";
-            siz_str = "byte";
-            break;
-        default:
-            mov_str = "mov";
-            siz_str = "dword";
-            break;
-        }
-
-        if (e->attr.var.duration == DURATION_STATIC) {
-            if (e->attr.var.linkage == LINKAGE_NONE) /* static local */
-                emitln("%s %s, %s [%s@%s]", mov_str, x86_reg_str[r], siz_str, curr_func, e->attr.str);
-            else /* global */
-                emitln("%s %s, %s [%s]", mov_str, x86_reg_str[r], siz_str, e->attr.str);
-        } else { /* parameter or local */
-            if (e->attr.var.is_param)
-                emitln("%s %s, %s [ebp+%d]", mov_str, x86_reg_str[r], siz_str, offset(a));
-            else
-                emitln("%s %s, %s [ebp-%d]", mov_str, x86_reg_str[r], siz_str, -offset(a));
-        }
-    } else if (address(a).kind == TempKind) {
-        if (addr_in_reg(a)) {
-            if (addr_reg(a) == r)
-                return; /* already in the register */
-            else
-                emitln("mov %s, %s", x86_reg_str[r], x86_reg_str[addr_reg(a)]);
-        } else {
-            emitln("mov %s, dword [ebp-%d]", x86_reg_str[r], -get_temp_offs(a));
-        }
     }
 }
 
@@ -1661,6 +1705,7 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     int b;
     Token cat;
     unsigned fn;
+    TypeExp *scs;
     Declaration ty;
 
     curr_func = header->str;
@@ -1673,6 +1718,9 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     big_return = ((cat=get_type_category(&ty))==TOK_STRUCT || cat==TOK_UNION);
 
     emit_prologln("\n; ==== start of definition of function `%s' ====", curr_func);
+    SET_SEGMENT(TEXT_SEG, emit_prologln);
+    if ((scs=get_sto_class_spec(decl_specs))==NULL || scs->op!=TOK_STATIC)
+        emit_prologln("global %s", curr_func);
     emit_prologln("%s:", curr_func);
     if (big_return) {
         emit_prologln("pop eax");
@@ -1685,6 +1733,7 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     for (b = cg_node(fn).bb_i; b <= cg_node(fn).bb_f; b++) {
         int i;
 
+        emitln("; === start of BB#%d", b);
         for (i = cfg_node(b).leader; i <= cfg_node(b).last; i++) {
             unsigned tar, arg1, arg2;
 
@@ -1693,7 +1742,7 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
             arg2 = instruction(i).arg2;
 
             instruction_handlers[instruction(i).op](i, tar, arg1, arg2);
-        } /* end of basic block */
+        }
     }
     size_of_local_area -= temp_struct_size;
     while (--calls_to_fix_counter >= 0) {
@@ -1724,9 +1773,9 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     emit_epilogln("pop ebp");
     emit_epilogln("ret");
 
-    string_write(func_prolog, stdout);
-    string_write(func_body, stdout);
-    string_write(func_epilog, stdout);
+    string_write(func_prolog, x86_output_file);
+    string_write(func_body, x86_output_file);
+    string_write(func_epilog, x86_output_file);
 
     /* reset everything */
     string_clear(func_prolog);
@@ -1738,4 +1787,270 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     free(addr_descr_tab);
     free_all_temps();
     /*memset(reg_descr_tab, 0, sizeof(RegDescr)*X86_NREG);*/
+}
+
+static int x86_static_expr(ExecNode *e);
+static void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e);
+
+/*
+ * Try to generate a NASM compatible expression.
+ * Return 0 on success, -1 otherwise.
+ * Note: it's possible for this to spit out total nonsense that will fail at assemble-time.
+ * It has been tested for trivial cases only.
+ */
+int x86_static_expr(ExecNode *e)
+{
+    switch (e->kind.exp) {
+    case OpExp:
+        switch (e->attr.op) {
+        case TOK_SIZEOF:
+            if (e->child[1] != NULL)
+                emit_decl("%u", compute_sizeof((Declaration *)e->child[1]));
+            else
+                emit_decl("%u", compute_sizeof(&e->child[0]->type));
+            break;
+#define R x86_static_expr(e->child[0]);
+        case TOK_UNARY_PLUS:    emit_decl("+"); R; break;
+        case TOK_UNARY_MINUS:   emit_decl("-"); R; break;
+        case TOK_COMPLEMENT:    emit_decl("~"); R; break;
+        case TOK_NEGATION:      emit_decl("!"); R; break;
+        case TOK_ADDRESS_OF:    R; break;
+#undef R
+
+#define L x86_static_expr(e->child[0])
+#define R x86_static_expr(e->child[1])
+        case TOK_MUL:       L; emit_decl("*");  R; break;
+        case TOK_DIV:       L; emit_decl("/");  R; break;
+        case TOK_REM:       L; emit_decl("%");  R; break;
+        case TOK_LSHIFT:    L; emit_decl("<<"); R; break;
+        case TOK_RSHIFT:    L; emit_decl(">>"); R; break; /* NASM's right shift is always unsigned */
+        case TOK_BW_AND:    L; emit_decl("&");  R; break;
+        case TOK_BW_XOR:    L; emit_decl("^");  R; break;
+        case TOK_BW_OR:     L; emit_decl("|");  R; break;
+        case TOK_PLUS:
+            if (is_integer(get_type_category(&e->type))) {
+                L; emit_decl("+"); R;
+            } else {
+                int pi;
+                Declaration ty;
+
+                pi = 0;
+                if (is_integer(get_type_category(&e->child[0]->type)))
+                    pi = 1;
+                ty = e->child[pi]->type;
+                ty.idl = ty.idl->child;
+                if (pi == 0) {
+                    L; emit_decl("+("); R;
+                    emit_decl("*%u)", compute_sizeof(&ty));
+                } else {
+                    R; emit_decl("+("); L;
+                    emit_decl("*%u)", compute_sizeof(&ty));
+                }
+            }
+            break;
+        case TOK_MINUS:
+            if (is_integer(get_type_category(&e->child[0]->type))) { /* int-int */
+                L; emit_decl("-"); R;
+            } else {
+                Declaration ty;
+
+                ty = e->child[0]->type;
+                ty.idl = ty.idl->child;
+                if (is_integer(get_type_category(&e->child[1]->type))) { /* ptr-int */
+                    L; emit_decl("-"); emit_decl("("); R;
+                    emit_decl("*%u)", compute_sizeof(&ty));
+                } else { /* ptr-ptr */
+                    /* note: for this to work both operands must reside in the same segment! */
+                    emit_decl("(");
+                    L; emit_decl("-"); R;
+                    emit_decl(")/%u", compute_sizeof(&ty));
+                }
+            }
+            break;
+#undef L
+#undef R
+
+        default:
+            return -1;
+        }
+        break;
+    case IConstExp:
+        emit_decl("%lu", e->attr.uval);
+        break;
+    case StrLitExp:
+        return -1;
+    case IdExp:
+        emit_decl("%s", e->attr.str);
+        break;
+    }
+    return 0; /* OK */
+}
+
+void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
+{
+    TypeExp *ts;
+
+    if (dct != NULL) {
+        unsigned nelem;
+
+        if (dct->op != TOK_SUBSCRIPT)
+            goto scalar; /* pointer */
+
+        /*
+         * Array.
+         */
+        nelem = dct->attr.e->attr.uval;
+        if (e->kind.exp == StrLitExp) { /* character array initialized by string literal */
+            unsigned n;
+
+            e->attr.str[nelem-1] = '\0';
+            emit_raw_string(asm_decls, e->attr.str);
+            if ((n=strlen(e->attr.str)+1) < nelem)
+                emit_declln("times %u db 0", nelem-n);
+        } else {
+            /* handle elements with explicit initializer */
+            for (e = e->child[0]; e!=NULL && nelem!=0; e=e->sibling, --nelem)
+                x86_static_init(ds, dct->child, e);
+
+            /* handle elements without explicit initializer */
+            if (nelem != 0) {
+                Declaration ty;
+
+                ty.decl_specs = ds;
+                ty.idl = dct->child;
+                emit_declln("align %u", get_alignment(&ty));
+                emit_declln("times %u db 0", nelem*compute_sizeof(&ty));
+            }
+        }
+    } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
+        /*
+         * Struct.
+         */
+        DeclList *d;
+        int full_init;
+
+        e = e->child[0];
+
+        /* handle members with explicit initializer */
+        d = ts->attr.dl;
+        full_init = FALSE;
+        for (; d != NULL; d = d->next) {
+            dct = d->decl->idl;
+            for (; e!=NULL && dct!=NULL; e=e->sibling, dct=dct->sibling)
+                x86_static_init(d->decl->decl_specs, dct->child, e);
+
+            if (e == NULL) {
+                if (dct==NULL && d->next==NULL)
+                    full_init = TRUE;
+                break;
+            }
+        }
+
+        /* handle members without explicit initializer */
+        if (!full_init) {
+            if (dct == NULL) {
+                d = d->next;
+                dct = d->decl->idl;
+            }
+            while (TRUE) {
+                while (dct != NULL) {
+                    Declaration ty;
+
+                    ty.decl_specs = d->decl->decl_specs;
+                    ty.idl = dct->child;
+                    emit_declln("align %u", get_alignment(&ty));
+                    emit_declln("times %u db 0",  compute_sizeof(&ty));
+
+                    dct = dct->sibling;
+                }
+                d = d->next;
+                if (d != NULL)
+                    dct = d->decl->idl;
+                else
+                    break;
+            }
+        }
+    } else if (ts->op == TOK_UNION) {
+        /*
+         * Union.
+         */
+        e = e->child[0];
+
+        /* initialize the first named member */
+        x86_static_init(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e);
+    } else {
+        /*
+         * Scalar.
+         */
+        unsigned p;
+        Declaration dest_ty;
+scalar:
+        dest_ty.decl_specs = ds;
+        dest_ty.idl = dct;
+        switch (get_type_category(&dest_ty)) {
+        case TOK_CHAR:
+        case TOK_SIGNED_CHAR:
+        case TOK_UNSIGNED_CHAR:
+            emit_decl("db ");
+            break;
+        case TOK_SHORT:
+        case TOK_UNSIGNED_SHORT:
+            emit_decl("dw ");
+            break;
+        default:
+            emit_decl("dd ");
+            break;
+        }
+        p = string_get_pos(asm_decls);
+        if (x86_static_expr(e) == -1) {
+            string_set_pos(asm_decls, p);
+            emit_decl("0");
+            emit_warning(e->info->src_file, e->info->src_line, e->info->src_column,
+            "initializer form not supported, defaulting to zero");
+        }
+        emit_decl("\n");
+    }
+}
+
+void x86_allocate_static_objects(void)
+{
+    ExternId *np, *tmp;
+
+    for (np = static_objects_list; np != NULL; ) {
+        unsigned al;
+        Declaration ty;
+        ExecNode *initzr;
+
+        ty.decl_specs = np->decl_specs;
+        ty.idl = np->declarator->child;
+        initzr = np->declarator->attr.e;
+
+        al = get_alignment(&ty);
+        if (initzr != NULL) {
+            SET_SEGMENT(DATA_SEG, emit_declln);
+            if (al > 1)
+                emit_declln("align %u", al);
+        } else {
+            SET_SEGMENT(BSS_SEG, emit_declln);
+            if (al > 1)
+                emit_declln("alignb %u", al);
+        }
+        if (np->status != 0) { /* static local */
+            emit_declln("%s@%s:", (char *)np->status, np->declarator->str);
+        } else {
+            TypeExp *scs;
+
+            if ((scs=get_sto_class_spec(np->decl_specs))==NULL || scs->op!=TOK_STATIC)
+                emit_declln("global %s", np->declarator->str);
+            emit_declln("%s:", np->declarator->str);
+        }
+        if (initzr != NULL)
+            x86_static_init(ty.decl_specs, ty.idl, initzr);
+        else
+            emit_declln("resb %u", compute_sizeof(&ty));
+
+        tmp = np;
+        np = np->next;
+        free(tmp);
+    }
 }

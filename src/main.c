@@ -156,7 +156,7 @@ int main(int argc, char *argv[])
 
     if (error_count == 0) {
         // vm_cgen((output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb"));
-        x86_cgen();
+        x86_cgen((output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb"));
     } else
         return 1;
 

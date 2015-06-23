@@ -227,7 +227,7 @@ int main(int argc, char *argv[])
 
     prog_name = argv[0];
     if (argc < 3) {
-        printf("usage: %s <output-file> <intput-file> { <input-file> }\n", prog_name);
+        printf("usage: %s <output-file> <input-file> { <input-file> }\n", prog_name);
         printf("e.g.:  %s prog.out f1.in f2.in f3.in\n", prog_name);
         exit(0);
     }
