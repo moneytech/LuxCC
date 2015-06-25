@@ -359,6 +359,9 @@ static char *calls_to_fix[64];
 static int string_literal_counter;
 static int new_string_literal(unsigned a);
 static FILE *x86_output_file;
+#define JMP_TAB_MIN_SIZ   3
+#define JMP_TAB_MAX_HOLES 10
+static int jump_tables_counter;
 #define DATA_SEG 0
 #define TEXT_SEG 1
 #define BSS_SEG  2
@@ -1462,6 +1465,8 @@ void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
 #define emit_jmp(target)    emitln("jmp _@L%ld", target)
 #define emit_jmpeq(target)  emitln("je _@L%ld", target)
 #define emit_jmpneq(target) emitln("jne _@L%ld", target)
+#define emit_jl(target)     emitln("jl _@L%ld", target)
+#define emit_jg(target)     emitln("jg _@L%ld", target)
 
 void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -1663,7 +1668,15 @@ void x86_nop(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
 void x86_switch(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
+    /*
+     * Note:
+     *  - The default case is the last case after the 'OpSwitch' instruction.
+     */
     X86_Reg res;
+    long def_val;
+    Arena *lab_arena;
+    char **jmp_tab, def_lab[16];
+    long ncase, min, max, interval_size, holes;
 
     if (!addr_in_reg(arg1)) {
         res = get_reg(i);
@@ -1672,22 +1685,102 @@ void x86_switch(int i, unsigned tar, unsigned arg1, unsigned arg2)
         res = addr_reg(arg1);
     }
     update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
+    ncase = address(arg2).cont.val-1;
     ++i;
-    do {
+
+    if (ncase >= JMP_TAB_MIN_SIZ) {
+        int case_start;
+
+        case_start = i;
+        tar = instruction(i).tar;
+        arg1 = instruction(i).arg1;
+        arg2 = instruction(i).arg2;
+        min = max = address(tar).cont.val;
+        ++i;
+        for (;; i++) {
+            tar = instruction(i).tar;
+            arg1 = instruction(i).arg1;
+            arg2 = instruction(i).arg2;
+            if (address(arg2).cont.val) {
+                def_val = address(arg1).cont.val;
+                break;
+            }
+            if (address(tar).cont.val < min)
+                min = address(tar).cont.val;
+            else if (address(tar).cont.val > max)
+                max = address(tar).cont.val;
+        }
+        i = case_start;
+        interval_size = max-min+1;
+        holes = interval_size-ncase;
+
+        // fprintf(stderr, "min=%d\n", min);
+        // fprintf(stderr, "max=%d\n", max);
+        // fprintf(stderr, "interval=%d\n", interval_size);
+        // fprintf(stderr, "holes=%d\n", holes);
+
+        if (holes <= JMP_TAB_MAX_HOLES)
+            goto jump_table;
+    }
+    goto linear_search;
+
+jump_table:
+    emitln("cmp %s, %ld", x86_reg_str[res], min);
+    emit_jl(def_val);
+    emitln("cmp %s, %ld", x86_reg_str[res], max);
+    emit_jg(def_val);
+    if (min != 0)
+        emitln("sub %s, %ld", x86_reg_str[res], min);
+    emitln("jmp [_@jt%d + %s*4]", jump_tables_counter, x86_reg_str[res]);
+
+    /* build jump table */
+    jmp_tab = calloc(interval_size, sizeof(char *));
+    lab_arena = arena_new(interval_size*16);
+    sprintf(def_lab, "_@L%ld", def_val);
+    for (;; i++) {
+        char *s;
+
+        tar = instruction(i).tar;
+        arg1 = instruction(i).arg1;
+        arg2 = instruction(i).arg2;
+        if (address(arg2).cont.val)
+            break;
+        s = arena_alloc(lab_arena, 16);
+        sprintf(s, "_@L%ld", address(arg1).cont.val);
+        jmp_tab[address(tar).cont.val-min] = s;
+    }
+    /* fill holes with the default label */
+    for (i = 0; holes; i++) {
+        if (jmp_tab[i] == NULL) {
+            jmp_tab[i] = def_lab;
+            --holes;
+        }
+    }
+    /* emit jump table */
+    SET_SEGMENT(DATA_SEG, emitln);
+    emitln("_@jt%d:", jump_tables_counter++);
+    for (i = 0; i < interval_size; i++)
+        emitln("dd %s", jmp_tab[i]);
+    SET_SEGMENT(TEXT_SEG, emitln);
+
+    free(jmp_tab);
+    arena_destroy(lab_arena);
+    return;
+
+linear_search:
+    for (;; i++) {
         tar = instruction(i).tar;
         arg1 = instruction(i).arg1;
         arg2 = instruction(i).arg2;
 
-        /* the last case is the 'default' and it is always present */
         if (address(arg2).cont.val) {
             emit_jmp(address(arg1).cont.val);
             break;
         }
 
         emitln("cmp %s, %lu", x86_reg_str[res], address(tar).cont.uval);
-        emitln("je _@L%ld", address(arg1).cont.val);
-        ++i;
-    } while (TRUE);
+        emit_jmpeq(address(arg1).cont.val);
+    }
 }
 void x86_case(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {

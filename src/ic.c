@@ -1099,14 +1099,16 @@ void ic_switch_statement(ExecNode *s)
     ...
     EXIT:
      */
-    unsigned EXIT, i;
+    unsigned EXIT, i, a;
     SwitchLabel *np, *temp;
 
     ++ic_switch_nesting_level;
 
     EXIT = new_label();
     push_break_target(EXIT);
-    emit_i(OpSwitch, NULL, 0, ic_expression2(s->child[0]), 0);
+    a = new_address(IConstKind);
+    address(a).cont.val = s->attr.val;
+    emit_i(OpSwitch, NULL, 0, ic_expression2(s->child[0]), a);
     i = ic_instructions_counter;
     ic_instructions_counter += s->attr.val-1;
     emit_i(OpCase, NULL, 0, 0, 0); /* just so case/default code can test for 'OpCase' */
@@ -1116,8 +1118,6 @@ void ic_switch_statement(ExecNode *s)
     emit_i(OpLab, NULL, EXIT, 0, 0);
 
     for (np = ic_case_labels[ic_switch_nesting_level]; np != NULL; ) {
-        unsigned a;
-
         a = new_address(IConstKind);
         address(a).cont.val = np->val;
 
@@ -2390,6 +2390,9 @@ void disassemble(unsigned fn)
         case OpSwitch:
             printf("switch ");
             print_addr(p->arg1);
+            printf(" [");
+            print_addr(p->arg2);
+            printf(" labels]");
             break;
         case OpCase:
             printf("case ");
