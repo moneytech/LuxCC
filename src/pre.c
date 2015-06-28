@@ -17,8 +17,8 @@
 #define MACRO_TABLE_SIZE    4093
 #define HASH_VAL(s)         (hash(s)%MACRO_TABLE_SIZE)
 
-#define STD_INCLUDE_PATH "/usr/local/lib/luxcc/include/"
-// #define STD_INCLUDE_PATH "include/";
+// #define STD_INCLUDE_PATH "/usr/local/lib/luxcc/include/"
+#define STD_INCLUDE_PATH "include/";
 
 typedef enum {
     SIMPLE,

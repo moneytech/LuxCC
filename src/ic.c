@@ -87,7 +87,7 @@ static unsigned new_label(void);
 static void ic_compound_statement(ExecNode *s, int push_scope);
 static void ic_function_definition(TypeExp *decl_specs, TypeExp *header);
 static void new_nid(char *sid);
-static int get_var_nid(char *sid, int scope);
+/*static int get_var_nid(char *sid, int scope);*/
 static void edge_init(GraphEdge *p, unsigned max);
 static void edge_free(GraphEdge *p);
 
@@ -380,6 +380,10 @@ void ic_main(ExternId *func_def_list[])
      * We now have some of the call graph nodes.
      * Pointer analysis may add some more and
      * will connect the graph (add all the edges).
+     *
+     * [!] Important: from now on the nid counter
+     * must stand still for the analyses to work
+     * correctly.
      */
     dflow_PointOut();
     number_CG();
@@ -1597,7 +1601,7 @@ unsigned ic_dereference(unsigned ptr, Declaration *ty)
         emit_i(OpAsn, NULL, tmp, ptr, 0);
         ptr = tmp;
     }
-    /* dst = (ty *)ptr */
+    /* dst = *(ty *)ptr */
     dst = new_temp_addr();
     emit_i(OpInd, ty, dst, ptr, 0);
     return dst;
@@ -1668,7 +1672,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
         case TOK_BW_AND_ASSIGN:
         case TOK_BW_XOR_ASSIGN:
         case TOK_BW_OR_ASSIGN: {
-            ExecNode new_e;
+            ExecNode *new_e;
             unsigned a1, a2;
 
             /*
@@ -1681,22 +1685,23 @@ unsigned ic_expression(ExecNode *e, int is_addr)
              *      *tmp = *tmp+123
              */
 
-            new_e = *e;
+            new_e = malloc(sizeof(ExecNode));
+            *new_e = *e;
             switch (e->attr.op) {
-                case TOK_MUL_ASSIGN:    new_e.attr.op = TOK_MUL;     break;
-                case TOK_DIV_ASSIGN:    new_e.attr.op = TOK_DIV;     break;
-                case TOK_REM_ASSIGN:    new_e.attr.op = TOK_REM;     break;
-                case TOK_PLUS_ASSIGN:   new_e.attr.op = TOK_PLUS;    break;
-                case TOK_MINUS_ASSIGN:  new_e.attr.op = TOK_MINUS;   break;
-                case TOK_LSHIFT_ASSIGN: new_e.attr.op = TOK_LSHIFT;  break;
-                case TOK_RSHIFT_ASSIGN: new_e.attr.op = TOK_RSHIFT;  break;
-                case TOK_BW_AND_ASSIGN: new_e.attr.op = TOK_BW_AND;  break;
-                case TOK_BW_XOR_ASSIGN: new_e.attr.op = TOK_BW_XOR;  break;
-                case TOK_BW_OR_ASSIGN:  new_e.attr.op = TOK_BW_OR;   break;
+                case TOK_MUL_ASSIGN:    new_e->attr.op = TOK_MUL;     break;
+                case TOK_DIV_ASSIGN:    new_e->attr.op = TOK_DIV;     break;
+                case TOK_REM_ASSIGN:    new_e->attr.op = TOK_REM;     break;
+                case TOK_PLUS_ASSIGN:   new_e->attr.op = TOK_PLUS;    break;
+                case TOK_MINUS_ASSIGN:  new_e->attr.op = TOK_MINUS;   break;
+                case TOK_LSHIFT_ASSIGN: new_e->attr.op = TOK_LSHIFT;  break;
+                case TOK_RSHIFT_ASSIGN: new_e->attr.op = TOK_RSHIFT;  break;
+                case TOK_BW_AND_ASSIGN: new_e->attr.op = TOK_BW_AND;  break;
+                case TOK_BW_XOR_ASSIGN: new_e->attr.op = TOK_BW_XOR;  break;
+                case TOK_BW_OR_ASSIGN:  new_e->attr.op = TOK_BW_OR;   break;
             }
-            new_e.type.decl_specs = (TypeExp *)e->child[2];
-            new_e.type.idl = (TypeExp *)e->child[3];
-            a2 = ic_expr_convert(&new_e, &e->type);
+            new_e->type.decl_specs = (TypeExp *)e->child[2];
+            new_e->type.idl = (TypeExp *)e->child[3];
+            a2 = ic_expr_convert(new_e, &e->type);
             if (e->child[0]->kind.exp == IdExp) {
                 a1 = ic_expression(e->child[0], FALSE);
                 emit_i(OpAsn, &e->type, a1, a2, 0);
@@ -2048,14 +2053,16 @@ unsigned ic_expression(ExecNode *e, int is_addr)
         case TOK_FUNCTION: {
             OpKind op;
             unsigned a1;
+            ExecNode *tmp;
 
             function_argument(e->child[1], e->locals);
-            if (get_type_category(&e->child[0]->type) != TOK_STAR) {
-                ExecNode *tmp;
 
+            tmp = e->child[0];
+            while (tmp->kind.exp==OpExp /*&& tmp->attr.op==TOK_STAR*/)
+                 tmp = tmp->child[0];
+            if (tmp->kind.exp==IdExp && get_type_category(&tmp->type)==TOK_FUNCTION) {
                 op = OpCall;
                 a1 = new_address(IdKind);
-                for (tmp = e->child[0]; tmp->kind.exp != IdExp; tmp = tmp->child[0]);
                 address(a1).cont.var.e = tmp;
                 address(a1).cont.nid = get_var_nid(tmp->attr.str, tmp->attr.var.scope);
             } else {

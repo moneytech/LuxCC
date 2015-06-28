@@ -101,8 +101,8 @@ int bset_card(BSet *s)
 
 int bset_iterate(BSet *s)
 {
-    static BSet *curr;
     static int i, c;
+    static BSet *curr;
 
     if (s != NULL) {
         i = 0;

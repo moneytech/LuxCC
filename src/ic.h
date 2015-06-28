@@ -159,6 +159,7 @@ extern char **nid2sid_tab;
 #define const_addr(a)    (address(a).kind==IConstKind || address(a).kind==StrLitKind)
 
 void ic_main(ExternId *func_def_list[]);
+int get_var_nid(char *sid, int scope);
 void edge_add(GraphEdge *p, unsigned e);
 unsigned new_cg_node(char *func_id);
 unsigned edge_iterate(GraphEdge *p);

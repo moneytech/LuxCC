@@ -33,15 +33,18 @@ void init_summary(unsigned fn)
     unsigned i;
     BSet *LocalMod, *LocalRef;
 
-    LocalMod = bset_new(nid_counter);
-    LocalRef = bset_new(nid_counter);
-
     if (cg_node_is_empty(fn)) { /* external function */
         /* we don't know what it does, be conservative */
-        bset_fill(LocalMod, nid_counter);
-        bset_fill(LocalRef, nid_counter);
-        goto done;
+        // bset_fill(LocalMod, nid_counter);
+        // bset_fill(LocalRef, nid_counter);
+        // goto done;
+        assert(cg_node(fn).LocalRef != NULL);
+        assert(cg_node(fn).LocalMod != NULL);
+        return;
     }
+
+    LocalMod = bset_new(nid_counter);
+    LocalRef = bset_new(nid_counter);
 
     for (i = cfg_node(cg_node(fn).bb_i).leader; i <= cfg_node(cg_node(fn).bb_f).last; i++) {
         unsigned tar, arg1, arg2;
@@ -117,7 +120,7 @@ void init_summary(unsigned fn)
             continue;
         }
     }
-done:
+// done:
     cg_node(fn).LocalMod = LocalMod;
     cg_node(fn).LocalRef = LocalRef;
 }
@@ -694,7 +697,7 @@ void ptr_iteration(unsigned fn)
             case OpAsn: { /* x = y */
                 PointToSet *s;
 
-                if ((address(arg1).kind==TempKind || address(arg1).kind==IdKind)
+                if (nonconst_addr(arg1)
                 && (s=search_point_to(point_OUT[i-1], address_nid(arg1))) != NULL) { /* y -> {...} */
                     cpy_point_to(i, address_nid(tar), s->tl);
                 } else if ((s=search_point_to(point_OUT[i-1], address_nid(tar))) != NULL) { /* x -> {...} */
@@ -714,7 +717,7 @@ void ptr_iteration(unsigned fn)
                 PointToSet *s, *s1, *s2;
 
                 s2 = NULL;
-                if (address(arg1).kind==TempKind || address(arg1).kind==IdKind)
+                if (nonconst_addr(arg1))
                     s2 = search_point_to(point_OUT[i-1], address_nid(arg1));
                 if ((s1=search_point_to(point_OUT[i-1], address_nid(tar))) != NULL) { /* x -> {...} */
                     if (s2 != NULL) { /* and y -> {...} */
@@ -769,7 +772,7 @@ void ptr_iteration(unsigned fn)
 
                 /* assume front-end normalized the code
                    so only the first arg can be a pointer */
-                if ((address(arg1).kind==TempKind || address(arg1).kind==IdKind)
+                if (nonconst_addr(arg1)
                 && (s=search_point_to(point_OUT[i-1], address_nid(arg1))) != NULL)
                     cpy_point_to(i, address_nid(tar), s->tl);
                 else
@@ -789,7 +792,7 @@ void ptr_iteration(unsigned fn)
                    indicate a subtraction between a pointer and
                    an integer */
                 if (instruction(i).type == (Declaration *)1
-                && (address(arg1).kind==TempKind || address(arg1).kind==IdKind)
+                && nonconst_addr(arg1)
                 && (s=search_point_to(point_OUT[i-1], address_nid(arg1))) != NULL)
                     cpy_point_to(i, address_nid(tar), s->tl);
                 else
@@ -809,15 +812,34 @@ void ptr_iteration(unsigned fn)
 
                 tar_fn = new_cg_node(address(arg1).cont.var.e->attr.str);
                 edge_add(&cg_node(fn).out, tar_fn);
-                for (pn = cg_node(tar_fn).pn; pn != NULL; pn = pn->next) {
-                    if (pn->nid == -1) { /* unreferenced parameter */
-                        --arg_stack_top;
-                        continue;
+                if (!cg_node_is_empty(tar_fn)) {
+                    for (pn = cg_node(tar_fn).pn; pn != NULL; pn = pn->next) {
+                        if (pn->nid == -1) { /* unreferenced parameter */
+                            --arg_stack_top;
+                            continue;
+                        }
+                        arg = instruction(arg_stack[--arg_stack_top]).arg1;
+                        if (nonconst_addr(arg) && (s=search_point_to(point_OUT[i-1], address_nid(arg)))!=NULL)
+                            union_point_to(cfg_node(cg_node(tar_fn).bb_i).leader, pn->nid, s->tl);
                     }
-                    arg = instruction(arg_stack[--arg_stack_top]).arg1;
-                    if ((address(arg).kind==TempKind || address(arg).kind==IdKind)
-                    && (s=search_point_to(point_OUT[i-1], address_nid(arg))) != NULL)
-                        union_point_to(cfg_node(cg_node(tar_fn).bb_i).leader, pn->nid, s->tl);
+                } else { /* extern function (we don't know the body) */
+                    if (cg_node(tar_fn).LocalRef == NULL)
+                        cg_node(tar_fn).LocalRef = bset_new(nid_counter);
+                    if (cg_node(tar_fn).LocalMod == NULL)
+                        cg_node(tar_fn).LocalMod = bset_new(nid_counter);
+
+                    /*
+                     * Assume extern functions only reference/modify
+                     * objects passed through pointer arguments.
+                     * [TBD] global/extern objects.
+                     */
+                    while (arg_stack_top > 0) {
+                        arg = instruction(arg_stack[--arg_stack_top]).arg1;
+                        if (nonconst_addr(arg) && (s=search_point_to(point_OUT[i-1], address_nid(arg)))!=NULL) {
+                            bset_union(cg_node(tar_fn).LocalRef, s->tl);
+                            bset_union(cg_node(tar_fn).LocalMod, s->tl);
+                        }
+                    }
                 }
                 arg_stack_top = 0;
 
@@ -867,22 +889,36 @@ void ptr_iteration(unsigned fn)
                 unsigned tar_fn, arg;
 
                 if ((s=search_point_to(point_OUT[i-1], address_nid(arg1))) == NULL)
-                    assert(0); /* TBD */
+                    break; /* TBD */
 
                 fn_PtrRet = NULL;
                 for (p = bset_iterate(s->tl); p != -1; p = bset_iterate(NULL)) {
                     tar_fn = new_cg_node(nid2sid_tab[p]);
                     edge_add(&cg_node(fn).out, tar_fn);
                     tmp = arg_stack_top;
-                    for (pn = cg_node(tar_fn).pn; pn != NULL; pn = pn->next) {
-                        if (pn->nid == -1) { /* unreferenced parameter */
-                            --arg_stack_top;
-                            continue;
+                    if (!cg_node_is_empty(tar_fn)) {
+                        for (pn = cg_node(tar_fn).pn; pn != NULL; pn = pn->next) {
+                            if (pn->nid == -1) { /* unreferenced parameter */
+                                --arg_stack_top;
+                                continue;
+                            }
+                            arg = instruction(arg_stack[--arg_stack_top]).arg1;
+                            if (nonconst_addr(arg) && (s=search_point_to(point_OUT[i-1], address_nid(arg)))!=NULL)
+                                union_point_to(cfg_node(cg_node(tar_fn).bb_i).leader, pn->nid, s->tl);
                         }
-                        arg = instruction(arg_stack[--arg_stack_top]).arg1;
-                        if ((address(arg).kind==TempKind || address(arg).kind==IdKind)
-                        && (s=search_point_to(point_OUT[i-1], address_nid(arg))) != NULL)
-                            union_point_to(cfg_node(cg_node(tar_fn).bb_i).leader, pn->nid, s->tl);
+                    } else { /* extern function (we don't know the body) */
+                        if (cg_node(tar_fn).LocalRef == NULL)
+                            cg_node(tar_fn).LocalRef = bset_new(nid_counter);
+                        if (cg_node(tar_fn).LocalMod == NULL)
+                            cg_node(tar_fn).LocalMod = bset_new(nid_counter);
+
+                        while (arg_stack_top > 0) {
+                            arg = instruction(arg_stack[--arg_stack_top]).arg1;
+                            if (nonconst_addr(arg) && (s=search_point_to(point_OUT[i-1], address_nid(arg)))!=NULL) {
+                                bset_union(cg_node(tar_fn).LocalRef, s->tl);
+                                bset_union(cg_node(tar_fn).LocalMod, s->tl);
+                            }
+                        }
                     }
                     arg_stack_top = tmp;
 
@@ -915,7 +951,7 @@ void ptr_iteration(unsigned fn)
             case OpRet: {
                 PointToSet *s;
 
-                if ((s=search_point_to(point_OUT[i-1], address_nid(arg1))) != NULL) {
+                if (nonconst_addr(arg1) && (s=search_point_to(point_OUT[i-1], address_nid(arg1)))!=NULL) {
                     if (cg_node(fn).PtrRet == NULL) {
                         cg_node(fn).PtrRet = bset_new(nid_counter);
                         bset_cpy(cg_node(fn).PtrRet, s->tl);

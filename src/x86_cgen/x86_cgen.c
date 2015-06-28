@@ -6,6 +6,7 @@
  * TOFIX:
  * - The code ignores the fact that byte versions of ESI and EDI don't exist.
  */
+#define DEBUG 0
 #include "x86_cgen.h"
 #include <stdio.h>
 #include <string.h>
@@ -161,16 +162,40 @@ void compute_liveness_and_next_use(unsigned fn)
                     update_arg1();
                 continue;
 
-            case OpCall:
-                // if (tar)
-                    // update_tar();
-                // continue;
+            case OpCall: {
+                int j;
+                unsigned fn;
 
-            case OpIndCall:
+                fn = new_cg_node(address(arg1).cont.var.e->attr.str);
+                for (j = bset_iterate(cg_node(fn).MayRef); j != -1; j = bset_iterate(NULL))
+                    operand_liveness[j] = LIVE;
+                if (tar)
+                    update_tar();
+            }
+                continue;
+
+            case OpIndCall: {
+                BSet *s;
+
+                if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
+                    int j;
+
+                    for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL)) {
+                        int k;
+                        unsigned fn;
+
+                        fn = new_cg_node(nid2sid_tab[j]);
+                        for (k = bset_iterate(cg_node(fn).MayRef); k != -1; k = bset_iterate(NULL))
+                            operand_liveness[k] = LIVE;
+                    }
+                } else {
+                    memset(operand_liveness, LIVE, nid_counter*sizeof(char));
+                }
                 if (tar)
                     update_tar();
                 if (nonconst_addr(arg1))
                     update_arg1();
+            }
                 continue;
 
             case OpCBr:
@@ -355,7 +380,7 @@ static unsigned temp_struct_size;
 static int big_return;
 static unsigned arg_nb;
 static int calls_to_fix_counter;
-static char *calls_to_fix[64];
+static unsigned calls_to_fix[64];
 static int string_literal_counter;
 static int new_string_literal(unsigned a);
 static FILE *x86_output_file;
@@ -489,7 +514,7 @@ void reg_descr_rem_addr(X86_Reg r, unsigned a)
 
     i = 0;
     naddrs = reg_descr_tab[r].naddrs;
-    while (naddrs && i<MAX_ADDRS_PER_REG) {
+    while (naddrs /*&& i<MAX_ADDRS_PER_REG*/) {
         unsigned a2;
 
         if ((a2=reg_descr_tab[r].addrs[i]) != 0) {
@@ -516,7 +541,7 @@ void clear_reg_descr(X86_Reg r)
     reg_descr_tab[r].naddrs = 0;
 }
 
-static String *func_body, *func_prolog, *func_epilog, *asm_decls;
+static String *func_body, *func_prolog, *func_epilog, *asm_decls, *str_lits;
 #define emit(...)   (string_printf(func_body, __VA_ARGS__))
 #define emitln(...) (string_printf(func_body, __VA_ARGS__), string_printf(func_body, "\n"))
 #define emit_prolog(...)   (string_printf(func_prolog, __VA_ARGS__))
@@ -525,6 +550,8 @@ static String *func_body, *func_prolog, *func_epilog, *asm_decls;
 #define emit_epilogln(...) (string_printf(func_epilog, __VA_ARGS__), string_printf(func_epilog, "\n"))
 #define emit_decl(...)   (string_printf(asm_decls, __VA_ARGS__))
 #define emit_declln(...) (string_printf(asm_decls, __VA_ARGS__), string_printf(asm_decls, "\n"))
+#define emit_str(...)   (string_printf(str_lits, __VA_ARGS__))
+#define emit_strln(...) (string_printf(str_lits, __VA_ARGS__), string_printf(str_lits, "\n"))
 
 static
 void emit_raw_string(String *q, char *s)
@@ -533,19 +560,17 @@ void emit_raw_string(String *q, char *s)
 
     len = strlen(s)+1;
     for (i = len/4; i; i--) {
-        string_printf(q, "dd 0x%x%x%x%x\n", s[3], s[2], s[1], s[0]);
+        string_printf(q, "dd 0x%02x%02x%02x%02x\n", s[3], s[2], s[1], s[0]);
         s += 4;
     }
     for (i = len%4; i; i--)
-        string_printf(q, "db 0x%x\n", *s++);
+        string_printf(q, "db 0x%02x\n", *s++);
 }
 
 int new_string_literal(unsigned a)
 {
-    SET_SEGMENT(ROD_SEG, emitln);
-    emitln("_@S%d:", string_literal_counter);
-    emit_raw_string(func_body, address(a).cont.str);
-    SET_SEGMENT(TEXT_SEG, emitln);
+    emit_strln("_@S%d:", string_literal_counter);
+    emit_raw_string(str_lits, address(a).cont.str);
     return string_literal_counter++;
 }
 
@@ -554,18 +579,16 @@ static void x86_allocate_static_objects(void);
 
 void x86_cgen(FILE *outf)
 {
-    unsigned i;
-    ExternId *ed, *func_def_list[128] = { NULL };
+    unsigned i, j;
+    ExternId *ed, *func_def_list[128] = { NULL }, *func_decl_list[128] = { NULL };
 
     x86_output_file = outf;
-    asm_decls = string_new(1024);
-    emit_declln("\n; == declarations & definitions");
-    for (ed=get_extern_symtab(), i=0; ed != NULL; ed = ed->next) {
+    for (ed=get_extern_symtab(), i=j=0; ed != NULL; ed = ed->next) {
         TypeExp *scs;
 
         if (ed->status == REFERENCED) {
             if ((scs=get_sto_class_spec(ed->decl_specs))==NULL || scs->op!=TOK_STATIC)
-                emit_declln("extern %s", ed->declarator->str);
+                func_decl_list[j++] = ed;
         } else {
             if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION) {
                 func_def_list[i++] = ed;
@@ -584,7 +607,6 @@ void x86_cgen(FILE *outf)
 
     /* generate intermediate code and do some analysis */
     ic_main(func_def_list); //exit(0);
-    init_addr_descr_tab();
 
     /* compute liveness and next use */
     liveness_and_next_use = malloc(ic_instructions_counter*sizeof(QuadLiveNext));
@@ -595,19 +617,42 @@ void x86_cgen(FILE *outf)
     free(operand_liveness);
     free(operand_next_use);
 
-    /* generate assembly for functions */
+    /* generate assembly */
+    asm_decls = string_new(512);
+    str_lits = string_new(512);
     func_body = string_new(1024);
     func_prolog = string_new(1024);
     func_epilog = string_new(1024);
+    init_addr_descr_tab();
     for (i = 0; (ed=func_def_list[i]) != NULL; i++)
         x86_function_definition(ed->decl_specs, ed->declarator);
     string_free(func_body);
     string_free(func_prolog);
     string_free(func_epilog);
 
+    emit_declln("\n; == objects with static duration");
     x86_allocate_static_objects();
+    emit_declln("\n; == extern symbols");
+    /* emit extern directives only for those symbols that were referenced */
+    for (j = 0; (ed=func_decl_list[j]) != NULL; j++) {
+        int tmp;
+
+        tmp = nid_counter;
+        get_var_nid(ed->declarator->str, 0);
+        if (tmp == nid_counter)
+            emit_declln("extern %s", ed->declarator->str);
+    }
+    /* the front-end may emit calls to memcpy/memset */
+    emit_declln("extern memcpy"); emit_declln("extern memset");
     string_write(asm_decls, x86_output_file);
     string_free(asm_decls);
+
+    if (string_literal_counter) {
+        fprintf(x86_output_file, "\n; == string literals\n");
+        fprintf(x86_output_file, "segment .rodata\n");
+        string_write(str_lits, x86_output_file);
+    }
+    string_free(str_lits);
 
     printf("\n");
     for (i = 0; i < X86_NREG; i++)
@@ -1364,6 +1409,9 @@ void x86_addr_of(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
 
+    /*if (addr_in_reg(arg1))
+        spill_reg(addr_reg(arg1));*/
+
     res = get_reg(i);
     x86_load_addr(res, arg1);
     UPDATE_ADDRESSES_UNARY(res);
@@ -1433,7 +1481,7 @@ void x86_pre_call(int i)
         if (siz > temp_struct_size)
             temp_struct_size = siz;
         emit("lea eax, [ebp-");
-        calls_to_fix[calls_to_fix_counter++] = string_curr(func_body);
+        calls_to_fix[calls_to_fix_counter++] = string_get_pos(func_body);
         emitln("XXXXXXXXXXXXXXXX");
         emitln("push eax");
     }
@@ -1572,11 +1620,13 @@ void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
     Declaration ty;
 
     /*
-     * Note: the type expression comes from the formal parameter
-     * or from the actual argument, so some more care must be taken
-     * when using it.
+     * Note:
+     * The argument type expressions comes from the formal parameter
+     * if the argument matches a non-optional parameter, or from the
+     * argument expression itself if the argument matches the `...'.
+     * If it comes from the formal parameter, an identifier node may
+     * have to be skipped.
      */
-
     ty = *instruction(i).type;
     if (ty.idl!=NULL && ty.idl->op==TOK_ID)
         ty.idl = ty.idl->child;
@@ -1591,7 +1641,7 @@ void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
         siz = compute_sizeof(&ty);
         asiz = round_up(siz, 4);
-        emitln("sub esp, %lu", asiz);
+        emitln("sub esp, %u", asiz);
         arg_nb += asiz;
 
         cluttered = savnb = 0;
@@ -1713,12 +1763,10 @@ void x86_switch(int i, unsigned tar, unsigned arg1, unsigned arg2)
         i = case_start;
         interval_size = max-min+1;
         holes = interval_size-ncase;
-
-        // fprintf(stderr, "min=%d\n", min);
-        // fprintf(stderr, "max=%d\n", max);
-        // fprintf(stderr, "interval=%d\n", interval_size);
-        // fprintf(stderr, "holes=%d\n", holes);
-
+        /*fprintf(stderr, "min=%d\n", min);
+        fprintf(stderr, "max=%d\n", max);
+        fprintf(stderr, "interval=%d\n", interval_size);
+        fprintf(stderr, "holes=%d\n", holes);*/
         if (holes <= JMP_TAB_MAX_HOLES)
             goto jump_table;
     }
@@ -1834,7 +1882,7 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     */
     int b;
     Token cat;
-    unsigned fn;
+    unsigned fn, pos_tmp;
     TypeExp *scs;
     Declaration ty;
 
@@ -1874,16 +1922,19 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
         }
     }
     size_of_local_area -= temp_struct_size;
+    pos_tmp = string_get_pos(func_body);
     while (--calls_to_fix_counter >= 0) {
         int n;
         char *s;
 
-        s = calls_to_fix[calls_to_fix_counter];
+        string_set_pos(func_body, calls_to_fix[calls_to_fix_counter]);
+        s = string_curr(func_body);
         n = sprintf(s, "%d", -size_of_local_area);
         s[n++] = ']';
         for (; s[n] == 'X'; n++)
             s[n] = ' ';
     }
+    string_set_pos(func_body, pos_tmp);
 
     emit_prologln("%d", -size_of_local_area);
     if (modified[X86_ESI]) emit_prologln("push esi");
@@ -2007,7 +2058,10 @@ int x86_static_expr(ExecNode *e)
         emit_decl("%lu", e->attr.uval);
         break;
     case StrLitExp:
-        return -1;
+        emit_strln("_@S%d:", string_literal_counter);
+        emit_raw_string(str_lits, e->attr.str);
+        emit_decl("_@S%d", string_literal_counter++);
+        break;
     case IdExp:
         emit_decl("%s", e->attr.str);
         break;
@@ -2124,9 +2178,11 @@ scalar:
             break;
         case TOK_SHORT:
         case TOK_UNSIGNED_SHORT:
+            emit_declln("align 2");
             emit_decl("dw ");
             break;
         default:
+            emit_declln("align 4");
             emit_decl("dd ");
             break;
         }
