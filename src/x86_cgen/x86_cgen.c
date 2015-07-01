@@ -504,6 +504,7 @@ void reg_descr_add_addr(X86_Reg r, unsigned a)
             reg_descr_tab[r].naddrs++;
             break;
         }
+        // assert(0);
     }
 }
 
@@ -657,7 +658,7 @@ void x86_cgen(FILE *outf)
     printf("\n");
     for (i = 0; i < X86_NREG; i++)
         printf("reg%d = %d\n", i, reg_descr_tab[i].naddrs);
-    // printf("=> %d\n", nid_counter);
+    printf("=> %d\n", nid_counter);
 }
 
 static X86_Reg get_empty_reg(void);
@@ -1409,9 +1410,6 @@ void x86_addr_of(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
 
-    /*if (addr_in_reg(arg1))
-        spill_reg(addr_reg(arg1));*/
-
     res = get_reg(i);
     x86_load_addr(res, arg1);
     UPDATE_ADDRESSES_UNARY(res);
@@ -1509,12 +1507,12 @@ void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
     /*update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);*/
 }
 
-#define emit_lab(n)         emitln("_@L%ld:", n)
-#define emit_jmp(target)    emitln("jmp _@L%ld", target)
-#define emit_jmpeq(target)  emitln("je _@L%ld", target)
-#define emit_jmpneq(target) emitln("jne _@L%ld", target)
-#define emit_jl(target)     emitln("jl _@L%ld", target)
-#define emit_jg(target)     emitln("jg _@L%ld", target)
+#define emit_lab(n)         emitln(".L%ld:", n)
+#define emit_jmp(target)    emitln("jmp .L%ld", target)
+#define emit_jmpeq(target)  emitln("je .L%ld", target)
+#define emit_jmpneq(target) emitln("jne .L%ld", target)
+#define emit_jl(target)     emitln("jl .L%ld", target)
+#define emit_jg(target)     emitln("jg .L%ld", target)
 
 void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -1779,12 +1777,12 @@ jump_table:
     emit_jg(def_val);
     if (min != 0)
         emitln("sub %s, %ld", x86_reg_str[res], min);
-    emitln("jmp [_@jt%d + %s*4]", jump_tables_counter, x86_reg_str[res]);
+    emitln("jmp [.jt%d + %s*4]", jump_tables_counter, x86_reg_str[res]);
 
     /* build jump table */
     jmp_tab = calloc(interval_size, sizeof(char *));
     lab_arena = arena_new(interval_size*16);
-    sprintf(def_lab, "_@L%ld", def_val);
+    sprintf(def_lab, ".L%ld", def_val);
     for (;; i++) {
         char *s;
 
@@ -1794,7 +1792,7 @@ jump_table:
         if (address(arg2).cont.val)
             break;
         s = arena_alloc(lab_arena, 16);
-        sprintf(s, "_@L%ld", address(arg1).cont.val);
+        sprintf(s, ".L%ld", address(arg1).cont.val);
         jmp_tab[address(tar).cont.val-min] = s;
     }
     /* fill holes with the default label */
@@ -1806,7 +1804,7 @@ jump_table:
     }
     /* emit jump table */
     SET_SEGMENT(DATA_SEG, emitln);
-    emitln("_@jt%d:", jump_tables_counter++);
+    emitln(".jt%d:", jump_tables_counter++);
     for (i = 0; i < interval_size; i++)
         emitln("dd %s", jmp_tab[i]);
     SET_SEGMENT(TEXT_SEG, emitln);
@@ -1880,8 +1878,8 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
         +-----------------------------------------------------------+
      => High addresses
     */
-    int b;
     Token cat;
+    int i, last_i;
     unsigned fn, pos_tmp;
     TypeExp *scs;
     Declaration ty;
@@ -1907,19 +1905,16 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     emit_prologln("mov ebp, esp");
     emit_prolog("sub esp, ");
 
-    for (b = cg_node(fn).bb_i; b <= cg_node(fn).bb_f; b++) {
-        int i;
+    i = cfg_node(cg_node(fn).bb_i).leader;
+    last_i = cfg_node(cg_node(fn).bb_f).last;
+    for (; i <= last_i; i++) {
+        unsigned tar, arg1, arg2;
 
-        emitln("; === start of BB#%d", b);
-        for (i = cfg_node(b).leader; i <= cfg_node(b).last; i++) {
-            unsigned tar, arg1, arg2;
+        tar = instruction(i).tar;
+        arg1 = instruction(i).arg1;
+        arg2 = instruction(i).arg2;
 
-            tar = instruction(i).tar;
-            arg1 = instruction(i).arg1;
-            arg2 = instruction(i).arg2;
-
-            instruction_handlers[instruction(i).op](i, tar, arg1, arg2);
-        }
+        instruction_handlers[instruction(i).op](i, tar, arg1, arg2);
     }
     size_of_local_area -= temp_struct_size;
     pos_tmp = string_get_pos(func_body);

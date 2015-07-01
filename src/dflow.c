@@ -34,10 +34,7 @@ void init_summary(unsigned fn)
     BSet *LocalMod, *LocalRef;
 
     if (cg_node_is_empty(fn)) { /* external function */
-        /* we don't know what it does, be conservative */
-        // bset_fill(LocalMod, nid_counter);
-        // bset_fill(LocalRef, nid_counter);
-        // goto done;
+        /* currently, point-to analysis approximates these */
         assert(cg_node(fn).LocalRef != NULL);
         assert(cg_node(fn).LocalMod != NULL);
         return;
@@ -99,6 +96,8 @@ void init_summary(unsigned fn)
         case OpIndAsn: {
             BSet *s;
 
+            if (nonconst_addr(arg1))
+                add_LocalRef(arg1);
             if ((s=get_pointer_targets(i, address_nid(tar))) != NULL)
                 bset_union(LocalMod, s);
             else
@@ -120,7 +119,6 @@ void init_summary(unsigned fn)
             continue;
         }
     }
-// done:
     cg_node(fn).LocalMod = LocalMod;
     cg_node(fn).LocalRef = LocalRef;
 }
@@ -225,13 +223,13 @@ void dflow_dominance(unsigned fn)
 
     int i, changed;
     BSet *N, *temp;
-    unsigned entry_bb, last_bb;
+    unsigned entry_bb, exit_bb;
 
     if (cg_node_is_empty(fn))
         return;
 
     entry_bb = cg_node(fn).bb_i;
-    last_bb = cg_node(fn).bb_f;
+    exit_bb = cg_node(fn).bb_f;
 
     /* Dom(n0) = { n0 } */
     cfg_node(entry_bb).Dom = bset_new(cfg_nodes_counter);
@@ -239,11 +237,11 @@ void dflow_dominance(unsigned fn)
 
     /* N = all nodes of the CFG */
     N = bset_new(cfg_nodes_counter);
-    for (i = entry_bb; i <= last_bb; i++)
+    for (i = entry_bb; i <= exit_bb; i++)
         bset_insert(N, i);
 
     /* for every n != n0, Dom(n) = N */
-    for (i = entry_bb+1; i <= last_bb; i++) {
+    for (i = entry_bb+1; i <= exit_bb; i++) {
         cfg_node(i).Dom = bset_new(cfg_nodes_counter);
         bset_cpy(cfg_node(i).Dom, N);
     }
@@ -256,19 +254,20 @@ void dflow_dominance(unsigned fn)
     while (changed) {
         DEBUG_PRINTF("==> Dom solver iteration\n");
         changed = FALSE;
-        for (i = entry_bb+1; i <= last_bb; i++) {
-            int j;
+        for (i = entry_bb+1; i <= exit_bb; i++) {
+            int j, i2;
             unsigned pred;
 
-            if ((pred = cfg_node(i).in.edges[0])) {
+            i2 = CFG_RPO[i];
+            if ((pred = cfg_node(i2).in.edges[0])) {
                 bset_cpy(temp, cfg_node(pred).Dom);
-                for (j = 1; j<cfg_node(i).in.n && (pred=cfg_node(i).in.edges[j]); j++)
+                for (j = 1; j<cfg_node(i2).in.n && (pred=cfg_node(i2).in.edges[j]); j++)
                     bset_inters(temp, cfg_node(pred).Dom);
             }
-            bset_insert(temp, i);
+            bset_insert(temp, i2);
 
-            if (!bset_eq(temp, cfg_node(i).Dom)) {
-                bset_cpy(cfg_node(i).Dom, temp);
+            if (!bset_eq(temp, cfg_node(i2).Dom)) {
+                bset_cpy(cfg_node(i2).Dom, temp);
                 changed = TRUE;
             }
             bset_clear(temp);
@@ -290,7 +289,7 @@ void dflow_dominance(unsigned fn)
 // =======================================================================================
 static BSet *modified_static_objects;
 static void live_print_set(BSet *s);
-static void live_init_block(int b, int last_bb);
+static void live_init_block(int b, int exit_bb);
 
 void live_print_set(BSet *s)
 {
@@ -302,7 +301,7 @@ void live_print_set(BSet *s)
 }
 
 /* compute UEVar(b) and VarKill(b) */
-void live_init_block(int b, int last_bb)
+void live_init_block(int b, int exit_bb)
 {
     int i;
     BSet *UEVar, *VarKill;
@@ -311,12 +310,10 @@ void live_init_block(int b, int last_bb)
     UEVar = bset_new(nid_counter);
     VarKill = bset_new(nid_counter);
 
-    if (last_bb) /* EXIT node */
+    if (exit_bb)
         bset_cpy(UEVar, modified_static_objects);
 
     for (i = cfg_node(b).leader; i <= cfg_node(b).last; i++) {
-        // TBD:
-        // - What to do at function calls?
         unsigned tar, arg1, arg2;
 
         tar = instruction(i).tar;
@@ -461,19 +458,19 @@ void dflow_LiveOut(unsigned fn)
 {
     int i, changed;
     BSet *temp, *new_out;
-    unsigned entry_bb, last_bb;
+    unsigned entry_bb, exit_bb;
 
     if (cg_node_is_empty(fn))
         return;
 
     entry_bb = cg_node(fn).bb_i;
-    last_bb = cg_node(fn).bb_f;
+    exit_bb = cg_node(fn).bb_f;
 
     modified_static_objects = bset_new(nid_counter);
 
     /* gather initial information */
-    for (i = entry_bb; i <= last_bb; i++) {
-        live_init_block(i, i == last_bb);
+    for (i = entry_bb; i <= exit_bb; i++) {
+        live_init_block(i, i == exit_bb);
 
 #if DEBUG
         printf("UEVar[%d]=", i);
@@ -499,7 +496,7 @@ void dflow_LiveOut(unsigned fn)
     while (changed) {
         DEBUG_PRINTF("==> LiveOut solver iteration\n");
         changed = FALSE;
-        for (i = entry_bb; i <= last_bb; i++) {
+        for (i = entry_bb; i <= exit_bb; i++) {
             int j, b;
             unsigned succ;
 
@@ -525,7 +522,7 @@ void dflow_LiveOut(unsigned fn)
     bset_free(temp), bset_free(new_out);
 
 #if DEBUG
-    for (i = entry_bb; i <= last_bb; i++) {
+    for (i = entry_bb; i <= exit_bb; i++) {
         printf("LiveOut[%d]=", i);
         live_print_set(cfg_node(i).LiveOut);
         printf("\n\n");
@@ -666,14 +663,15 @@ static int arg_stack[32], arg_stack_top;
 
 void ptr_iteration(unsigned fn)
 {
-    int b;
+    int b, b2;
 
     if (cg_node_is_empty(fn))
         return;
 
-    for (b = cg_node(fn).bb_i; b <= cg_node(fn).bb_f; b++) {
+    for (b2 = cg_node(fn).bb_i; b2 <= cg_node(fn).bb_f; b2++) {
         int i;
 
+        b = CFG_RPO[b2];
         for (i = cfg_node(b).leader; i <= cfg_node(b).last; i++) {
             unsigned tar, arg1/*, arg2*/;
 
@@ -789,8 +787,8 @@ void ptr_iteration(unsigned fn)
                 PointToSet *s;
 
                 /* the front-end put an '1' in the type fields to
-                   indicate a subtraction between a pointer and
-                   an integer */
+                   indicate when a subtraction is between a pointer
+                   and an integer */
                 if (instruction(i).type == (Declaration *)1
                 && nonconst_addr(arg1)
                 && (s=search_point_to(point_OUT[i-1], address_nid(arg1))) != NULL)
@@ -830,7 +828,7 @@ void ptr_iteration(unsigned fn)
 
                     /*
                      * Assume extern functions only reference/modify
-                     * objects passed through pointer arguments.
+                     * objects that are reachable through pointer arguments.
                      * [TBD] global/extern objects.
                      */
                     while (arg_stack_top > 0) {

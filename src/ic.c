@@ -42,7 +42,8 @@ unsigned cg_nodes_max;
 unsigned cg_nodes_counter;
 CGNode *cg_nodes;
 
-static int label_counter = 1;
+static int label_counter, label_max;
+static unsigned *lab2instr;
 static unsigned true_addr, false_addr;
 static unsigned memset_addr, memcpy_addr;
 static ExecNode memset_node, memcpy_node;
@@ -265,10 +266,24 @@ unsigned new_label(void)
 {
     unsigned L;
 
+    if (label_counter >= label_max) {
+        unsigned *p;
+
+        p = realloc(lab2instr, label_max*2*sizeof(unsigned));
+        assert(p != NULL);
+        label_max *= 2;
+        lab2instr = p;
+    }
     L = new_address(IConstKind);
     address(L).cont.val = label_counter++;
 
     return L;
+}
+
+void emit_label(unsigned L)
+{
+    lab2instr[address(L).cont.val] = ic_instructions_counter;
+    emit_i(OpLab, NULL, L, 0, 0);
 }
 
 void ic_init(void)
@@ -323,12 +338,16 @@ void ic_init(void)
     memcpy_addr = new_address(IdKind);
     address(memcpy_addr).cont.nid = get_var_nid("memcpy", 0);
     address(memcpy_addr).cont.var.e = &memcpy_node;
+
+    label_max = 64;
+    lab2instr = malloc(label_max*sizeof(unsigned));
 }
 
 void ic_reset(void)
 {
     size_of_local_area = 0;
     local_offset = 0;
+    label_counter = 0;
 }
 
 void ic_free_all(void)
@@ -349,6 +368,7 @@ void ic_free_all(void)
     arena_destroy(id_table_arena);
     arena_destroy(temp_names_arena);
     /*free_PointOut();*/
+    free(lab2instr);
 }
 
 static unsigned curr_cg_node;
@@ -385,9 +405,9 @@ void ic_main(ExternId *func_def_list[])
      * must stand still for the analyses to work
      * correctly.
      */
+    number_CFGs();
     dflow_PointOut();
     number_CG();
-    number_CFGs();
     dflow_summaries();
     // opt_main();
     for (i = 0; i < cg_nodes_counter; i++) {
@@ -453,10 +473,14 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
     entry_label = new_label();
     exit_label = new_label();
     emit_i(OpJmp, NULL, entry_label, 0, 0);
-    emit_i(OpLab, NULL, entry_label, 0, 0);
+    emit_label(entry_label);
     ic_compound_statement(header->attr.e, FALSE);
+    emit_label(exit_label);
+    /* build EXIT node */
+    exit_label = new_label();
     emit_i(OpJmp, NULL, exit_label, 0, 0);
-    emit_i(OpLab, NULL, exit_label, 0, 0);
+    emit_label(exit_label);
+
     location_pop_scope();
     fix_gotos();
     cg_node(curr_cg_node).size_of_local_area = size_of_local_area;
@@ -694,7 +718,138 @@ void number_subRCFG(unsigned n)
     RCFG_PO[pocount++] = n;
 }
 
-/* fn: function node in the call-graph */
+void build_CFG(void)
+{
+    int i;
+    unsigned leader, func_ninstr, *leader2node;
+
+    func_ninstr = ic_instructions_counter-ic_func_first_instr;
+    leader2node = calloc(func_ninstr, sizeof(unsigned));
+
+    cg_node(curr_cg_node).bb_i = cfg_nodes_counter;
+    leader2node[0] = cfg_nodes_counter;
+    new_cfg_node(ic_func_first_instr);
+    leader2node[1] = cfg_nodes_counter;
+    new_cfg_node(ic_func_first_instr+1);
+    for (i = ic_func_first_instr+2; i < ic_instructions_counter; i++) {
+        unsigned *p;
+
+        switch (instruction(i).op) {
+        case OpJmp:
+            leader = lab2instr[address(instruction(i).tar).cont.val];
+            if (!*(p=&leader2node[leader-ic_func_first_instr])) {
+                *p = cfg_nodes_counter;
+                new_cfg_node(leader);
+            }
+            leader = i+1;
+            if (!*(p=&leader2node[leader-ic_func_first_instr])) {
+                *p = cfg_nodes_counter;
+                new_cfg_node(leader);
+            }
+            break;
+        case OpCBr:
+            leader = lab2instr[address(instruction(i).arg1).cont.val];
+            if (!*(p=&leader2node[leader-ic_func_first_instr])) {
+                *p = cfg_nodes_counter;
+                new_cfg_node(leader);
+            }
+            leader = lab2instr[address(instruction(i).arg2).cont.val];
+            if (!*(p=&leader2node[leader-ic_func_first_instr])) {
+                *p = cfg_nodes_counter;
+                new_cfg_node(leader);
+            }
+            break;
+        case OpSwitch: {
+            int j;
+
+            for (j = i+1; instruction(j).op == OpCase; j++) {
+                leader = lab2instr[address(instruction(j).arg1).cont.val];
+                if (!*(p=&leader2node[leader-ic_func_first_instr])) {
+                    *p = cfg_nodes_counter;
+                    new_cfg_node(leader);
+                }
+            }
+        }
+            break;
+        }
+    }
+    cg_node(curr_cg_node).bb_f = cfg_nodes_counter-1;
+
+    for (i = cg_node(curr_cg_node).bb_i; i < cfg_nodes_counter; i++) {
+        unsigned last;
+
+        last = cfg_node(i).leader+1;
+        while (last<ic_instructions_counter && !leader2node[last-ic_func_first_instr])
+             ++last;
+        cfg_node(i).last = --last;
+
+        /* add edges */
+        switch (instruction(last).op) {
+        case OpCBr: {
+            unsigned succ1, succ2;
+
+            leader = lab2instr[address(instruction(last).arg1).cont.val];
+            succ1 = leader2node[leader-ic_func_first_instr];
+            leader = lab2instr[address(instruction(last).arg2).cont.val];
+            succ2 = leader2node[leader-ic_func_first_instr];
+
+            /* set out edges of current node */
+            edge_add(&cfg_node(i).out, succ1);
+            edge_add(&cfg_node(i).out, succ2);
+
+            /* set in edges of successors */
+            edge_add(&cfg_node(succ1).in, i);
+            edge_add(&cfg_node(succ2).in, i);
+        }
+            break;
+
+        case OpJmp: {
+            unsigned succ;
+
+            leader = lab2instr[address(instruction(last).tar).cont.val];
+            succ = leader2node[leader-ic_func_first_instr];
+            assert(succ != 0);
+
+            edge_add(&cfg_node(i).out, succ);
+            edge_add(&cfg_node(succ).in, i);
+        }
+            break;
+
+        case OpCase: {
+            unsigned succ;
+
+            do {
+                leader = lab2instr[address(instruction(last).arg1).cont.val];
+                succ = leader2node[leader-ic_func_first_instr];
+                assert(succ != 0);
+
+                edge_add(&cfg_node(i).out, succ);
+                edge_add(&cfg_node(succ).in, i);
+                --last;
+            } while (instruction(last).op == OpCase);
+        }
+            break;
+
+        default: /* fall-through */
+            if (last != ic_instructions_counter-1) {
+                unsigned succ;
+
+                assert(instruction(last+1).op == OpLab);
+
+                leader = lab2instr[address(instruction(last+1).tar).cont.val];
+                succ = leader2node[leader-ic_func_first_instr];
+                assert(succ != 0);
+
+                edge_add(&cfg_node(i).out, succ);
+                edge_add(&cfg_node(succ).in, i);
+            }
+            break;
+    }
+    }
+    free(leader2node);
+}
+
+#if 0
 void build_CFG(void)
 {
     /*
@@ -777,6 +932,7 @@ void build_CFG(void)
 
     free(lab2node);
 }
+#endif
 
 // =============================================================================
 // Statements
@@ -823,14 +979,8 @@ static void ic_label_statement(ExecNode *s);
 static void ic_statement(ExecNode *s);
 static unsigned ic_expression2(ExecNode *e);
 static unsigned ic_expr_convert(ExecNode *e, Declaration *dest);
-static void split_block(void);
 static void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned offset);
 static void ic_zero(unsigned id, unsigned offset, unsigned nb);
-
-void split_block(void)
-{
-    emit_i(OpLab, NULL, new_label(), 0, 0);
-}
 
 void push_break_target(unsigned lab)
 {
@@ -926,14 +1076,13 @@ void ic_if_statement(ExecNode *s)
         L3 = new_label();
 
     emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L2);
-    emit_i(OpLab, NULL, L1, 0, 0);
+    emit_label(L1);
     ic_statement(s->child[1]);
     emit_i(OpJmp, NULL, else_part?L3:L2, 0, 0);
-    emit_i(OpLab, NULL, L2, 0, 0);
+    emit_label(L2);
     if (else_part) {
         ic_statement(s->child[2]);
-        emit_i(OpJmp, NULL, L3, 0, 0);
-        emit_i(OpLab, NULL, L3, 0, 0);
+        emit_label(L3);
     }
 }
 
@@ -957,14 +1106,13 @@ void ic_while_statement(ExecNode *s)
     L3 = new_label();
 
     emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
-    emit_i(OpLab, NULL, L1, 0, 0);
+    emit_label(L1);
     push_break_target(L3), push_continue_target(L2);
     ic_statement(s->child[1]);
     pop_break_target(), pop_continue_target();
-    emit_i(OpJmp, NULL, L2, 0, 0);
-    emit_i(OpLab, NULL, L2, 0, 0); /* continue's target */
+    emit_label(L2);
     emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
-    emit_i(OpLab, NULL, L3, 0, 0);
+    emit_label(L3);
 }
 
 void ic_do_statement(ExecNode *s)
@@ -989,17 +1137,16 @@ void ic_do_statement(ExecNode *s)
     if (instruction(iprev).op != OpLab) {
         L1 = new_label();
         emit_i(OpJmp, NULL, L1, 0, 0);
-        emit_i(OpLab, NULL, L1, 0, 0);
+        emit_label(L1);
     } else {
         L1 = instruction(iprev).tar;
     }
     push_break_target(L3), push_continue_target(L2);
     ic_statement(s->child[1]);
     pop_break_target(), pop_continue_target();
-    emit_i(OpJmp, NULL, L2, 0, 0);
-    emit_i(OpLab, NULL, L2, 0, 0);
+    emit_label(L2);
     emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
-    emit_i(OpLab, NULL, L3, 0, 0);
+    emit_label(L3);
 }
 
 void ic_for_statement(ExecNode *s)
@@ -1027,21 +1174,18 @@ void ic_for_statement(ExecNode *s)
         ic_expression2(s->child[1]);
     if (s->child[0] != NULL)
         emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
-    else
-        emit_i(OpJmp, NULL, L1, 0, 0);
-    emit_i(OpLab, NULL, L1, 0, 0);
+    emit_label(L1);
     push_break_target(L3), push_continue_target(L2);
     ic_statement(s->child[3]);
     pop_break_target(), pop_continue_target();
-    emit_i(OpJmp, NULL, L2, 0, 0);
-    emit_i(OpLab, NULL, L2, 0, 0);
+    emit_label(L2);
     if (s->child[2] != NULL)
         ic_expression2(s->child[2]);
     if (s->child[0] != NULL)
         emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
     else
         emit_i(OpJmp, NULL, L1, 0, 0);
-    emit_i(OpLab, NULL, L3, 0, 0);
+    emit_label(L3);
 }
 
 void ic_label_statement(ExecNode *s)
@@ -1053,8 +1197,7 @@ void ic_label_statement(ExecNode *s)
         unsigned L;
 
         L = new_label();
-        emit_i(OpJmp, NULL, L, 0, 0);
-        emit_i(OpLab, NULL, L, 0, 0);
+        emit_label(L);
         register_label(s->attr.str, L);
     } else {
         register_label(s->attr.str, instruction(iprev).tar);
@@ -1066,19 +1209,16 @@ void ic_goto_statement(ExecNode *s)
 {
     gotos_to_fix[gotos_to_fix_counter++] = ic_instructions_counter;
     emit_i(OpJmp, (Declaration *)s->attr.str, 0, 0, 0);
-    split_block();
 }
 
 void ic_continue_statement(void)
 {
     emit_i(OpJmp, NULL, ctarget_stack[ct_stack_top], 0, 0);
-    split_block();
 }
 
 void ic_break_statement(void)
 {
     emit_i(OpJmp, NULL, btarget_stack[bt_stack_top], 0, 0);
-    split_block();
 }
 
 void ic_return_statement(ExecNode *s)
@@ -1092,7 +1232,6 @@ void ic_return_statement(ExecNode *s)
         emit_i(OpRet, ty, 0, ic_expr_convert(s->child[0], ty), 0);
     }
     emit_i(OpJmp, NULL, exit_label, 0, 0);
-    split_block();
 }
 
 void ic_switch_statement(ExecNode *s)
@@ -1114,12 +1253,10 @@ void ic_switch_statement(ExecNode *s)
     address(a).cont.val = s->attr.val;
     emit_i(OpSwitch, NULL, 0, ic_expression2(s->child[0]), a);
     i = ic_instructions_counter;
-    ic_instructions_counter += s->attr.val-1;
-    emit_i(OpCase, NULL, 0, 0, 0); /* just so case/default code can test for 'OpCase' */
+    ic_instructions_counter += s->attr.val;
     ic_statement(s->child[1]);
     pop_break_target();
-    emit_i(OpJmp, NULL, EXIT, 0, 0);
-    emit_i(OpLab, NULL, EXIT, 0, 0);
+    emit_label(EXIT);
 
     for (np = ic_case_labels[ic_switch_nesting_level]; np != NULL; ) {
         a = new_address(IConstKind);
@@ -1167,9 +1304,7 @@ void ic_case_statement(ExecNode *s)
         np->lab = instruction(iprev).tar;
     } else {
         np->lab = new_label();
-        if (prev_op!=OpJmp && prev_op!=OpCase) /* fall-through behavior */
-            emit_i(OpJmp, NULL, np->lab, 0, 0);
-        emit_i(OpLab, NULL, np->lab, 0, 0);
+        emit_label(np->lab);
     }
     ic_statement(s->child[1]);
     np->next = ic_case_labels[ic_switch_nesting_level];
@@ -1190,9 +1325,7 @@ void ic_default_statement(ExecNode *s)
         np->lab = instruction(iprev).tar;
     } else {
         np->lab = new_label();
-        if (prev_op!=OpJmp && prev_op!=OpCase) /* fall-through behavior */
-            emit_i(OpJmp, NULL, np->lab, 0, 0);
-        emit_i(OpLab, NULL, np->lab, 0, 0);
+        emit_label(np->lab);
     }
     ic_statement(s->child[0]);
     np->next = ic_default_labels[ic_switch_nesting_level];
@@ -1723,13 +1856,13 @@ unsigned ic_expression(ExecNode *e, int is_addr)
 
             a = new_temp_addr();
             emit_i(OpCBr, NULL, ic_expression(e->child[0], FALSE), L1, L2);
-            emit_i(OpLab, NULL, L1, 0, 0);
+            emit_label(L1);
             emit_i(OpAsn, NULL, a, ic_expression(e->child[1], FALSE), 0);
             emit_i(OpJmp, NULL, L3, 0, 0);
-            emit_i(OpLab, NULL, L2, 0, 0);
+            emit_label(L2);
             emit_i(OpAsn, NULL, a, ic_expression(e->child[2], FALSE), 0);
             emit_i(OpJmp, NULL, L3, 0, 0);
-            emit_i(OpLab, NULL, L3, 0, 0);
+            emit_label(L3);
             return a;
         }
 
@@ -1744,15 +1877,15 @@ unsigned ic_expression(ExecNode *e, int is_addr)
 
             a = new_temp_addr();
             emit_i(OpCBr, NULL, ic_expression(e->child[0], FALSE), L1, L2);
-            emit_i(OpLab, NULL, L2, 0, 0);
+            emit_label(L2);
             emit_i(OpCBr, NULL, ic_expression(e->child[1], FALSE), L1, L3);
-            emit_i(OpLab, NULL, L1, 0, 0);
+            emit_label(L1);
             emit_i(OpAsn, NULL, a, true_addr, 0);
             emit_i(OpJmp, NULL, L4, 0, 0);
-            emit_i(OpLab, NULL, L3, 0, 0);
+            emit_label(L3);
             emit_i(OpAsn, NULL, a, false_addr, 0);
             emit_i(OpJmp, NULL, L4, 0, 0);
-            emit_i(OpLab, NULL, L4, 0, 0);
+            emit_label(L4);
             return a;
         }
 
@@ -1767,15 +1900,15 @@ unsigned ic_expression(ExecNode *e, int is_addr)
 
             a = new_temp_addr();
             emit_i(OpCBr, NULL, ic_expression(e->child[0], FALSE), L1, L3);
-            emit_i(OpLab, NULL, L1, 0, 0);
+            emit_label(L1);
             emit_i(OpCBr, NULL, ic_expression(e->child[1], FALSE), L2, L3);
-            emit_i(OpLab, NULL, L2, 0, 0);
+            emit_label(L2);
             emit_i(OpAsn, NULL, a, true_addr, 0);
             emit_i(OpJmp, NULL, L4, 0, 0);
-            emit_i(OpLab, NULL, L3, 0, 0);
+            emit_label(L3);
             emit_i(OpAsn, NULL, a, false_addr, 0);
             emit_i(OpJmp, NULL, L4, 0, 0);
-            emit_i(OpLab, NULL, L4, 0, 0);
+            emit_label(L4);
             return a;
         }
 
