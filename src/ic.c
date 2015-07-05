@@ -378,7 +378,332 @@ static void disassemble(unsigned fn);
 static void build_CFG(void);
 static void print_CFG(unsigned fn);
 static void number_CFGs(void);
-void number_CG(void);
+static void number_CG(void);
+static void ic_simplify(void);
+
+void ic_simplify(void)
+{
+    unsigned i;
+
+    for (i = ic_func_first_instr; i < ic_instructions_counter; i++) {
+        unsigned tar, arg1, arg2;
+
+        tar = instruction(i).tar;
+        arg1 = instruction(i).arg1;
+        arg2 = instruction(i).arg2;
+
+        switch (instruction(i).op) {
+#define is_iconst(a) (address(a).kind == IConstKind)
+#define fold(_i_, _op_) (\
+    instruction(_i_).op = OpAsn,\
+    address(arg1).kind = IConstKind,\
+    address(arg1).cont.val = address(arg1).cont.val _op_ address(arg2).cont.val)
+#define fold2(_i_, _op_)\
+    do {\
+        instruction(_i_).op = OpAsn;\
+        address(arg1).kind = IConstKind;\
+        if (is_unsigned_int(get_type_category(instruction(i).type)))\
+            address(arg1).cont.uval = address(arg1).cont.uval _op_ address(arg2).cont.uval;\
+        else\
+            address(arg1).cont.val = address(arg1).cont.val _op_ address(arg2).cont.val;\
+    } while (0)
+
+        /*
+         * x = 0+y => x = y
+         * x = y+0 => x = y
+         */
+        case OpAdd:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2)) {
+                    fold(i, +);
+                } else if (address(arg1).cont.val == 0) {
+                    instruction(i).op = OpAsn;
+                    instruction(i).arg1 = arg2;
+                }
+            } else if (is_iconst(arg2) && address(arg2).cont.val==0) {
+                instruction(i).op = OpAsn;
+            }
+            break;
+        /*
+         * x = 0-y => x = -y
+         * x = y-0 => x = y
+         */
+        case OpSub:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2)) {
+                    fold(i, -);
+                } else if (address(arg1).cont.val == 0) {
+                    instruction(i).op = OpNeg;
+                    instruction(i).arg1 = arg2;
+                }
+            } else if (is_iconst(arg2) && address(arg2).cont.val==0) {
+                instruction(i).op = OpAsn;
+            }
+            break;
+        /*
+         * x = 0*y  => x = 0
+         * x = 1*y  => x = y
+         * x = -1*y => x = -y
+         * x = y*0  => x = 0
+         * x = y*1  => x = y
+         * x = y*-1 => x = -y
+         */
+        case OpMul:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2)) {
+                    fold(i, *);
+                } else if (address(arg1).cont.val == 0) {
+                    instruction(i).op = OpAsn;
+                } else if (address(arg1).cont.val == 1) {
+                    instruction(i).op = OpAsn;
+                    instruction(i).arg1 = arg2;
+                } else if (address(arg1).cont.val == -1) {
+                    instruction(i).op = OpNeg;
+                    instruction(i).arg1 = arg2;
+                }
+            } else if (is_iconst(arg2)) {
+                if (address(arg2).cont.val == 0) {
+                    instruction(i).op = OpAsn;
+                    address(arg1).kind = IConstKind;
+                    address(arg1).cont.val = 0;
+                } else if (address(arg2).cont.val == 1) {
+                    instruction(i).op = OpAsn;
+                } else if (address(arg2).cont.val == -1) {
+                    instruction(i).op = OpNeg;
+                }
+            }
+            break;
+        /*
+         * x = 0/y => x = 0
+         * x = y/1 => x = y
+         */
+        case OpDiv:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2))
+                    fold2(i, /);
+                else if (address(arg1).cont.val == 0)
+                    instruction(i).op = OpAsn;
+            } else if (is_iconst(arg2) && address(arg2).cont.val==1) {
+                instruction(i).op = OpAsn;
+            }
+            break;
+        /*
+         * x = 0%y => x = 0
+         * x = y%1 => x = 0
+         */
+        case OpRem:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2))
+                    fold2(i, %);
+                else if (address(arg1).cont.val == 0)
+                    instruction(i). op = OpAsn;
+            } else if (is_iconst(arg2) && address(arg2).cont.val==1) {
+                instruction(i). op = OpAsn;
+                address(arg1).kind = IConstKind;
+                address(arg1).cont.val = 0;
+            }
+            break;
+        /*
+         * x = 0<<y => x = 0
+         * x = y<<0 => x = y
+         */
+        case OpSHL:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2))
+                    fold(i, <<);
+                else if (address(arg1).cont.val == 0)
+                    instruction(i).op = OpAsn;
+            } else if (is_iconst(arg2) && address(arg2).cont.val==0) {
+                instruction(i).op = OpAsn;
+            }
+            break;
+        /*
+         * x = 0>>y => x = 0
+         * x = y>>0 => x = y
+         */
+        case OpSHR:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2))
+                    fold2(i, >>);
+                else if (address(arg1).cont.val == 0)
+                    instruction(i).op = OpAsn;
+            } else if (is_iconst(arg2) && address(arg2).cont.val==0) {
+                instruction(i).op = OpAsn;
+            }
+            break;
+        /*
+         * x = 0&y => x = 0
+         * x = y&0 => x = 0
+         */
+        case OpAnd:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2))
+                    fold(i, &);
+                else if (address(arg1).cont.val == 0)
+                    instruction(i).op = OpAsn;
+            } else if (is_iconst(arg2) && address(arg2).cont.val==0) {
+                instruction(i).op = OpAsn;
+                instruction(i).arg1 = arg2;
+            }
+            break;
+        /*
+         * x = 0|y => x = y
+         * x = y|0 => x = y
+         */
+        case OpOr:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2)) {
+                    fold(i, |);
+                } else if (address(arg1).cont.val == 0) {
+                    instruction(i).op = OpAsn;
+                    instruction(i).arg1 = arg2;
+                }
+            } else if (is_iconst(arg2) && address(arg2).cont.val==0) {
+                instruction(i).op = OpAsn;
+            }
+            break;
+        /*
+         * x = 0^y => x = y
+         * x = y^0 => x = y
+         */
+        case OpXor:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2)) {
+                    fold(i, ^);
+                } else if (address(arg1).cont.val == 0) {
+                    instruction(i).op = OpAsn;
+                    instruction(i).arg1 = arg2;
+                }
+            } else if (is_iconst(arg2) && address(arg2).cont.val==0) {
+                instruction(i).op = OpAsn;
+            }
+            break;
+        case OpEQ:
+            if (is_iconst(arg1))
+                if (is_iconst(arg2))
+                    fold(i, ==);
+            break;
+        case OpNEQ:
+            if (is_iconst(arg1))
+                if (is_iconst(arg2))
+                    fold(i, !=);
+            break;
+        case OpLT:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2)) {
+                    instruction(i).op = OpAsn;
+                    address(arg1).kind = IConstKind;
+                    if ((int)instruction(i).op == IC_SIGNED)
+                        address(arg1).cont.val = address(arg1).cont.val<address(arg2).cont.val;
+                    else
+                        address(arg1).cont.val = address(arg1).cont.uval<address(arg2).cont.uval;
+                }
+            }
+            break;
+        case OpLET:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2)) {
+                    instruction(i).op = OpAsn;
+                    address(arg1).kind = IConstKind;
+                    if ((int)instruction(i).op == IC_SIGNED)
+                        address(arg1).cont.val = address(arg1).cont.val<=address(arg2).cont.val;
+                    else
+                        address(arg1).cont.val = address(arg1).cont.uval<=address(arg2).cont.uval;
+                }
+            }
+            break;
+        case OpGT:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2)) {
+                    instruction(i).op = OpAsn;
+                    address(arg1).kind = IConstKind;
+                    if ((int)instruction(i).op == IC_SIGNED)
+                        address(arg1).cont.val = address(arg1).cont.val>address(arg2).cont.val;
+                    else
+                        address(arg1).cont.val = address(arg1).cont.uval>address(arg2).cont.uval;
+                }
+            }
+            break;
+        case OpGET:
+            if (is_iconst(arg1)) {
+                if (is_iconst(arg2)) {
+                    instruction(i).op = OpAsn;
+                    address(arg1).kind = IConstKind;
+                    if ((int)instruction(i).op == IC_SIGNED)
+                        address(arg1).cont.val = address(arg1).cont.val>=address(arg2).cont.val;
+                    else
+                        address(arg1).cont.val = address(arg1).cont.uval>=address(arg2).cont.uval;
+                }
+            }
+            break;
+#undef fold
+#undef fold2
+#define fold(_i_, _op_)\
+    instruction(i).op = OpAsn,\
+    address(arg1).kind = IConstKind,\
+    address(arg1).cont.val = _op_ address(arg1).cont.val
+
+        case OpNeg:
+            if (is_iconst(arg1))
+                fold(i, -);
+            break;
+        case OpCmpl:
+            if (is_iconst(arg1))
+                fold(i, ~);
+            break;
+        case OpNot:
+            if (is_iconst(arg1))
+                fold(i, !);
+            break;
+        case OpCh:
+            if (is_iconst(arg1))
+                fold(i, (char));
+            break;
+        case OpUCh:
+            if (is_iconst(arg1))
+                fold(i, (unsigned char));
+            break;
+        case OpSh:
+            if (is_iconst(arg1))
+                fold(i, (short));
+            break;
+        case OpUSh:
+            if (is_iconst(arg1))
+                fold(i, (unsigned short));
+            break;
+        // case OpAddrOf:
+        // case OpInd:
+        // case OpAsn:
+        // case OpCall:
+        // case OpIndCall:
+
+        // case OpIndAsn:
+
+        // case OpLab:
+        // case OpJmp:
+
+        // case OpArg:
+        // case OpRet:
+
+        // case OpSwitch:
+        // case OpCase:
+
+        case OpCBr:
+            if (is_iconst(tar)) {
+                instruction(i).op = OpJmp;
+                if (address(tar).cont.val)
+                    instruction(i).tar = arg1;
+                else
+                    instruction(i).tar = arg2;
+            }
+            break;
+        // case OpNOp:
+        } /* switch (instruction(i).op) */
+#undef is_iconst
+#undef fold
+#undef fold2
+    }
+}
 
 void ic_main(ExternId *func_def_list[])
 {
@@ -390,6 +715,7 @@ void ic_main(ExternId *func_def_list[])
         ic_func_first_instr = ic_instructions_counter;
         curr_cg_node = new_cg_node(ed->declarator->str);
         ic_function_definition(ed->decl_specs, ed->declarator);
+        ic_simplify();
         build_CFG();
         ic_reset();
     }
@@ -413,8 +739,9 @@ void ic_main(ExternId *func_def_list[])
     for (i = 0; i < cg_nodes_counter; i++) {
         disassemble(i);
         print_CFG(i);
-        dflow_dominance(i);
+        dflow_Dom(i);
         dflow_LiveOut(i);
+        dflow_ReachIn(i, i == cg_nodes_counter-1);
     }
     // print_CG();
 }

@@ -1267,8 +1267,9 @@ void x86_eq(int i, unsigned tar, unsigned arg1, unsigned arg2)
     pin_reg(res);
     emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
     unpin_reg(res);
+    emitln("mov %s, 0", x86_reg_str[res]);
     emitln("sete %s", x86_lbreg_str[res]);
-    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
 void x86_neq(int i, unsigned tar, unsigned arg1, unsigned arg2)
@@ -1280,8 +1281,9 @@ void x86_neq(int i, unsigned tar, unsigned arg1, unsigned arg2)
     pin_reg(res);
     emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
     unpin_reg(res);
+    emitln("mov %s, 0", x86_reg_str[res]);
     emitln("setne %s", x86_lbreg_str[res]);
-    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
 void x86_lt(int i, unsigned tar, unsigned arg1, unsigned arg2)
@@ -1293,8 +1295,9 @@ void x86_lt(int i, unsigned tar, unsigned arg1, unsigned arg2)
     pin_reg(res);
     emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
     unpin_reg(res);
+    emitln("mov %s, 0", x86_reg_str[res]);
     emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"l":"b", x86_lbreg_str[res]);
-    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
 void x86_let(int i, unsigned tar, unsigned arg1, unsigned arg2)
@@ -1306,8 +1309,9 @@ void x86_let(int i, unsigned tar, unsigned arg1, unsigned arg2)
     pin_reg(res);
     emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
     unpin_reg(res);
+    emitln("mov %s, 0", x86_reg_str[res]);
     emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"le":"be", x86_lbreg_str[res]);
-    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
 void x86_gt(int i, unsigned tar, unsigned arg1, unsigned arg2)
@@ -1319,8 +1323,9 @@ void x86_gt(int i, unsigned tar, unsigned arg1, unsigned arg2)
     pin_reg(res);
     emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
     unpin_reg(res);
+    emitln("mov %s, 0", x86_reg_str[res]);
     emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"g":"a", x86_lbreg_str[res]);
-    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
 void x86_get(int i, unsigned tar, unsigned arg1, unsigned arg2)
@@ -1332,8 +1337,9 @@ void x86_get(int i, unsigned tar, unsigned arg1, unsigned arg2)
     pin_reg(res);
     emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
     unpin_reg(res);
+    emitln("mov %s, 0", x86_reg_str[res]);
     emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"ge":"ae", x86_lbreg_str[res]);
-    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
 
@@ -1362,8 +1368,9 @@ void x86_not(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     emitln("cmp %s, 0", x86_reg_str[res]);
+    emitln("mov %s, 0", x86_reg_str[res]);
     emitln("sete %s", x86_lbreg_str[res]);
-    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES_UNARY(res);
 }
 void x86_ch(int i, unsigned tar, unsigned arg1, unsigned arg2)

@@ -106,6 +106,9 @@ struct CFGNode { /* CFG node == basic block */
     BSet *VarKill;  /* variables defined/killed in the block */
     BSet *LiveOut;  /* variables live on exit from the block */
     BSet *Dom;      /* blocks that dominate this block */
+    BSet *DEDef;    /* downward-exposed definitions */
+    BSet *DefKill;  /* all definition points obscured by this block */
+    BSet *ReachIn;  /* definitions that reach this block */
 };
 
 struct ParamNid {

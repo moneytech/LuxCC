@@ -11,14 +11,160 @@
 #include "ic.h"
 #include "expr.h"
 #include "bset.h"
+#include "arena.h"
+
+// =======================================================================================
+// Reaching definitions
+// =======================================================================================
+typedef struct VarDefPoint VarDefPoint;
+static struct VarDefPoint {
+    unsigned dp;
+    VarDefPoint *next;
+} **variable_definition_points;
+static Arena *vdp_arena;
+
+static void reach_print_set(BSet *s, unsigned first);
+static void reach_init_block(unsigned b, unsigned ninstr, unsigned first);
+
+void reach_print_set(BSet *s, unsigned first)
+{
+    unsigned i, c;
+
+    c = bset_card(s);
+    for (i = bset_iterate(s); i != -1; i = bset_iterate(NULL))
+        printf("%d%s", i+first, (c--!=1)?", ":"");
+}
+
+void reach_init_block(unsigned b, unsigned ninstr, unsigned first)
+{
+    int i;
+    BSet *defined_names;
+    BSet *DEDef, *DefKill;
+
+    defined_names = bset_new(nid_counter);
+    DEDef = bset_new(ninstr);
+    DefKill = bset_new(ninstr);
+
+    for (i = cfg_node(b).last; i >= (int)cfg_node(b).leader; i--) {
+        int tar_nid;
+        unsigned tar/*, arg1, arg2*/;
+
+        tar = instruction(i).tar;
+        /*arg1 = instruction(i).arg1;
+        arg2 = instruction(i).arg2;*/
+
+        switch (instruction(i).op) {
+        case OpCall:
+        case OpIndCall:
+            if (!tar)
+                continue;
+        case OpAdd: case OpSub: case OpMul: case OpDiv:
+        case OpRem: case OpSHL: case OpSHR: case OpAnd:
+        case OpOr: case OpXor: case OpEQ: case OpNEQ:
+        case OpLT: case OpLET: case OpGT: case OpGET:
+        case OpNeg: case OpCmpl: case OpNot: case OpCh:
+        case OpUCh: case OpSh: case OpUSh: case OpAsn:
+        case OpAddrOf: case OpInd:
+            tar_nid = address_nid(tar);
+            if (!bset_member(defined_names, tar_nid)) {
+                VarDefPoint *p;
+
+                bset_insert(DEDef, i-first);
+                for (p = variable_definition_points[tar_nid]; p != NULL; p = p->next)
+                    bset_insert(DefKill, p->dp-first);
+                bset_delete(DefKill, i-first);
+                bset_insert(defined_names, tar_nid);
+            }
+            continue;
+
+        default:
+            continue;
+        }
+    }
+    cfg_node(b).DEDef = DEDef;
+    cfg_node(b).DefKill = DefKill;
+    free(defined_names);
+}
+
+void dflow_ReachIn(unsigned fn, int is_last)
+{
+    BSet *temp, *new_in;
+    unsigned entry_bb, exit_bb;
+    unsigned i, changed, ninstr;
+
+    if (cg_node_is_empty(fn))
+        return;
+
+    entry_bb = cg_node(fn).bb_i;
+    exit_bb = cg_node(fn).bb_f;
+    ninstr = cfg_node(exit_bb).last-cfg_node(entry_bb).leader+1;
+
+    for (i = entry_bb; i <= exit_bb; i++) {
+        reach_init_block(i, ninstr, cfg_node(entry_bb).leader);
+
+#if DEBUG
+        printf("DEDef[B%d]=", i);
+        reach_print_set(cfg_node(i).DEDef, cfg_node(entry_bb).leader);
+        printf("\n\n");
+
+        printf("DefKill[B%d]=", i);
+        reach_print_set(cfg_node(i).DefKill, cfg_node(entry_bb).leader);
+        printf("\n\n");
+#endif
+
+        /* all ReachIn sets are initially empty */
+        cfg_node(i).ReachIn = bset_new(ninstr);
+    }
+
+    temp = bset_new(ninstr);
+    new_in = bset_new(ninstr);
+
+    changed = TRUE;
+    while (changed) {
+        DEBUG_PRINTF("==> ReachIn solver iteration\n");
+        changed = FALSE;
+        for (i = entry_bb; i <= exit_bb; i++) {
+            unsigned pred, b;
+
+            b = CFG_RPO[i];
+            for (pred = edge_iterate(&cfg_node(b).in); pred != -1; pred = edge_iterate(NULL)) {
+                bset_cpy(temp, cfg_node(pred).ReachIn);
+                bset_diff(temp, cfg_node(pred).DefKill);
+                bset_union(temp, cfg_node(pred).DEDef);
+                bset_union(new_in, temp);
+            }
+            if (!bset_eq(cfg_node(b).ReachIn, new_in)) {
+                bset_cpy(cfg_node(b).ReachIn, new_in);
+                changed = TRUE;
+            }
+            bset_clear(new_in);
+        }
+    }
+    bset_free(temp), bset_free(new_in);
+    if (is_last) {
+        free(variable_definition_points);
+        arena_destroy(vdp_arena);
+    } else {
+        memset(variable_definition_points, 0, nid_counter*sizeof(VarDefPoint *));
+        arena_reset(vdp_arena);
+    }
+
+#if DEBUG
+    for (i = entry_bb; i <= exit_bb; i++) {
+        printf("ReachIn[%u]=", i);
+        reach_print_set(cfg_node(i).ReachIn, cfg_node(entry_bb).leader);
+        printf("\n\n");
+    }
+#endif
+}
 
 // =======================================================================================
 // MayMod/MayRef summaries
 // =======================================================================================
-static void print_summary(BSet *s);
+static void summary_print_set(BSet *s);
 static void init_summary(unsigned fn);
 
-void print_summary(BSet *s)
+void summary_print_set(BSet *s)
 {
     int i, c;
 
@@ -185,15 +331,16 @@ void dflow_summaries(void)
      }
 
      bset_free(new_out);
+
 #if DEBUG
     for (i = 0; i < cg_nodes_counter; i++) {
         printf("MayMod(%s) = { ", cg_node(i).func_id);
-        print_summary(cg_node(i).MayMod);
+        summary_print_set(cg_node(i).MayMod);
         printf(" }\n");
     }
     for (i = 0; i < cg_nodes_counter; i++) {
         printf("MayRef(%s) = { ", cg_node(i).func_id);
-        print_summary(cg_node(i).MayRef);
+        summary_print_set(cg_node(i).MayRef);
         printf(" }\n");
     }
 #endif
@@ -213,7 +360,7 @@ void dom_print_set(BSet *s)
         printf("%d%s", i, (c--!=1)?", ":"");
 }
 
-void dflow_dominance(unsigned fn)
+void dflow_Dom(unsigned fn)
 {
     /*
      * TBD:
@@ -274,6 +421,7 @@ void dflow_dominance(unsigned fn)
         }
     }
     bset_free(N), bset_free(temp);
+
 #if DEBUG
         printf("Dominance, function: `%s'\n", cg_node(fn).func_id);
         for (i = cg_node(fn).bb_i; i <= cg_node(fn).bb_f; i++) {
@@ -289,7 +437,7 @@ void dflow_dominance(unsigned fn)
 // =======================================================================================
 static BSet *modified_static_objects;
 static void live_print_set(BSet *s);
-static void live_init_block(int b, int exit_bb);
+static void live_init_block(unsigned b, int exit_bb);
 
 void live_print_set(BSet *s)
 {
@@ -300,10 +448,13 @@ void live_print_set(BSet *s)
         printf("%s%s", nid2sid_tab[i], (c--!=1)?", ":"");
 }
 
-/* compute UEVar(b) and VarKill(b) */
-void live_init_block(int b, int exit_bb)
+/*
+ * Compute UEVar(b) and VarKill(b).
+ * Also keep track of variables' definition points for later use in Reaching Definitions.
+ */
+void live_init_block(unsigned b, int exit_bb)
 {
-    int i;
+    unsigned i;
     BSet *UEVar, *VarKill;
 
     /* sets initially empty */
@@ -326,6 +477,24 @@ void live_init_block(int b, int exit_bb)
         bset_insert(UEVar, address_nid(e))
 #define add_VarKill(e)\
     bset_insert(VarKill, address_nid(e))
+#define add_VarDefPoint(e)\
+    do {\
+        VarDefPoint **p;\
+\
+        p = &variable_definition_points[address_nid(e)];\
+        if (*p == NULL) {\
+            *p = arena_alloc(vdp_arena, sizeof(VarDefPoint));\
+            (*p)->dp = i;\
+            (*p)->next = NULL;\
+        } else {\
+            VarDefPoint *q;\
+\
+            q = arena_alloc(vdp_arena, sizeof(VarDefPoint));\
+            q->dp = i;\
+            q->next = *p;\
+            *p = q;\
+        }\
+    } while (0)
 
         case OpAdd: case OpSub: case OpMul: case OpDiv:
         case OpRem: case OpSHL: case OpSHR: case OpAnd:
@@ -336,9 +505,10 @@ void live_init_block(int b, int exit_bb)
             if (nonconst_addr(arg2))
                 add_UEVar(arg2);
             add_VarKill(tar);
+            add_VarDefPoint(tar);
             continue;
 
-        case OpAsn: /* keep track of modified static objects */
+        case OpAsn: /* keep track of static objects modified by this function */
             if ((address(tar).kind == IdKind)
             && (address(tar).cont.var.e->attr.var.duration == DURATION_STATIC))
                 bset_insert(modified_static_objects, address_nid(tar));
@@ -347,6 +517,7 @@ void live_init_block(int b, int exit_bb)
             if (nonconst_addr(arg1))
                 add_UEVar(arg1);
             add_VarKill(tar);
+            add_VarDefPoint(tar);
             continue;
 
         case OpArg:
@@ -358,6 +529,7 @@ void live_init_block(int b, int exit_bb)
 
         case OpAddrOf:
             add_VarKill(tar);
+            add_VarDefPoint(tar);
             continue;
 
         case OpInd: {
@@ -381,6 +553,7 @@ void live_init_block(int b, int exit_bb)
             }
             add_UEVar(arg1);
             add_VarKill(tar);
+            add_VarDefPoint(tar);
         }
             continue;
 
@@ -408,8 +581,10 @@ void live_init_block(int b, int exit_bb)
             bset_diff(temp, VarKill);
             bset_union(UEVar, temp);
             bset_free(temp);
-            if (tar)
+            if (tar) {
                 add_VarKill(tar);
+                add_VarDefPoint(tar);
+            }
         }
             continue;
 
@@ -435,8 +610,10 @@ void live_init_block(int b, int exit_bb)
             }
             if (nonconst_addr(arg1))
                 add_UEVar(arg1);
-            if (tar)
+            if (tar) {
                 add_VarKill(tar);
+                add_VarDefPoint(tar);
+            }
         }
             continue;
 
@@ -456,7 +633,7 @@ void live_init_block(int b, int exit_bb)
 /* compute LiveOut for all the blocks of the CFG */
 void dflow_LiveOut(unsigned fn)
 {
-    int i, changed;
+    unsigned i, changed;
     BSet *temp, *new_out;
     unsigned entry_bb, exit_bb;
 
@@ -465,8 +642,9 @@ void dflow_LiveOut(unsigned fn)
 
     entry_bb = cg_node(fn).bb_i;
     exit_bb = cg_node(fn).bb_f;
-
     modified_static_objects = bset_new(nid_counter);
+    variable_definition_points = calloc(nid_counter, sizeof(VarDefPoint *));
+    vdp_arena = arena_new(sizeof(VarDefPoint)*32);
 
     /* gather initial information */
     for (i = entry_bb; i <= exit_bb; i++) {
@@ -497,8 +675,7 @@ void dflow_LiveOut(unsigned fn)
         DEBUG_PRINTF("==> LiveOut solver iteration\n");
         changed = FALSE;
         for (i = entry_bb; i <= exit_bb; i++) {
-            int j, b;
-            unsigned succ;
+            unsigned succ, b;
 
             b = RCFG_RPO[i];
             /*
@@ -506,7 +683,7 @@ void dflow_LiveOut(unsigned fn)
              *              of each successor m is       __________
              *                  UEVar(m) U (LiveOut(m) ∩ VarKill(m))
              */
-            for (j = 0; j<cfg_node(b).out.n && (succ=cfg_node(b).out.edges[j]); j++) {
+            for (succ = edge_iterate(&cfg_node(b).out); succ != -1; succ = edge_iterate(NULL)) {
                 bset_cpy(temp, cfg_node(succ).LiveOut);
                 bset_diff(temp, cfg_node(succ).VarKill);
                 bset_union(temp, cfg_node(succ).UEVar);
