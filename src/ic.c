@@ -16,7 +16,7 @@
 #include "imp_lim.h"
 #include "loc.h"
 #include "dflow.h"
-#include "opt.h"
+// #include "opt.h"
 
 #define IINIT   1024
 #define IGROW   2
@@ -186,11 +186,8 @@ unsigned new_cg_node(char *func_id)
         cg_nodes_max *= CGROW;
         cg_nodes = new_p;
     }
+    memset(&cg_nodes[cg_nodes_counter], 0, sizeof(CGNode));
     cg_nodes[cg_nodes_counter].func_id = func_id;
-    cg_nodes[cg_nodes_counter].bb_i = 0;
-    cg_nodes[cg_nodes_counter].bb_f = 0;
-    cg_nodes[cg_nodes_counter].pn = NULL;
-    cg_nodes[cg_nodes_counter].PtrRet = NULL;
     edge_init(&cg_nodes[cg_nodes_counter].out, 1);
     edge_init(&cg_nodes[cg_nodes_counter].in, 1);
     return cg_nodes_counter++;
@@ -636,12 +633,13 @@ void ic_simplify(void)
                 }
             }
             break;
+
 #undef fold
 #undef fold2
 #define fold(_i_, _op_)\
-    instruction(i).op = OpAsn,\
-    address(arg1).kind = IConstKind,\
-    address(arg1).cont.val = _op_ address(arg1).cont.val
+instruction(i).op = OpAsn,\
+address(arg1).kind = IConstKind,\
+address(arg1).cont.val = _op_ address(arg1).cont.val
 
         case OpNeg:
             if (is_iconst(arg1))
@@ -737,8 +735,8 @@ void ic_main(ExternId *func_def_list[])
     dflow_summaries();
     // opt_main();
     for (i = 0; i < cg_nodes_counter; i++) {
-        disassemble(i);
-        print_CFG(i);
+        // disassemble(i);
+        // print_CFG(i);
         dflow_Dom(i);
         dflow_LiveOut(i);
         dflow_ReachIn(i, i == cg_nodes_counter-1);
@@ -1171,7 +1169,7 @@ void build_CFG(void)
                 edge_add(&cfg_node(succ).in, i);
             }
             break;
-    }
+        }
     }
     free(leader2node);
 }
@@ -1993,7 +1991,7 @@ scalar:
 static int is_binary(Token op);
 static int number_expression_tree(ExecNode *e);
 static void print_addr(unsigned addr);
-static void function_argument(ExecNode *arg, DeclList *param);
+static int function_argument(ExecNode *arg, DeclList *param);
 static unsigned ic_dereference(unsigned ptr, Declaration *ty);
 static void ic_indirect_assignment(unsigned ptr, unsigned expr, Declaration *ty);
 static unsigned get_step_size(ExecNode *e);
@@ -2511,11 +2509,14 @@ unsigned ic_expression(ExecNode *e, int is_addr)
         }
 
         case TOK_FUNCTION: {
+            int na;
             OpKind op;
-            unsigned a1;
             ExecNode *tmp;
+            unsigned a1, a2;
 
-            function_argument(e->child[1], e->locals);
+            a2 = new_address(IConstKind);
+            na = function_argument(e->child[1], e->locals);
+            address(a2).cont.val = na;
 
             tmp = e->child[0];
             while (tmp->kind.exp==OpExp /*&& tmp->attr.op==TOK_STAR*/)
@@ -2530,13 +2531,13 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                 a1 = ic_expression(e->child[0], FALSE);
             }
             if (get_type_category(&e->type) != TOK_VOID) {
-                unsigned a2;
+                unsigned a3;
 
-                a2 = new_temp_addr();
-                emit_i(op, &e->type, a2, a1, 0);
-                return a2;
+                a3 = new_temp_addr();
+                emit_i(op, &e->type, a3, a1, a2);
+                return a3;
             } else {
-                emit_i(op, &e->type, 0, a1, 0);
+                emit_i(op, &e->type, 0, a1, a2);
                 return 0;
             }
         }
@@ -2677,17 +2678,20 @@ unsigned ic_expr_convert(ExecNode *e, Declaration *dest)
 /*
  * Push arguments from right to left recursively.
  */
-void function_argument(ExecNode *arg, DeclList *param)
+int function_argument(ExecNode *arg, DeclList *param)
 {
-    if (arg == NULL)
-        return;
+    int n;
 
+    if (arg == NULL)
+        return 0;
+
+    n = 1;
     if (param->decl->idl==NULL || param->decl->idl->op!=TOK_ELLIPSIS) {
         /* this argument matches a declared (non-optional) parameter */
 
         Declaration ty;
 
-        function_argument(arg->sibling, param->next);
+        n += function_argument(arg->sibling, param->next);
         ty = *param->decl;
         if (ty.idl!=NULL && ty.idl->op==TOK_ID) /* skip any identifier */
             ty.idl = ty.idl->child;
@@ -2695,9 +2699,10 @@ void function_argument(ExecNode *arg, DeclList *param)
     } else {
         /* this and the arguments that follow match the `...' */
 
-        function_argument(arg->sibling, param);
+        n += function_argument(arg->sibling, param);
         emit_i(OpArg, &arg->type, 0, ic_expression(arg, FALSE), 0);
     }
+    return n;
 }
 
 int is_binary(Token op)
@@ -2886,7 +2891,7 @@ void disassemble(unsigned fn)
                 print_addr(p->arg1);
             else
                 printf("(*"), print_addr(p->arg1), printf(")");
-            printf("()");
+            printf("() ["); print_addr(p->arg2); printf(" arg]");
             break;
         case OpRet:
             printf("ret ");

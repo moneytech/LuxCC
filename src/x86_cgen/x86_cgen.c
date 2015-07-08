@@ -378,7 +378,7 @@ static int size_of_local_area;
 static char *curr_func;
 static unsigned temp_struct_size;
 static int big_return;
-static unsigned arg_nb;
+static int arg_stack[64], arg_stack_top;
 static int calls_to_fix_counter;
 static unsigned calls_to_fix[64];
 static int string_literal_counter;
@@ -581,7 +581,7 @@ static void x86_allocate_static_objects(void);
 void x86_cgen(FILE *outf)
 {
     unsigned i, j;
-    ExternId *ed, *func_def_list[128] = { NULL }, *func_decl_list[128] = { NULL };
+    ExternId *ed, *func_def_list[512] = { NULL }, *func_decl_list[512] = { NULL };
 
     x86_output_file = outf;
     for (ed=get_extern_symtab(), i=j=0; ed != NULL; ed = ed->next) {
@@ -1491,13 +1491,23 @@ void x86_pre_call(int i)
         emitln("push eax");
     }
 }
+void x86_post_call(unsigned arg2)
+{
+    int na, nb;
+
+    na = address(arg2).cont.val;
+    nb = 0;
+    while (na--)
+        nb += arg_stack[--arg_stack_top];
+    assert(arg_stack_top >= 0);
+    if (nb)
+        emitln("add esp, %d", nb);
+}
 void x86_indcall(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     x86_pre_call(i);
     emitln("call %s", get_operand(arg1));
-    if (arg_nb)
-        emitln("add esp, %u", arg_nb);
-    arg_nb = 0;
+    x86_post_call(arg2);
     if (tar)
         update_tar_descriptors(X86_EAX, tar, tar_liveness(i), tar_next_use(i));
     update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
@@ -1506,9 +1516,7 @@ void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     x86_pre_call(i);
     emitln("call %s", address(arg1).cont.var.e->attr.str);
-    if (arg_nb)
-        emitln("add esp, %u", arg_nb);
-    arg_nb = 0;
+    x86_post_call(arg2);
     if (tar)
         update_tar_descriptors(X86_EAX, tar, tar_liveness(i), tar_next_use(i));
     /*update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);*/
@@ -1639,7 +1647,7 @@ void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
     cat = get_type_category(&ty);
     if (cat!=TOK_STRUCT && cat!=TOK_UNION) {
         emitln("push %s", get_operand(arg1));
-        arg_nb += 4;
+        arg_stack[arg_stack_top++] = 4;
     } else {
         unsigned siz, asiz;
         int cluttered, savnb;
@@ -1647,7 +1655,7 @@ void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
         siz = compute_sizeof(&ty);
         asiz = round_up(siz, 4);
         emitln("sub esp, %u", asiz);
-        arg_nb += asiz;
+        arg_stack[arg_stack_top++] = asiz;
 
         cluttered = savnb = 0;
         if (!addr_in_reg(arg1) || addr_reg(arg1)!=X86_ESI) {

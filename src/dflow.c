@@ -836,7 +836,7 @@ void print_point_OUT(void)
     }
 }
 
-static int arg_stack[32], arg_stack_top;
+static int arg_stack[64], arg_stack_top;
 
 void ptr_iteration(unsigned fn)
 {
@@ -850,11 +850,11 @@ void ptr_iteration(unsigned fn)
 
         b = CFG_RPO[b2];
         for (i = cfg_node(b).leader; i <= cfg_node(b).last; i++) {
-            unsigned tar, arg1/*, arg2*/;
+            unsigned tar, arg1, arg2;
 
             tar = instruction(i).tar;
             arg1 = instruction(i).arg1;
-            /*arg2 = instruction(i).arg2;*/
+            arg2 = instruction(i).arg2;
 
             switch (instruction(i).op) {
             case OpAddrOf: { /* x = &y */
@@ -998,6 +998,8 @@ void ptr_iteration(unsigned fn)
                             union_point_to(cfg_node(cg_node(tar_fn).bb_i).leader, pn->nid, s->tl);
                     }
                 } else { /* extern function (we don't know the body) */
+                    int n;
+
                     if (cg_node(tar_fn).LocalRef == NULL)
                         cg_node(tar_fn).LocalRef = bset_new(nid_counter);
                     if (cg_node(tar_fn).LocalMod == NULL)
@@ -1008,7 +1010,8 @@ void ptr_iteration(unsigned fn)
                      * objects that are reachable through pointer arguments.
                      * [TBD] global/extern objects.
                      */
-                    while (arg_stack_top > 0) {
+                    n = address(arg2).cont.val;
+                    while (n--) {
                         arg = instruction(arg_stack[--arg_stack_top]).arg1;
                         if (nonconst_addr(arg) && (s=search_point_to(point_OUT[i-1], address_nid(arg)))!=NULL) {
                             bset_union(cg_node(tar_fn).LocalRef, s->tl);
@@ -1016,7 +1019,8 @@ void ptr_iteration(unsigned fn)
                         }
                     }
                 }
-                arg_stack_top = 0;
+                // arg_stack_top = 0;
+                assert(arg_stack_top >= 0);
 
 #if 0 /* OPTION-1 */
                 /*
@@ -1082,12 +1086,15 @@ void ptr_iteration(unsigned fn)
                                 union_point_to(cfg_node(cg_node(tar_fn).bb_i).leader, pn->nid, s->tl);
                         }
                     } else { /* extern function (we don't know the body) */
+                        int n;
+
                         if (cg_node(tar_fn).LocalRef == NULL)
                             cg_node(tar_fn).LocalRef = bset_new(nid_counter);
                         if (cg_node(tar_fn).LocalMod == NULL)
                             cg_node(tar_fn).LocalMod = bset_new(nid_counter);
 
-                        while (arg_stack_top > 0) {
+                        n = address(arg2).cont.val;
+                        while (n--) {
                             arg = instruction(arg_stack[--arg_stack_top]).arg1;
                             if (nonconst_addr(arg) && (s=search_point_to(point_OUT[i-1], address_nid(arg)))!=NULL) {
                                 bset_union(cg_node(tar_fn).LocalRef, s->tl);
@@ -1103,7 +1110,8 @@ void ptr_iteration(unsigned fn)
                         bset_union(fn_PtrRet, cg_node(tar_fn).PtrRet);
                     }
                 }
-                arg_stack_top = 0;
+                // arg_stack_top = 0;
+                assert(arg_stack_top >= 0);
 
                 if (fn_PtrRet != NULL) {
                     cpy_point_to(i, address_nid(tar), fn_PtrRet);
@@ -1120,6 +1128,7 @@ void ptr_iteration(unsigned fn)
                 continue;
 
             case OpArg:
+                assert(arg_stack_top < 64);
                 arg_stack[arg_stack_top++] = i;
                 break;
 
