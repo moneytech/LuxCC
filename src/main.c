@@ -155,8 +155,13 @@ int main(int argc, char *argv[])
         exit(EXIT_SUCCESS);
 
     if (error_count == 0) {
-        // vm_cgen((output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb"));
-        x86_cgen((output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb"));
+        FILE *fp;
+
+        fp = (output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb");
+        // vm_cgen(fp);
+        x86_cgen(fp);
+        if (output_file_arg != NULL)
+            fclose(fp);
     } else
         return 1;
 

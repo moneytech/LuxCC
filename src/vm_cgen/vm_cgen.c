@@ -726,6 +726,8 @@ void compound_statement(ExecNode *s, int push_scope)
 
                 lty.decl_specs = dl->decl->decl_specs;
                 lty.idl = dct->child;
+                if (get_type_category(&lty) == TOK_FUNCTION)
+                    continue;
                 local_offset = round_up(local_offset, get_alignment(&lty));
                 location_new(dct->str, local_offset);
                 emit("# var: %s, offset: %d", dct->str, local_offset);

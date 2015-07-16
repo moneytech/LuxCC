@@ -16,7 +16,7 @@
 #include "imp_lim.h"
 #include "loc.h"
 #include "dflow.h"
-// #include "opt.h"
+#include "bset.h"
 
 #define IINIT   1024
 #define IGROW   2
@@ -79,6 +79,10 @@ int nid_counter;
 static int nid_max;
 char **nid2sid_tab;
 
+static int *atv;
+static int atv_counter, atv_max;
+BSet *address_taken_variables;
+
 static void ic_reset(void);
 static void new_cfg_node(unsigned leader);
 static void emit_i(OpKind op, Declaration *type, unsigned tar, unsigned arg1, unsigned arg2);
@@ -88,6 +92,7 @@ static unsigned new_label(void);
 static void ic_compound_statement(ExecNode *s, int push_scope);
 static void ic_function_definition(TypeExp *decl_specs, TypeExp *header);
 static void new_nid(char *sid);
+static void new_atv(int vnid);
 /*static int get_var_nid(char *sid, int scope);*/
 static void edge_init(GraphEdge *p, unsigned max);
 static void edge_free(GraphEdge *p);
@@ -189,7 +194,6 @@ unsigned new_cg_node(char *func_id)
     memset(&cg_nodes[cg_nodes_counter], 0, sizeof(CGNode));
     cg_nodes[cg_nodes_counter].func_id = func_id;
     edge_init(&cg_nodes[cg_nodes_counter].out, 1);
-    edge_init(&cg_nodes[cg_nodes_counter].in, 1);
     return cg_nodes_counter++;
 }
 
@@ -283,6 +287,16 @@ void emit_label(unsigned L)
     emit_i(OpLab, NULL, L, 0, 0);
 }
 
+void new_atv(int vnid)
+{
+    if (atv_counter >= atv_max) {
+        atv_max *= 2;
+        atv = realloc(atv, atv_max*sizeof(int));
+        assert(atv != NULL);
+    }
+    atv[atv_counter++] = vnid;
+}
+
 void ic_init(void)
 {
     location_init();
@@ -338,6 +352,10 @@ void ic_init(void)
 
     label_max = 64;
     lab2instr = malloc(label_max*sizeof(unsigned));
+
+    atv_max = 32;
+    atv = malloc(atv_max*sizeof(int));
+    atv_counter = 0;
 }
 
 void ic_reset(void)
@@ -720,6 +738,12 @@ void ic_main(ExternId *func_def_list[])
     if (i == 0)
         return;
 
+    address_taken_variables = bset_new(nid_counter);
+    for (i = 0; i < atv_counter; i++) {
+        bset_insert(address_taken_variables, atv[i]);
+        // fprintf(stderr, ">> %s\n", nid2sid_tab[atv[i]]);
+    }
+
     /*
      * We now have some of the call graph nodes.
      * Pointer analysis may add some more and
@@ -729,17 +753,17 @@ void ic_main(ExternId *func_def_list[])
      * must stand still for the analyses to work
      * correctly.
      */
-    number_CFGs();
-    dflow_PointOut();
-    number_CG();
-    dflow_summaries();
+    // number_CFGs();
+    // dflow_PointOut();
+    // number_CG();
+    // dflow_summaries();
     // opt_main();
     for (i = 0; i < cg_nodes_counter; i++) {
         // disassemble(i);
         // print_CFG(i);
-        dflow_Dom(i);
+        // dflow_Dom(i);
         dflow_LiveOut(i);
-        dflow_ReachIn(i, i == cg_nodes_counter-1);
+        // dflow_ReachIn(i, i == cg_nodes_counter-1);
     }
     // print_CG();
 }
@@ -1174,91 +1198,6 @@ void build_CFG(void)
     free(leader2node);
 }
 
-#if 0
-void build_CFG(void)
-{
-    /*
-     * Assumptions:
-     * - Every basic block ends with a branch or a jump.
-     */
-
-    unsigned i;
-    unsigned *lab2node;
-
-    /* allocate table used to map labels to CFG nodes */
-    lab2node = malloc(sizeof(unsigned)*label_counter);
-
-    cg_node(curr_cg_node).bb_i = cfg_nodes_counter;
-
-    /*
-     * 1st step: find leaders.
-     */
-    /* first instruction (always a leader) */
-    if (instruction(ic_func_first_instr).op == OpLab)
-        lab2node[address(instruction(ic_func_first_instr).tar).cont.val] = cfg_nodes_counter;
-    new_cfg_node(ic_func_first_instr);
-    /* remaining instructions */
-    for (i = ic_func_first_instr+1; i < ic_instructions_counter; i++) {
-        if (instruction(i).op == OpLab) {
-            lab2node[address(instruction(i).tar).cont.val] = cfg_nodes_counter;
-            new_cfg_node(i);
-        }
-    }
-
-    cg_node(curr_cg_node).bb_f = cfg_nodes_counter-1;
-
-    /*
-     * 2nd step: find last and add edges.
-     */
-    for (i = cg_node(curr_cg_node).bb_i; i < cfg_nodes_counter; i++) {
-        unsigned last;
-
-        if (i != cfg_nodes_counter-1)
-            /* set last as the instruction immediately preceding the next leader */
-            last = cfg_node(i+1).leader-1;
-        else /* last node of the CFG */
-            /* set last as the last instruction of the function */
-            last = ic_instructions_counter-1;
-        cfg_node(i).last = last;
-
-        /* add edges */
-        if (instruction(last).op == OpCBr) {
-            unsigned succ1, succ2;
-
-            succ1 = lab2node[address(instruction(last).arg1).cont.val];
-            succ2 = lab2node[address(instruction(last).arg2).cont.val];
-
-            /* set out edges of current node */
-            edge_add(&cfg_node(i).out, succ1);
-            edge_add(&cfg_node(i).out, succ2);
-
-            /* set in edges of successors */
-            edge_add(&cfg_node(succ1).in, i);
-            edge_add(&cfg_node(succ2).in, i);
-        } else if (instruction(last).op == OpJmp) {
-            unsigned succ;
-
-            succ = lab2node[address(instruction(last).tar).cont.val];
-
-            edge_add(&cfg_node(i).out, succ);
-            edge_add(&cfg_node(succ).in, i);
-        } else if (instruction(last).op == OpCase) {
-            unsigned succ;
-
-            do {
-                succ = lab2node[address(instruction(last).arg1).cont.val];
-
-                edge_add(&cfg_node(i).out, succ);
-                edge_add(&cfg_node(succ).in, i);
-                --last;
-            } while (instruction(last).op == OpCase);
-        }
-    }
-
-    free(lab2node);
-}
-#endif
-
 // =============================================================================
 // Statements
 // =============================================================================
@@ -1277,7 +1216,7 @@ static struct Label {
     Label *next;
 } *ic_labels;
 
-static int gotos_to_fix[64], gotos_to_fix_counter;
+static int gotos_to_fix[MAX_GOTOS_PER_FUNC], gotos_to_fix_counter;
 static void register_label(char *str, unsigned addr);
 static unsigned get_label_address(char *str);
 
@@ -1698,6 +1637,8 @@ void ic_compound_statement(ExecNode *s, int push_scope)
 
                 lty.decl_specs = dl->decl->decl_specs;
                 lty.idl = dct->child;
+                if (get_type_category(&lty) == TOK_FUNCTION)
+                    continue;
                 local_offset = round_up(local_offset, get_alignment(&lty));
                 local_offset -= compute_sizeof(&lty);
                 location_new(dct->str, local_offset);
@@ -2022,7 +1963,7 @@ int number_expression_tree(ExecNode *e)
             else
                 e->nreg = nl>nr?nl:nr;
         } else {
-            /* [!] may be not accurate */
+            /* TBD [!] may be not accurate */
             e->nreg = number_expression_tree(e->child[0])+1;
         }
         break;
@@ -2186,7 +2127,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             emit_i(OpJmp, NULL, L3, 0, 0);
             emit_label(L2);
             emit_i(OpAsn, NULL, a, ic_expression(e->child[2], FALSE), 0);
-            emit_i(OpJmp, NULL, L3, 0, 0);
+            /*emit_i(OpJmp, NULL, L3, 0, 0);*/
             emit_label(L3);
             return a;
         }
@@ -2209,7 +2150,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             emit_i(OpJmp, NULL, L4, 0, 0);
             emit_label(L3);
             emit_i(OpAsn, NULL, a, false_addr, 0);
-            emit_i(OpJmp, NULL, L4, 0, 0);
+            /*emit_i(OpJmp, NULL, L4, 0, 0);*/
             emit_label(L4);
             return a;
         }
@@ -2232,7 +2173,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             emit_i(OpJmp, NULL, L4, 0, 0);
             emit_label(L3);
             emit_i(OpAsn, NULL, a, false_addr, 0);
-            emit_i(OpJmp, NULL, L4, 0, 0);
+            /*emit_i(OpJmp, NULL, L4, 0, 0);*/
             emit_label(L4);
             return a;
         }
@@ -2522,10 +2463,15 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             while (tmp->kind.exp==OpExp /*&& tmp->attr.op==TOK_STAR*/)
                  tmp = tmp->child[0];
             if (tmp->kind.exp==IdExp && get_type_category(&tmp->type)==TOK_FUNCTION) {
+                unsigned tar_fn;
+
                 op = OpCall;
                 a1 = new_address(IdKind);
                 address(a1).cont.var.e = tmp;
                 address(a1).cont.nid = get_var_nid(tmp->attr.str, tmp->attr.var.scope);
+                /* add call-graph edge */
+                tar_fn = new_cg_node(tmp->attr.str);
+                edge_add(&cg_node(curr_cg_node).out, tar_fn);
             } else {
                 op = OpIndCall;
                 a1 = ic_expression(e->child[0], FALSE);
@@ -2612,6 +2558,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
 
             a2 = new_temp_addr();
             emit_i(OpAddrOf, NULL, a2, a1, 0);
+            new_atv(address(a1).cont.nid);
             return a2;
         } else {
             return a1;
@@ -2677,6 +2624,7 @@ unsigned ic_expr_convert(ExecNode *e, Declaration *dest)
 
 /*
  * Push arguments from right to left recursively.
+ * Return the number of arguments pushed.
  */
 int function_argument(ExecNode *arg, DeclList *param)
 {

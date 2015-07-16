@@ -481,11 +481,13 @@ int is_external_id(char *id)
 /* set attributes to identifier node */
 void set_attributes(ExecNode *e, Symbol *sym)
 {
+    Token cat;
     TypeExp *scs;
 
     /* set type */
     e->type.decl_specs = sym->decl_specs;
     e->type.idl = (sym->declarator->op!=TOK_ENUM_CONST)?sym->declarator->child:sym->declarator;
+    cat = get_type_category(&e->type);
 
     /* set scope (the identifier/scope pair is used to unambiguously identify the object) */
     if (sym->nesting_level != OUTERMOST_LEVEL)
@@ -496,14 +498,16 @@ void set_attributes(ExecNode *e, Symbol *sym)
     scs = get_sto_class_spec(e->type.decl_specs);
 
     /* set storage duration */
-    if (sym->nesting_level==OUTERMOST_LEVEL || scs!=NULL&&(scs->op==TOK_EXTERN||scs->op==TOK_STATIC))
+    if (sym->nesting_level == OUTERMOST_LEVEL
+    || scs!=NULL && (scs->op==TOK_EXTERN || scs->op==TOK_STATIC)
+    || cat == TOK_FUNCTION)
         e->attr.var.duration = DURATION_STATIC;
     else
         e->attr.var.duration = DURATION_AUTO;
 
     /* set linkage */
     if (scs == NULL) {
-        if (sym->nesting_level==OUTERMOST_LEVEL || get_type_category(&e->type)==TOK_FUNCTION)
+        if (sym->nesting_level==OUTERMOST_LEVEL || cat==TOK_FUNCTION)
             e->attr.var.linkage = LINKAGE_EXTERNAL;
         else
             e->attr.var.linkage = LINKAGE_NONE;
@@ -798,7 +802,7 @@ int compare_decl_specs(TypeExp *ds1, TypeExp *ds2, int qualified)
 }
 
 /*
- * Return TRUE if the two types are compatibles, FALSE otherwise.
+ * Return TRUE if the two types are compatible, FALSE otherwise.
  * If 'qualified' is TRUE, type qualifiers are taken into account.
  * If 'compose' is TRUE, array types are composed.
  */
@@ -1333,18 +1337,15 @@ void analyze_function_definition(Declaration *f)
      * part of a definition of that function shall not have incomplete type.
      */
     p = f->idl->child->attr.dl;
-    if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID)
-        if (p->decl->idl == NULL)
-            goto no_params;
+    if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID && p->decl->idl==NULL)
+        goto no_params;
     /*
      * The function has parameters, enforce the above constraints.
      */
     do {
-        if (p->decl->idl==NULL || p->decl->idl->op!=TOK_ID)
+        if (p->decl->idl==NULL || p->decl->idl->op!=TOK_ID) {
             ERROR(p->decl->decl_specs, "missing parameter name in function definition");
-
-        if (p->decl->idl->child == NULL) {
-            /* not a derived declarator type */
+        } else if (p->decl->idl->child == NULL) { /* not a derived declarator type */
             TypeExp *ts;
 
             ts = get_type_spec(p->decl->decl_specs);
@@ -1758,8 +1759,8 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
 
     /*
      * 6.9.2
-     * #3 If the declaration of an identifier for an object is a tentative definition and has internal
-     * linkage, the declared type shall not be an incomplete type.
+     * #3 If the declaration of an identifier for an object is a tentative definition
+     * and has internal linkage, the declared type shall not be an incomplete type.
      *
      * See: http://www.open-std.org/jtc1/sc22/wg14/www/docs/dr_016.html
      * TODO: after the whole translation unit is processed, a final traverse

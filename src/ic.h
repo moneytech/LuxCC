@@ -106,9 +106,9 @@ struct CFGNode { /* CFG node == basic block */
     BSet *VarKill;  /* variables defined/killed in the block */
     BSet *LiveOut;  /* variables live on exit from the block */
     BSet *Dom;      /* blocks that dominate this block */
-    BSet *DEDef;    /* downward-exposed definitions */
-    BSet *DefKill;  /* all definition points obscured by this block */
-    BSet *ReachIn;  /* definitions that reach this block */
+    // BSet *DEDef;    /* downward-exposed definitions */
+    // BSet *DefKill;  /* all definition points obscured by this block */
+    // BSet *ReachIn;  /* definitions that reach this block */
 };
 
 struct ParamNid {
@@ -121,13 +121,8 @@ struct CGNode { /* CG node == function */
     char *func_id;
     unsigned bb_i, bb_f;
     GraphEdge out;
-    GraphEdge in;
     ParamNid *pn;
-    BSet *PtrRet;   /* pointers returned by this function */
-    BSet *LocalMod; /* outside-visible names that may be modified by this function */
-    BSet *MayMod;   /* LocalMod + LocalMod of all the functions called by this function */
-    BSet *LocalRef; /* outside-visible names that may be referenced by this function */
-    BSet *MayRef;   /* LocalRef + LocalRef of all the functions called by this function */
+    BSet *modified_static_objects;
     unsigned size_of_local_area;
 };
 
@@ -153,6 +148,7 @@ extern unsigned ic_instructions_counter;
 extern unsigned cfg_nodes_counter;
 extern unsigned cg_nodes_counter;
 extern ExternId *static_objects_list;
+extern BSet *address_taken_variables;
 
 extern int nid_counter;
 extern char **nid2sid_tab;

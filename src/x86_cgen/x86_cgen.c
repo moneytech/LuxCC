@@ -23,44 +23,270 @@
 #include "../dflow.h"
 #include "../str.h"
 
-#define LIVE          0
-#define DEAD         -1
-#define NO_NEXT_USE  -1
+// #define LIVE          0
+// #define DEAD         -1
+// #define NO_NEXT_USE  -1
 
-typedef struct QuadLiveNext QuadLiveNext;
+/*typedef struct QuadLiveNext QuadLiveNext;
 static struct QuadLiveNext {
     char liveness[3];
     int next_use[3];
-} *liveness_and_next_use;
-
-#define tar_liveness(i)  (liveness_and_next_use[i].liveness[0])
-#define arg1_liveness(i) (liveness_and_next_use[i].liveness[1])
-#define arg2_liveness(i) (liveness_and_next_use[i].liveness[2])
-#define tar_next_use(i)  (liveness_and_next_use[i].next_use[0])
-#define arg1_next_use(i) (liveness_and_next_use[i].next_use[1])
-#define arg2_next_use(i) (liveness_and_next_use[i].next_use[2])
-
-static char *operand_liveness;
-static int *operand_next_use;
-static void init_operand_table(BSet *bLO);
+} *liveness_and_next_use;*/
+static unsigned char *liveness_and_next_use;
+static BSet *operand_liveness;
+static BSet *operand_next_use;
+static void init_operand_table(BSet *block_LiveOut);
 static void compute_liveness_and_next_use(unsigned fn);
 static void print_liveness_and_next_use(unsigned fn);
+
+#define tar_liveness(i)  (liveness_and_next_use[i] & 0x01)
+#define arg1_liveness(i) (liveness_and_next_use[i] & 0x02)
+#define arg2_liveness(i) (liveness_and_next_use[i] & 0x04)
+#define tar_next_use(i)  (liveness_and_next_use[i] & 0x08)
+#define arg1_next_use(i) (liveness_and_next_use[i] & 0x10)
+#define arg2_next_use(i) (liveness_and_next_use[i] & 0x20)
+
+typedef enum {
+    X86_EAX,
+    X86_EBX,
+    X86_ECX,
+    X86_EDX,
+    X86_ESI,
+    X86_EDI,
+    X86_NREG,
+} X86_Reg;
+
+static int pinned[X86_NREG];
+static int modified[X86_NREG];
+#define pin_reg(r)   pinned[r] = TRUE;
+#define unpin_reg(r) pinned[r] = FALSE;
+static char *x86_reg_str[] = {
+    "eax",
+    "ebx",
+    "ecx",
+    "edx",
+    "esi",
+    "edi",
+};
+static char *x86_lwreg_str[] = {
+    "ax",
+    "bx",
+    "cx",
+    "dx",
+    "si",
+    "di",
+};
+static char *x86_lbreg_str[] = {
+    "al",
+    "bl",
+    "cl",
+    "dl",
+    "??",
+    "??",
+};
+
+static int size_of_local_area;
+static char *curr_func;
+static unsigned temp_struct_size;
+static int big_return;
+static int arg_stack[64], arg_stack_top;
+static int calls_to_fix_counter;
+static unsigned calls_to_fix[64];
+static int string_literals_counter;
+static FILE *x86_output_file;
+
+#define JMP_TAB_MIN_SIZ   3
+#define JMP_TAB_MAX_HOLES 10
+static int jump_tables_counter;
+
+#define DATA_SEG 0
+#define TEXT_SEG 1
+#define BSS_SEG  2
+#define ROD_SEG  3
+static int curr_segment = -1;
+static char *str_segment[] = {
+    ".data",
+    ".text",
+    ".bss",
+    ".rodata"
+};
+#define SET_SEGMENT(seg, f)\
+    do {\
+        if (curr_segment != seg) {\
+            f("segment %s", str_segment[seg]);\
+            curr_segment = seg;\
+        }\
+    } while(0)
+
+static int new_string_literal(unsigned a);
+static void emit_raw_string(String *q, char *s);
+static String *func_body;
+static String *func_prolog;
+static String *func_epilog;
+static String *asm_decls;
+static String *str_lits;
+#define emit(...)           (string_printf(func_body, __VA_ARGS__))
+#define emitln(...)         (string_printf(func_body, __VA_ARGS__), string_printf(func_body, "\n"))
+#define emit_prolog(...)    (string_printf(func_prolog, __VA_ARGS__))
+#define emit_prologln(...)  (string_printf(func_prolog, __VA_ARGS__), string_printf(func_prolog, "\n"))
+#define emit_epilog(...)    (string_printf(func_epilog, __VA_ARGS__))
+#define emit_epilogln(...)  (string_printf(func_epilog, __VA_ARGS__), string_printf(func_epilog, "\n"))
+#define emit_decl(...)      (string_printf(asm_decls, __VA_ARGS__))
+#define emit_declln(...)    (string_printf(asm_decls, __VA_ARGS__), string_printf(asm_decls, "\n"))
+#define emit_str(...)       (string_printf(str_lits, __VA_ARGS__))
+#define emit_strln(...)     (string_printf(str_lits, __VA_ARGS__), string_printf(str_lits, "\n"))
+
+static int *addr_descr_tab;
+static unsigned reg_descr_tab[X86_NREG];
+#define addr_reg(a)     (addr_descr_tab[address_nid(a)])
+#define reg_is_empty(r) (reg_descr_tab[r] == 0)
+static
+void dump_addr_descr_tab(void)
+{
+    int i;
+
+    for (i = 0; i < nid_counter; i++)
+        if (addr_descr_tab[i] != -1)
+            printf("%s => %s\n", nid2sid_tab[i], x86_reg_str[addr_descr_tab[i]]);
+}
+static
+void dump_reg_descr_tab(void)
+{
+    int i;
+
+    for (i = 0; i < X86_NREG; i++)
+        if (!reg_is_empty(i))
+            printf("%s => %s\n", x86_reg_str[i], address_sid(reg_descr_tab[i]));
+}
+
+static X86_Reg get_empty_reg(void);
+static X86_Reg get_unpinned_reg(void);
+static void spill_reg(X86_Reg r);
+static void spill_all(void);
+static void spill_aliased_objects(void);
+static X86_Reg get_reg(int intr);
+
+static void x86_load(X86_Reg r, unsigned a);
+static void x86_load_addr(X86_Reg r, unsigned a);
+static char *x86_get_operand(unsigned a);
+static void x86_store(X86_Reg r, unsigned a);
+static void x86_compare_against_constant(unsigned a, long c);
+static void x86_function_definition(TypeExp *decl_specs, TypeExp *header);
+
+static int x86_static_expr(ExecNode *e);
+static void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e);
+static void x86_allocate_static_objects(void);
+
+typedef struct Temp Temp;
+static struct Temp {
+    int nid;
+    int offs; /* offset from ebp */
+    int free;
+    Temp *next;
+} *temp_list;
+
+static int get_temp_offs(unsigned a);
+static void free_temp(unsigned a);
+static void free_all_temps(void);
+
+void x86_cgen(FILE *outf)
+{
+    unsigned i, j;
+    ExternId *ed, *func_def_list[512] = { NULL }, *func_decl_list[512] = { NULL };
+
+    x86_output_file = outf;
+    for (ed=get_extern_symtab(), i=j=0; ed != NULL; ed = ed->next) {
+        TypeExp *scs;
+
+        if (ed->status == REFERENCED) {
+            if ((scs=get_sto_class_spec(ed->decl_specs))==NULL || scs->op!=TOK_STATIC)
+                func_decl_list[j++] = ed;
+        } else {
+            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION) {
+                func_def_list[i++] = ed;
+            } else {
+                ExternId *np;
+
+                np = malloc(sizeof(ExternId));
+                np->decl_specs = ed->decl_specs;
+                np->declarator = ed->declarator;
+                np->status = 0;
+                np->next = static_objects_list;
+                static_objects_list = np;
+            }
+        }
+    }
+
+    /* generate intermediate code and do some analysis */
+    ic_main(func_def_list); //exit(0);
+
+    /* compute liveness and next use */
+    liveness_and_next_use = calloc(ic_instructions_counter, sizeof(unsigned char));
+    operand_liveness = bset_new(nid_counter);
+    operand_next_use = bset_new(nid_counter);
+    for (i = 0; i < cg_nodes_counter; i++)
+        compute_liveness_and_next_use(i);
+    bset_free(operand_liveness);
+    bset_free(operand_next_use);
+
+    /* generate assembly */
+    asm_decls = string_new(512);
+    str_lits = string_new(512);
+    func_body = string_new(1024);
+    func_prolog = string_new(1024);
+    func_epilog = string_new(1024);
+    addr_descr_tab = malloc(nid_counter*sizeof(int));
+    memset(addr_descr_tab, -1, nid_counter*sizeof(int));
+    for (i = 0; (ed=func_def_list[i]) != NULL; i++)
+        x86_function_definition(ed->decl_specs, ed->declarator);
+    string_free(func_body);
+    string_free(func_prolog);
+    string_free(func_epilog);
+
+    emit_declln("\n; == objects with static duration");
+    x86_allocate_static_objects();
+    emit_declln("\n; == extern symbols");
+    /* emit extern directives only for those symbols that were referenced */
+    for (j = 0; (ed=func_decl_list[j]) != NULL; j++) {
+        int tmp;
+
+        tmp = nid_counter;
+        get_var_nid(ed->declarator->str, 0);
+        if (tmp == nid_counter)
+            emit_declln("extern %s", ed->declarator->str);
+    }
+    /* the front-end may emit calls to memcpy/memset */
+    emit_declln("extern memcpy"); emit_declln("extern memset");
+    string_write(asm_decls, x86_output_file);
+    string_free(asm_decls);
+
+    if (string_literals_counter) {
+        fprintf(x86_output_file, "\n; == string literals\n");
+        fprintf(x86_output_file, "segment .rodata\n");
+        string_write(str_lits, x86_output_file);
+    }
+    string_free(str_lits);
+
+    // printf("=> %d\n", nid_counter);
+}
 
 /*
  * Initialize the operand table with the liveness
  * and next use as of the end of the block.
  * Liveness is determined using the LiveOut set.
  */
-void init_operand_table(BSet *bLO)
+void init_operand_table(BSet *block_LiveOut)
 {
-    int i;
+    // int i;
 
-    memset(operand_liveness, DEAD, nid_counter*sizeof(char));
-    memset(operand_next_use, NO_NEXT_USE, nid_counter*sizeof(int));
-    for (i = bset_iterate(bLO); i != -1; i = bset_iterate(NULL)) {
-        operand_liveness[i] = LIVE;
-        /*operand_next_use[i] = NO_NEXT_USE;*/
-    }
+    // memset(operand_liveness, DEAD, nid_counter*sizeof(char));
+    // memset(operand_next_use, NO_NEXT_USE, nid_counter*sizeof(int));
+    // for (i = bset_iterate(bLO); i != -1; i = bset_iterate(NULL)) {
+        // operand_liveness[i] = LIVE;
+        // /*operand_next_use[i] = NO_NEXT_USE;*/
+    // }
+    bset_clear(operand_next_use);
+    bset_cpy(operand_liveness, block_LiveOut);
 }
 
 void compute_liveness_and_next_use(unsigned fn)
@@ -89,20 +315,78 @@ void compute_liveness_and_next_use(unsigned fn)
             arg2 = instruction(i).arg2;
             switch (instruction(i).op) {
 #define update_tar()\
-        tar_liveness(i) = operand_liveness[address_nid(tar)],\
-        tar_next_use(i) = operand_next_use[address_nid(tar)],\
-        operand_liveness[address_nid(tar)] = DEAD,\
-        operand_next_use[address_nid(tar)] = NO_NEXT_USE
+        do {\
+            int tar_nid;\
+\
+            tar_nid = address_nid(tar);\
+            if (bset_member(operand_liveness, tar_nid)) {\
+                liveness_and_next_use[i] |= 0x01;\
+                bset_delete(operand_liveness, tar_nid);\
+            } else {\
+                liveness_and_next_use[i] &= ~0x01;\
+            }\
+            if (bset_member(operand_next_use, tar_nid)) {\
+                liveness_and_next_use[i] |= 0x08;\
+                bset_delete(operand_next_use, tar_nid);\
+            } else {\
+                liveness_and_next_use[i] &= ~0x08;\
+            }\
+        } while (0)
+/* for when tar isn't actually modified */
+#define update_tar2()\
+        do {\
+            int tar_nid;\
+\
+            tar_nid = address_nid(tar);\
+            if (bset_member(operand_liveness, tar_nid)) {\
+                liveness_and_next_use[i] |= 0x01;\
+            } else {\
+                liveness_and_next_use[i] &= ~0x01;\
+                bset_insert(operand_liveness, tar_nid);\
+            }\
+            if (bset_member(operand_next_use, tar_nid)) {\
+                liveness_and_next_use[i] |= 0x08;\
+            } else {\
+                liveness_and_next_use[i] &= ~0x08;\
+                bset_insert(operand_next_use, tar_nid);\
+            }\
+        } while (0)
 #define update_arg1()\
-        arg1_liveness(i) = operand_liveness[address_nid(arg1)],\
-        arg1_next_use(i) = operand_next_use[address_nid(arg1)],\
-        operand_liveness[address_nid(arg1)] = LIVE,\
-        operand_next_use[address_nid(arg1)] = i
+        do {\
+            int arg1_nid;\
+\
+            arg1_nid = address_nid(arg1);\
+            if (bset_member(operand_liveness, arg1_nid)) {\
+                liveness_and_next_use[i] |= 0x02;\
+            } else {\
+                liveness_and_next_use[i] &= ~0x02;\
+                bset_insert(operand_liveness, arg1_nid);\
+            }\
+            if (bset_member(operand_next_use, arg1_nid)) {\
+                liveness_and_next_use[i] |= 0x10;\
+            } else {\
+                liveness_and_next_use[i] &= ~0x10;\
+                bset_insert(operand_next_use, arg1_nid);\
+            }\
+        } while (0)
 #define update_arg2()\
-        arg2_liveness(i) = operand_liveness[address_nid(arg2)],\
-        arg2_next_use(i) = operand_next_use[address_nid(arg2)],\
-        operand_liveness[address_nid(arg2)] = LIVE,\
-        operand_next_use[address_nid(arg2)] = i
+        do {\
+            int arg2_nid;\
+\
+            arg2_nid = address_nid(arg2);\
+            if (bset_member(operand_liveness, arg2_nid)) {\
+                liveness_and_next_use[i] |= 0x04;\
+            } else {\
+                liveness_and_next_use[i] &= ~0x04;\
+                bset_insert(operand_liveness, arg2_nid);\
+            }\
+            if (bset_member(operand_next_use, arg2_nid)) {\
+                liveness_and_next_use[i] |= 0x20;\
+            } else {\
+                liveness_and_next_use[i] &= ~0x20;\
+                bset_insert(operand_next_use, arg2_nid);\
+            }\
+        } while (0)
 
             case OpAdd: case OpSub: case OpMul: case OpDiv:
             case OpRem: case OpSHL: case OpSHR: case OpAnd:
@@ -134,76 +418,61 @@ void compute_liveness_and_next_use(unsigned fn)
                 continue;
 
             case OpInd: {
-                int j;
-                BSet *s;
-
+                // int j;
+                // BSet *s;
+//
                 update_tar();
                 update_arg1();
+                bset_union(operand_liveness, address_taken_variables);
 
-                if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
-                    for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
-                        operand_liveness[j] = LIVE;
-                } else {
-                    /*
-                     * TBD: if temporaries cannot cross basic block boundaries,
-                     * only programmer declared variables need to be marked 'LIVE'.
-                     */
-                    memset(operand_liveness, LIVE, nid_counter*sizeof(char));
-                }
+                // if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
+                    // for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
+                        // operand_liveness[j] = LIVE;
+                // } else {
+                    // /*
+                     // * TBD: if temporaries cannot cross basic block boundaries,
+                     // * only programmer declared variables need to be marked 'LIVE'.
+                     // */
+                    // memset(operand_liveness, LIVE, nid_counter*sizeof(char));
+                // }
             }
                 continue;
 
             case OpIndAsn:
-                tar_liveness(i) = operand_liveness[address_nid(tar)];
-                tar_next_use(i) = operand_next_use[address_nid(tar)];
-                operand_liveness[address_nid(tar)] = LIVE;
-                operand_next_use[address_nid(tar)] = i;
+                // tar_liveness(i) = operand_liveness[address_nid(tar)];
+                // tar_next_use(i) = operand_next_use[address_nid(tar)];
+                // operand_liveness[address_nid(tar)] = LIVE;
+                // operand_next_use[address_nid(tar)] = i;
+                update_tar2();
                 if (nonconst_addr(arg1))
                     update_arg1();
                 continue;
 
-            case OpCall: {
-                int j;
-                unsigned fn;
-
-                fn = new_cg_node(address(arg1).cont.var.e->attr.str);
-                for (j = bset_iterate(cg_node(fn).MayRef); j != -1; j = bset_iterate(NULL))
-                    operand_liveness[j] = LIVE;
+            case OpCall:
                 if (tar)
                     update_tar();
-            }
+                /*
+                 * The called function should be able the see
+                 * the most recent value of static objects.
+                 */
+                bset_union(operand_liveness, cg_node(fn).modified_static_objects);
                 continue;
 
-            case OpIndCall: {
-                BSet *s;
-
-                if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
-                    int j;
-
-                    for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL)) {
-                        int k;
-                        unsigned fn;
-
-                        fn = new_cg_node(nid2sid_tab[j]);
-                        for (k = bset_iterate(cg_node(fn).MayRef); k != -1; k = bset_iterate(NULL))
-                            operand_liveness[k] = LIVE;
-                    }
-                } else {
-                    memset(operand_liveness, LIVE, nid_counter*sizeof(char));
-                }
+            case OpIndCall:
                 if (tar)
                     update_tar();
                 if (nonconst_addr(arg1))
                     update_arg1();
-            }
+                bset_union(operand_liveness, cg_node(fn).modified_static_objects);
                 continue;
 
             case OpCBr:
                 if (nonconst_addr(tar)) {
-                    tar_liveness(i) = operand_liveness[address_nid(tar)];
-                    tar_next_use(i) = operand_next_use[address_nid(tar)];
-                    operand_liveness[address_nid(tar)] = LIVE;
-                    operand_next_use[address_nid(tar)] = i;
+                    // tar_liveness(i) = operand_liveness[address_nid(tar)];
+                    // tar_next_use(i) = operand_next_use[address_nid(tar)];
+                    // operand_liveness[address_nid(tar)] = LIVE;
+                    // operand_next_use[address_nid(tar)] = i;
+                    update_tar2();
                 }
                 continue;
 
@@ -237,20 +506,19 @@ void print_liveness_and_next_use(unsigned fn)
             tar = instruction(i).tar;
             arg1 = instruction(i).arg1;
             arg2 = instruction(i).arg2;
-
             switch (instruction(i).op) {
 #define print_tar()\
         printf("name=%s, ", address_sid(tar)),\
-        printf("status=%s, ", (tar_liveness(i)==LIVE)?"LIVE":"DEAD"),\
-        printf("next use=%d", tar_next_use(i))
+        printf("status=%s, ", tar_liveness(i)?"LIVE":"DEAD"),\
+        printf("next use=%d", !!tar_next_use(i))
 #define print_arg1()\
         printf("name=%s, ", address_sid(arg1)),\
-        printf("status=%s, ", (arg1_liveness(i)==LIVE)?"LIVE":"DEAD"),\
-        printf("next use=%d", arg1_next_use(i))
+        printf("status=%s, ", arg1_liveness(i)?"LIVE":"DEAD"),\
+        printf("next use=%d", !!arg1_next_use(i))
 #define print_arg2()\
         printf("name=%s, ", address_sid(arg2)),\
-        printf("status=%s, ", (arg2_liveness(i)==LIVE)?"LIVE":"DEAD"),\
-        printf("next use=%d", arg2_next_use(i))
+        printf("status=%s, ", arg2_liveness(i)?"LIVE":"DEAD"),\
+        printf("next use=%d", !!arg2_next_use(i))
 
             case OpAdd: case OpSub: case OpMul: case OpDiv:
             case OpRem: case OpSHL: case OpSHR: case OpAnd:
@@ -303,10 +571,6 @@ void print_liveness_and_next_use(unsigned fn)
                 break;
 
             case OpCall:
-                // if (tar)
-                    // print_tar();
-                // break;
-
             case OpIndCall:
                 if (tar)
                     print_tar();
@@ -320,6 +584,7 @@ void print_liveness_and_next_use(unsigned fn)
                 if (nonconst_addr(tar))
                     print_tar();
                 break;
+
             default:
                 continue;
             } /* instructions */
@@ -328,354 +593,17 @@ void print_liveness_and_next_use(unsigned fn)
         printf("\n\n");
     }
 }
-/*
- * ===
- */
 
-typedef enum {
-    X86_EAX,
-    X86_EBX,
-    X86_ECX,
-    X86_EDX,
-    X86_ESI,
-    X86_EDI,
-    X86_NREG,
-} X86_Reg;
-
-static int pinned[X86_NREG];
-static int modified[X86_NREG];
-#define pin_reg(r)      pinned[r] = TRUE;
-#define unpin_reg(r)    pinned[r] = FALSE;
-
-static char *x86_reg_str[] = {
-    "eax",
-    "ebx",
-    "ecx",
-    "edx",
-    "esi",
-    "edi",
-};
-
-static char *x86_lwreg_str[] = {
-    "ax",
-    "bx",
-    "cx",
-    "dx",
-    "si",
-    "di",
-};
-
-static char *x86_lbreg_str[] = {
-    "al",
-    "bl",
-    "cl",
-    "dl",
-    "??",
-    "??",
-};
-
-static int size_of_local_area;
-static char *curr_func;
-static unsigned temp_struct_size;
-static int big_return;
-static int arg_stack[64], arg_stack_top;
-static int calls_to_fix_counter;
-static unsigned calls_to_fix[64];
-static int string_literal_counter;
-static int new_string_literal(unsigned a);
-static FILE *x86_output_file;
-#define JMP_TAB_MIN_SIZ   3
-#define JMP_TAB_MAX_HOLES 10
-static int jump_tables_counter;
-#define DATA_SEG 0
-#define TEXT_SEG 1
-#define BSS_SEG  2
-#define ROD_SEG  3
-static int curr_segment = -1;
-static char *str_segment[] = {
-    ".data",
-    ".text",
-    ".bss",
-    ".rodata"
-};
-#define SET_SEGMENT(seg, f)\
-    do {\
-        if (curr_segment != seg) {\
-            f("segment %s", str_segment[seg]);\
-            curr_segment = seg;\
-        }\
-    } while(0)
-
-typedef struct Temp Temp;
-struct Temp {
-    int nid;
-    int offs;      /* offset from ebp */
-    int used;      /* used or free */
-    Temp *next;
-} *temp_list;
-
-int get_temp_offs(unsigned a)
-{
-    Temp *p;
-
-    /* see if it was already allocated */
-    for (p = temp_list; p != NULL; p = p->next)
-        if (p->used && p->nid==address_nid(a))
-            return p->offs;
-
-    /* try to find an unused temp */
-    for (p = temp_list; p != NULL; p = p->next) {
-        if (!p->used) {
-            p->nid = address_nid(a);
-            p->used = TRUE;
-            return p->offs;
-        }
-    }
-
-    /* allocate a new temp */
-    p = malloc(sizeof(Temp));
-    p->nid = address_nid(a);
-    size_of_local_area -= 4;
-    p->offs = size_of_local_area;
-    p->used = TRUE;
-    p->next = temp_list;
-    temp_list = p;
-    return p->offs;
-}
-
-void free_temp(unsigned a)
-{
-    Temp *p;
-
-    for (p = temp_list; p != NULL; p = p->next) {
-        if (p->used && p->nid==address_nid(a)) {
-            p->used = FALSE;
-            break;
-        }
-    }
-}
-
-void free_all_temps(void)
-{
-    Temp *p, *q;
-
-    p = temp_list;
-    while (p != NULL) {
-        q = p;
-        p = p->next;
-        free(q);
-    }
-    temp_list = NULL;
-}
-
-typedef struct AddrDescr AddrDescr;
-struct AddrDescr {
-    int in_reg;
-    X86_Reg r;
-} *addr_descr_tab;
-
-static
-void init_addr_descr_tab(void)
-{
-    addr_descr_tab = calloc(nid_counter, sizeof(AddrDescr));
-}
-
-#define addr_in_reg(a)  (addr_descr_tab[address_nid(a)].in_reg)
-#define addr_reg(a)     (addr_descr_tab[address_nid(a)].r)
-
-#define MAX_ADDRS_PER_REG 10
-typedef struct RegDescr RegDescr;
-struct RegDescr {
-    int naddrs; /* # of addresses this register is housing */
-    unsigned addrs[MAX_ADDRS_PER_REG];
-} reg_descr_tab[X86_NREG];
-
-void reg_descr_add_addr(X86_Reg r, unsigned a)
-{
-    int i;
-
-    assert(reg_descr_tab[r].naddrs < MAX_ADDRS_PER_REG);
-
-    /* [?] search before add a new address */
-
-    for (i = 0; i < MAX_ADDRS_PER_REG; i++) {
-        if (!reg_descr_tab[r].addrs[i]) {
-            reg_descr_tab[r].addrs[i] = a;
-            reg_descr_tab[r].naddrs++;
-            break;
-        }
-        // assert(0);
-    }
-}
-
-void reg_descr_rem_addr(X86_Reg r, unsigned a)
-{
-    int i;
-    int naddrs;
-
-    i = 0;
-    naddrs = reg_descr_tab[r].naddrs;
-    while (naddrs /*&& i<MAX_ADDRS_PER_REG*/) {
-        unsigned a2;
-
-        if ((a2=reg_descr_tab[r].addrs[i]) != 0) {
-            --naddrs;
-            if (address_nid(a) == address_nid(a2)) {
-                reg_descr_tab[r].addrs[i] = 0;
-                reg_descr_tab[r].naddrs--;
-                break;
-            }
-        }
-        ++i;
-    }
-}
-
-void clear_reg_descr(X86_Reg r)
-{
-    int i;
-
-    if (reg_descr_tab[r].naddrs == 0)
-        return;
-
-    for (i = 0; i < MAX_ADDRS_PER_REG; i++)
-        reg_descr_tab[r].addrs[i] = 0;
-    reg_descr_tab[r].naddrs = 0;
-}
-
-static String *func_body, *func_prolog, *func_epilog, *asm_decls, *str_lits;
-#define emit(...)   (string_printf(func_body, __VA_ARGS__))
-#define emitln(...) (string_printf(func_body, __VA_ARGS__), string_printf(func_body, "\n"))
-#define emit_prolog(...)   (string_printf(func_prolog, __VA_ARGS__))
-#define emit_prologln(...) (string_printf(func_prolog, __VA_ARGS__), string_printf(func_prolog, "\n"))
-#define emit_epilog(...)   (string_printf(func_epilog, __VA_ARGS__))
-#define emit_epilogln(...) (string_printf(func_epilog, __VA_ARGS__), string_printf(func_epilog, "\n"))
-#define emit_decl(...)   (string_printf(asm_decls, __VA_ARGS__))
-#define emit_declln(...) (string_printf(asm_decls, __VA_ARGS__), string_printf(asm_decls, "\n"))
-#define emit_str(...)   (string_printf(str_lits, __VA_ARGS__))
-#define emit_strln(...) (string_printf(str_lits, __VA_ARGS__), string_printf(str_lits, "\n"))
-
-static
-void emit_raw_string(String *q, char *s)
-{
-    unsigned len, i;
-
-    len = strlen(s)+1;
-    for (i = len/4; i; i--) {
-        string_printf(q, "dd 0x%02x%02x%02x%02x\n", s[3], s[2], s[1], s[0]);
-        s += 4;
-    }
-    for (i = len%4; i; i--)
-        string_printf(q, "db 0x%02x\n", *s++);
-}
-
-int new_string_literal(unsigned a)
-{
-    emit_strln("_@S%d:", string_literal_counter);
-    emit_raw_string(str_lits, address(a).cont.str);
-    return string_literal_counter++;
-}
-
-static void x86_function_definition(TypeExp *decl_specs, TypeExp *header);
-static void x86_allocate_static_objects(void);
-
-void x86_cgen(FILE *outf)
-{
-    unsigned i, j;
-    ExternId *ed, *func_def_list[512] = { NULL }, *func_decl_list[512] = { NULL };
-
-    x86_output_file = outf;
-    for (ed=get_extern_symtab(), i=j=0; ed != NULL; ed = ed->next) {
-        TypeExp *scs;
-
-        if (ed->status == REFERENCED) {
-            if ((scs=get_sto_class_spec(ed->decl_specs))==NULL || scs->op!=TOK_STATIC)
-                func_decl_list[j++] = ed;
-        } else {
-            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION) {
-                func_def_list[i++] = ed;
-            } else {
-                ExternId *np;
-
-                np = malloc(sizeof(ExternId));
-                np->decl_specs = ed->decl_specs;
-                np->declarator = ed->declarator;
-                np->status = 0;
-                np->next = static_objects_list;
-                static_objects_list = np;
-            }
-        }
-    }
-
-    /* generate intermediate code and do some analysis */
-    ic_main(func_def_list); //exit(0);
-
-    /* compute liveness and next use */
-    liveness_and_next_use = malloc(ic_instructions_counter*sizeof(QuadLiveNext));
-    operand_liveness = malloc(nid_counter*sizeof(char));
-    operand_next_use = malloc(nid_counter*sizeof(int));
-    for (i = 0; i < cg_nodes_counter; i++)
-        compute_liveness_and_next_use(i);
-    free(operand_liveness);
-    free(operand_next_use);
-
-    /* generate assembly */
-    asm_decls = string_new(512);
-    str_lits = string_new(512);
-    func_body = string_new(1024);
-    func_prolog = string_new(1024);
-    func_epilog = string_new(1024);
-    init_addr_descr_tab();
-    for (i = 0; (ed=func_def_list[i]) != NULL; i++)
-        x86_function_definition(ed->decl_specs, ed->declarator);
-    string_free(func_body);
-    string_free(func_prolog);
-    string_free(func_epilog);
-
-    emit_declln("\n; == objects with static duration");
-    x86_allocate_static_objects();
-    emit_declln("\n; == extern symbols");
-    /* emit extern directives only for those symbols that were referenced */
-    for (j = 0; (ed=func_decl_list[j]) != NULL; j++) {
-        int tmp;
-
-        tmp = nid_counter;
-        get_var_nid(ed->declarator->str, 0);
-        if (tmp == nid_counter)
-            emit_declln("extern %s", ed->declarator->str);
-    }
-    /* the front-end may emit calls to memcpy/memset */
-    emit_declln("extern memcpy"); emit_declln("extern memset");
-    string_write(asm_decls, x86_output_file);
-    string_free(asm_decls);
-
-    if (string_literal_counter) {
-        fprintf(x86_output_file, "\n; == string literals\n");
-        fprintf(x86_output_file, "segment .rodata\n");
-        string_write(str_lits, x86_output_file);
-    }
-    string_free(str_lits);
-
-    printf("\n");
-    for (i = 0; i < X86_NREG; i++)
-        printf("reg%d = %d\n", i, reg_descr_tab[i].naddrs);
-    printf("=> %d\n", nid_counter);
-}
-
-static X86_Reg get_empty_reg(void);
-static void x86_load(X86_Reg r, unsigned a);
-static void x86_load_addr(X86_Reg r, unsigned a);
-static char *get_operand(unsigned a);
-static void x86_store(X86_Reg r, unsigned a);
-static void compare_against_constant(unsigned a, long c);
-static void spill_reg(X86_Reg r);
-static X86_Reg get_reg(int intr);
+// =======================================================================================
+// ---
+// =======================================================================================
 
 X86_Reg get_empty_reg(void)
 {
     int i;
 
     for (i = 0; i < X86_NREG; i++) {
-        if (!pinned[i] && reg_descr_tab[i].naddrs==0) {
+        if (!pinned[i] && reg_is_empty(i)) {
             modified[i] = TRUE;
             return (X86_Reg)i;
         }
@@ -698,21 +626,15 @@ X86_Reg get_unpinned_reg(void)
 
 void spill_reg(X86_Reg r)
 {
-    int i;
+    unsigned a;
 
-    if (reg_descr_tab[r].naddrs == 0)
+    if (reg_is_empty(r))
         return;
 
-    for (i = 0; i < MAX_ADDRS_PER_REG; i++) {
-        unsigned a;
-
-        if (!(a=reg_descr_tab[r].addrs[i]))
-            continue;
-        x86_store(r, a);
-        addr_in_reg(a) = FALSE;
-        reg_descr_tab[r].addrs[i] = 0;
-        reg_descr_tab[r].naddrs--;
-    }
+    a = reg_descr_tab[r];
+    x86_store(r, a);
+    addr_reg(a) = -1;
+    reg_descr_tab[r] = 0;
 }
 
 void spill_all(void)
@@ -723,20 +645,34 @@ void spill_all(void)
         spill_reg((X86_Reg)i);
 }
 
+/*
+ * Currently all address-taken variables are considered to be aliased.
+ * => Possible improvement: use type information to narrow down the set
+ * of objects to spill (see 6.5#7).
+ */
+void spill_aliased_objects(void)
+{
+    int i;
+
+    for (i = 0; i < X86_NREG; i++) {
+        unsigned a;
+
+        if (reg_is_empty(i))
+            continue;
+        a = reg_descr_tab[i];
+        if (address(a).kind==IdKind && bset_member(address_taken_variables, address_nid(a)))
+            spill_reg(i);
+    }
+}
+
 X86_Reg get_reg(int i)
 {
     X86_Reg r;
     unsigned arg1;
 
     arg1 = instruction(i).arg1;
-    if (address(arg1).kind==IdKind || address(arg1).kind==TempKind) {
-        if (addr_in_reg(arg1) && arg1_liveness(i)==DEAD) {
-            /* if the register doesn't hold some other address, we are done */
-            r = addr_reg(arg1);
-            if (reg_descr_tab[r].naddrs == 1)
-                return r;
-        }
-    }
+    if (nonconst_addr(arg1) && addr_reg(arg1)!=-1 && !arg1_liveness(i))
+        return addr_reg(arg1);
 
     /* find an empty register */
     if ((r=get_empty_reg()) != -1)
@@ -749,7 +685,61 @@ X86_Reg get_reg(int i)
     return r;
 }
 
-#define offset(a) (address(a).cont.var.offset)
+int get_temp_offs(unsigned a)
+{
+    Temp *p;
+
+    /* see if it was already allocated */
+    for (p = temp_list; p != NULL; p = p->next)
+        if (!p->free && p->nid==address_nid(a))
+            return p->offs;
+
+    /* try to find an unused temp */
+    for (p = temp_list; p != NULL; p = p->next) {
+        if (p->free) {
+            p->nid = address_nid(a);
+            p->free = FALSE;
+            return p->offs;
+        }
+    }
+
+    /* allocate a new temp */
+    p = malloc(sizeof(Temp));
+    p->nid = address_nid(a);
+    size_of_local_area -= 4;
+    p->offs = size_of_local_area;
+    p->free = FALSE;
+    p->next = temp_list;
+    temp_list = p;
+    return p->offs;
+}
+
+void free_temp(unsigned a)
+{
+    Temp *p;
+
+    for (p = temp_list; p != NULL; p = p->next) {
+        if (!p->free && p->nid==address_nid(a)) {
+            p->free = TRUE;
+            break;
+        }
+    }
+}
+
+void free_all_temps(void)
+{
+    Temp *p, *q;
+
+    p = temp_list;
+    while (p != NULL) {
+        q = p;
+        p = p->next;
+        free(q);
+    }
+    temp_list = NULL;
+}
+
+#define local_offset(a) (address(a).cont.var.offset)
 
 void x86_load(X86_Reg r, unsigned a)
 {
@@ -761,7 +751,7 @@ void x86_load(X86_Reg r, unsigned a)
         ExecNode *e;
         char *siz_str, *mov_str;
 
-        if (addr_in_reg(a)) {
+        if (addr_reg(a) != -1) {
             if (addr_reg(a) == r)
                 ; /* already in the register */
             else
@@ -802,17 +792,17 @@ void x86_load(X86_Reg r, unsigned a)
 
         if (e->attr.var.duration == DURATION_STATIC) {
             if (e->attr.var.linkage == LINKAGE_NONE) /* static local */
-                emitln("%s %s, %s [%s@%s]", mov_str, x86_reg_str[r], siz_str, curr_func, e->attr.str);
+                emitln("%s %s, %s [$%s@%s]", mov_str, x86_reg_str[r], siz_str, curr_func, e->attr.str);
             else /* global */
-                emitln("%s %s, %s [%s]", mov_str, x86_reg_str[r], siz_str, e->attr.str);
+                emitln("%s %s, %s [$%s]", mov_str, x86_reg_str[r], siz_str, e->attr.str);
         } else { /* parameter or local */
             if (e->attr.var.is_param)
-                emitln("%s %s, %s [ebp+%d]", mov_str, x86_reg_str[r], siz_str, offset(a));
+                emitln("%s %s, %s [ebp+%d]", mov_str, x86_reg_str[r], siz_str, local_offset(a));
             else
-                emitln("%s %s, %s [ebp-%d]", mov_str, x86_reg_str[r], siz_str, -offset(a));
+                emitln("%s %s, %s [ebp-%d]", mov_str, x86_reg_str[r], siz_str, -local_offset(a));
         }
     } else if (address(a).kind == TempKind) {
-        if (addr_in_reg(a)) {
+        if (addr_reg(a) != -1) {
             if (addr_reg(a) == r)
                 return; /* already in the register */
             else
@@ -823,9 +813,9 @@ void x86_load(X86_Reg r, unsigned a)
     }
 }
 
-char *get_operand(unsigned a)
+char *x86_get_operand(unsigned a)
 {
-    static char op[128];
+    static char op[256];
 
     if (address(a).kind == IConstKind) {
         sprintf(op, "%lu", address(a).cont.uval);
@@ -834,7 +824,7 @@ char *get_operand(unsigned a)
     } else if (address(a).kind == IdKind) {
         ExecNode *e;
 
-        if (addr_in_reg(a))
+        if (addr_reg(a) != -1)
             return x86_reg_str[addr_reg(a)];
 
         e = address(a).cont.var.e;
@@ -846,9 +836,9 @@ char *get_operand(unsigned a)
         case TOK_FUNCTION:
             if (e->attr.var.duration == DURATION_STATIC) {
                 if (e->attr.var.linkage == LINKAGE_NONE)
-                    sprintf(op, "%s@%s", curr_func, e->attr.str);
+                    sprintf(op, "$%s@%s", curr_func, e->attr.str);
                 else
-                    sprintf(op, "%s", e->attr.str);
+                    sprintf(op, "$%s", e->attr.str);
                 return op;
             } else {
                 X86_Reg r;
@@ -859,9 +849,9 @@ char *get_operand(unsigned a)
                     spill_reg(r);
                 }
                 if (e->attr.var.is_param)
-                    emitln("lea %s, [ebp+%d]", x86_reg_str[r], offset(a));
+                    emitln("lea %s, [ebp+%d]", x86_reg_str[r], local_offset(a));
                 else
-                    emitln("lea %s, [ebp-%d]", x86_reg_str[r], -offset(a));
+                    emitln("lea %s, [ebp-%d]", x86_reg_str[r], -local_offset(a));
                 return x86_reg_str[r];
             }
         case TOK_SHORT:
@@ -886,17 +876,17 @@ char *get_operand(unsigned a)
         /* fall through (dword sized operand) */
         if (e->attr.var.duration == DURATION_STATIC) {
             if (e->attr.var.linkage == LINKAGE_NONE)
-                sprintf(op, "dword [%s@%s]", curr_func, e->attr.str);
+                sprintf(op, "dword [$%s@%s]", curr_func, e->attr.str);
             else
-                sprintf(op, "dword [%s]", e->attr.str);
+                sprintf(op, "dword [$%s]", e->attr.str);
         } else {
             if (e->attr.var.is_param)
-                sprintf(op, "dword [ebp+%d]", offset(a));
+                sprintf(op, "dword [ebp+%d]", local_offset(a));
             else
-                sprintf(op, "dword [ebp-%d]", -offset(a));
+                sprintf(op, "dword [ebp-%d]", -local_offset(a));
         }
     } else if (address(a).kind == TempKind) {
-        if (addr_in_reg(a))
+        if (addr_reg(a) != -1)
             return x86_reg_str[addr_reg(a)];
         else
             sprintf(op, "dword [ebp-%d]", -get_temp_offs(a));
@@ -912,14 +902,14 @@ void x86_load_addr(X86_Reg r, unsigned a)
     e = address(a).cont.var.e;
     if (e->attr.var.duration == DURATION_STATIC) {
         if (e->attr.var.linkage == LINKAGE_NONE)
-            emitln("mov %s, %s@%s", x86_reg_str[r], curr_func, e->attr.str);
+            emitln("mov %s, $%s@%s", x86_reg_str[r], curr_func, e->attr.str);
         else
-            emitln("mov %s, %s", x86_reg_str[r], e->attr.str);
+            emitln("mov %s, $%s", x86_reg_str[r], e->attr.str);
     } else {
         if (e->attr.var.is_param)
-            emitln("lea %s, [ebp+%d]", x86_reg_str[r], offset(a));
+            emitln("lea %s, [ebp+%d]", x86_reg_str[r], local_offset(a));
         else
-            emitln("lea %s, [ebp-%d]", x86_reg_str[r], -offset(a));
+            emitln("lea %s, [ebp-%d]", x86_reg_str[r], -local_offset(a));
     }
 }
 
@@ -937,20 +927,20 @@ void x86_store(X86_Reg r, unsigned a)
 
             cluttered = 0;
             if (r != X86_ESI) {
-                if (reg_descr_tab[X86_ESI].naddrs != 0) {
+                if (!reg_is_empty(X86_ESI)) {
                     cluttered |= 1;
                     emitln("push esi");
                 }
                 emitln("mov esi, %s", x86_reg_str[r]);
             }
-            if (!addr_in_reg(a) || addr_reg(a)!=X86_EDI) {
-                if (reg_descr_tab[X86_EDI].naddrs != 0) {
+            if (addr_reg(a) != X86_EDI) {
+                if (!reg_is_empty(X86_EDI)) {
                     cluttered |= 2;
                     emitln("push edi");
                 }
                 x86_load_addr(X86_EDI, a);
             }
-            if (reg_descr_tab[X86_ECX].naddrs != 0) {
+            if (!reg_is_empty(X86_ECX)) {
                 cluttered |= 4;
                 emitln("push ecx");
             }
@@ -985,71 +975,21 @@ void x86_store(X86_Reg r, unsigned a)
 
         if (e->attr.var.duration == DURATION_STATIC) {
             if (e->attr.var.linkage == LINKAGE_NONE) /* static local */
-                emitln("mov %s [%s@%s], %s", siz_str, curr_func, e->attr.str, reg_str);
+                emitln("mov %s [$%s@%s], %s", siz_str, curr_func, e->attr.str, reg_str);
             else /* global */
-                emitln("mov %s [%s], %s", siz_str, e->attr.str, reg_str);
+                emitln("mov %s [$%s], %s", siz_str, e->attr.str, reg_str);
         } else { /* parameter or local */
             if (e->attr.var.is_param)
-                emitln("mov %s [ebp+%d], %s", siz_str, offset(a), reg_str);
+                emitln("mov %s [ebp+%d], %s", siz_str, local_offset(a), reg_str);
             else
-                emitln("mov %s [ebp-%d], %s", siz_str, -offset(a), reg_str);
+                emitln("mov %s [ebp-%d], %s", siz_str, -local_offset(a), reg_str);
         }
     } else if (address(a).kind == TempKind) {
         emitln("mov dword [ebp-%d], %s", -get_temp_offs(a), x86_reg_str[r]);
     }
 }
 
-void update_arg_descriptors(unsigned arg, unsigned char liveness, int next_use)
-{
-    /* If arg is in a register r and arg has no next use, then
-       a) If arg is LIVE, generate spill code to move the value of r to memory
-       location of arg.
-       b) Mark the register and address descriptor tables to indicate that the
-       register r no longer contains the value of arg. */
-    if ((address(arg).kind!=IdKind && address(arg).kind!=TempKind) || next_use!=NO_NEXT_USE)
-        return;
-
-    if (addr_in_reg(arg)) {
-        if (liveness == LIVE) { /* spill */
-            x86_store(addr_reg(arg), arg);
-            addr_in_reg(arg) = FALSE;
-        } else {
-            if (address(arg).kind == TempKind)
-                free_temp(arg);
-        }
-        reg_descr_rem_addr(addr_reg(arg), arg);
-    } else {
-        if (liveness == LIVE) {
-            ;
-        } else {
-            if (address(arg).kind == TempKind)
-                free_temp(arg);
-        }
-    }
-}
-
-void update_tar_descriptors(X86_Reg res, unsigned tar, unsigned char liveness, int next_use)
-{
-    /* update the address descriptor table to indicate
-       that the value of tar is stored in res only */
-    addr_in_reg(tar) = TRUE;
-    addr_reg(tar) = res;
-
-    /* update the register descriptor table to indicate that
-       res contains the value of tar only */
-    clear_reg_descr(res);
-    reg_descr_add_addr(res, tar);
-
-    if (next_use == NO_NEXT_USE) {
-        if (liveness == LIVE) { /* spill */
-            x86_store(res, tar);
-            addr_in_reg(tar) = FALSE;
-        }
-        clear_reg_descr(res);
-    }
-}
-
-void compare_against_constant(unsigned a, long c)
+void x86_compare_against_constant(unsigned a, long c)
 {
     if (address(a).kind == IConstKind) {
         assert(0); /* can be folded */
@@ -1059,7 +999,7 @@ void compare_against_constant(unsigned a, long c)
         ExecNode *e;
         char *siz_str;
 
-        if (addr_in_reg(a)) {
+        if (addr_reg(a) != -1) {
             emitln("cmp %s, %lu", x86_reg_str[addr_reg(a)], c);
             return;
         }
@@ -1082,35 +1022,118 @@ void compare_against_constant(unsigned a, long c)
 
         if (e->attr.var.duration == DURATION_STATIC) {
             if (e->attr.var.linkage == LINKAGE_NONE)
-                emitln("cmp %s [%s@%s], %lu", siz_str, curr_func, e->attr.str, c);
+                emitln("cmp %s [$%s@%s], %lu", siz_str, curr_func, e->attr.str, c);
             else
-                emitln("cmp %s [%s], %lu", siz_str, e->attr.str, c);
+                emitln("cmp %s [$%s], %lu", siz_str, e->attr.str, c);
         } else {
             if (e->attr.var.is_param)
-                emitln("cmp %s [ebp+%d], %lu", siz_str, offset(a), c);
+                emitln("cmp %s [ebp+%d], %lu", siz_str, local_offset(a), c);
             else
-                emitln("cmp %s [ebp-%d], %lu", siz_str, -offset(a), c);
+                emitln("cmp %s [ebp-%d], %lu", siz_str, -local_offset(a), c);
         }
     } else if (address(a).kind == TempKind) {
-        if (addr_in_reg(a))
+        if (addr_reg(a) != -1)
             emitln("cmp %s, %lu", x86_reg_str[addr_reg(a)], c);
         else
             emitln("cmp dword [ebp-%d], %lu", -get_temp_offs(a), c);
     }
 }
 
-#define UPDATE_ADDRESSES(res_reg) {\
-    update_tar_descriptors(res_reg, tar, tar_liveness(i), tar_next_use(i));\
-    update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));\
-    update_arg_descriptors(arg2, arg2_liveness(i), arg2_next_use(i));\
-}
-#define UPDATE_ADDRESSES_UNARY(res_reg) {\
-    update_tar_descriptors(res_reg, tar, tar_liveness(i), tar_next_use(i));\
-    update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));\
+void update_arg_descriptors(unsigned arg, unsigned char liveness, int next_use)
+{
+    /* If arg is in a register r and arg has no next use, then
+       a) If arg is LIVE, generate spill code to move the value of r to memory
+       location of arg.
+       b) Mark the register and address descriptor tables to indicate that the
+       register r no longer contains the value of arg. */
+    if (const_addr(arg) || next_use)
+        return;
+
+    if (addr_reg(arg) != -1) {
+        if (liveness) /* spill */
+            x86_store(addr_reg(arg), arg);
+        else if (address(arg).kind == TempKind)
+            free_temp(arg);
+        reg_descr_tab[addr_reg(arg)] = 0;
+        addr_reg(arg) = -1;
+    } else {
+        if (liveness)
+            ;
+        else if (address(arg).kind == TempKind)
+            free_temp(arg);
+    }
 }
 
-static void x86_pre_call(int i);
+void update_tar_descriptors(X86_Reg res, unsigned tar, unsigned char liveness, int next_use)
+{
+    /* Note: maintain the order of the operations for x86_store() to work correctly */
+
+    /* update the address descriptor table to indicate
+       that the value of tar is stored in res only */
+    addr_reg(tar) = res;
+
+    /* update the register descriptor table to indicate that
+       res contains the value of tar only */
+    reg_descr_tab[res] = tar;
+
+    if (!next_use) {
+        if (liveness) /* spill */
+            x86_store(res, tar);
+        addr_reg(tar) = -1;
+        reg_descr_tab[res] = 0;
+    }
+}
+
+#define UPDATE_ADDRESSES(res_reg)\
+    do {\
+        update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));\
+        update_arg_descriptors(arg2, arg2_liveness(i), arg2_next_use(i));\
+        update_tar_descriptors(res_reg, tar, tar_liveness(i), tar_next_use(i));\
+    } while (0)
+#define UPDATE_ADDRESSES_UNARY(res_reg)\
+    do {\
+        update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));\
+        update_tar_descriptors(res_reg, tar, tar_liveness(i), tar_next_use(i));\
+    } while (0)
+
+static void x86_add(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_sub(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_mul(int i, unsigned tar, unsigned arg1, unsigned arg2);
 static void x86_div_rem(X86_Reg res, int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_div(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_rem(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_shl(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_shr(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_and(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_or(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_xor(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_eq(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_neq(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_lt(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_let(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_gt(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_get(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_neg(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_cmpl(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_not(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_ch(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_uch(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_sh(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_ush(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_addr_of(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_ind(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_asn(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_pre_call(int i);
+static void x86_post_call(unsigned arg2);
+static void x86_indcall(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_lab(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_ret(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_cbr(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_nop(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_switch(int i, unsigned tar, unsigned arg1, unsigned arg2);
+static void x86_case(int i, unsigned tar, unsigned arg1, unsigned arg2);
 
 void x86_add(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -1119,10 +1142,11 @@ void x86_add(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     pin_reg(res);
-    emitln("add %s, %s", x86_reg_str[res], get_operand(arg2));
+    emitln("add %s, %s", x86_reg_str[res], x86_get_operand(arg2));
     unpin_reg(res);
     UPDATE_ADDRESSES(res);
 }
+
 void x86_sub(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1130,10 +1154,11 @@ void x86_sub(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     pin_reg(res);
-    emitln("sub %s, %s", x86_reg_str[res], get_operand(arg2));
+    emitln("sub %s, %s", x86_reg_str[res], x86_get_operand(arg2));
     unpin_reg(res);
     UPDATE_ADDRESSES(res);
 }
+
 void x86_mul(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1141,10 +1166,11 @@ void x86_mul(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     pin_reg(res);
-    emitln("imul %s, %s", x86_reg_str[res], get_operand(arg2));
+    emitln("imul %s, %s", x86_reg_str[res], x86_get_operand(arg2));
     unpin_reg(res);
     UPDATE_ADDRESSES(res);
 }
+
 void x86_div_rem(X86_Reg res, int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     char *instr, *divop;
@@ -1163,7 +1189,7 @@ void x86_div_rem(X86_Reg res, int i, unsigned tar, unsigned arg1, unsigned arg2)
         instr = "idiv";
     }
     if (address(arg2).kind != IConstKind) {
-        divop = get_operand(arg2);
+        divop = x86_get_operand(arg2);
     } else {
         X86_Reg r;
 
@@ -1180,31 +1206,39 @@ void x86_div_rem(X86_Reg res, int i, unsigned tar, unsigned arg1, unsigned arg2)
     unpin_reg(X86_EDX);
     UPDATE_ADDRESSES(res);
 }
+
 void x86_div(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     x86_div_rem(X86_EAX, i, tar, arg1, arg2);
 }
+
 void x86_rem(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     x86_div_rem(X86_EDX, i, tar, arg1, arg2);
 }
+
 void x86_shl(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
 
-    res = get_reg(i);
-    x86_load(res, arg1);
     if (address(arg2).kind == IConstKind) {
+        res = get_reg(i);
+        x86_load(res, arg1);
         emitln("sal %s, %lu", x86_reg_str[res], address(arg2).cont.uval);
     } else {
-        if (!addr_in_reg(arg2) || addr_reg(arg2)!=X86_ECX) {
+        if (addr_reg(arg2) != X86_ECX) {
             spill_reg(X86_ECX);
             x86_load(X86_ECX, arg2);
         }
+        pin_reg(X86_ECX);
+        res = get_reg(i);
+        x86_load(res, arg1);
         emitln("sal %s, cl", x86_reg_str[res]);
+        unpin_reg(X86_ECX);
     }
     UPDATE_ADDRESSES(res);
 }
+
 void x86_shr(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     char *instr;
@@ -1212,19 +1246,24 @@ void x86_shr(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
     instr = (is_unsigned_int(get_type_category(instruction(i).type))) ? "shr" : "sar";
 
-    res = get_reg(i);
-    x86_load(res, arg1);
     if (address(arg2).kind == IConstKind) {
+        res = get_reg(i);
+        x86_load(res, arg1);
         emitln("%s %s, %lu", instr, x86_reg_str[res], address(arg2).cont.uval);
     } else {
-        if (!addr_in_reg(arg2) || addr_reg(arg2)!=X86_ECX) {
+        if (addr_reg(arg2) != X86_ECX) {
             spill_reg(X86_ECX);
             x86_load(X86_ECX, arg2);
         }
+        pin_reg(X86_ECX);
+        res = get_reg(i);
+        x86_load(res, arg1);
         emitln("%s %s, cl", instr, x86_reg_str[res]);
+        unpin_reg(X86_ECX);
     }
     UPDATE_ADDRESSES(res);
 }
+
 void x86_and(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1232,10 +1271,11 @@ void x86_and(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     pin_reg(res);
-    emitln("and %s, %s", x86_reg_str[res], get_operand(arg2));
+    emitln("and %s, %s", x86_reg_str[res], x86_get_operand(arg2));
     unpin_reg(res);
     UPDATE_ADDRESSES(res);
 }
+
 void x86_or(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1243,10 +1283,11 @@ void x86_or(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     pin_reg(res);
-    emitln("or %s, %s", x86_reg_str[res], get_operand(arg2));
+    emitln("or %s, %s", x86_reg_str[res], x86_get_operand(arg2));
     unpin_reg(res);
     UPDATE_ADDRESSES(res);
 }
+
 void x86_xor(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1254,10 +1295,11 @@ void x86_xor(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     pin_reg(res);
-    emitln("xor %s, %s", x86_reg_str[res], get_operand(arg2));
+    emitln("xor %s, %s", x86_reg_str[res], x86_get_operand(arg2));
     unpin_reg(res);
     UPDATE_ADDRESSES(res);
 }
+
 void x86_eq(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1265,13 +1307,14 @@ void x86_eq(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     pin_reg(res);
-    emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
+    emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
     unpin_reg(res);
     emitln("mov %s, 0", x86_reg_str[res]);
     emitln("sete %s", x86_lbreg_str[res]);
     /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
+
 void x86_neq(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1279,13 +1322,14 @@ void x86_neq(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     pin_reg(res);
-    emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
+    emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
     unpin_reg(res);
     emitln("mov %s, 0", x86_reg_str[res]);
     emitln("setne %s", x86_lbreg_str[res]);
     /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
+
 void x86_lt(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1293,13 +1337,14 @@ void x86_lt(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     pin_reg(res);
-    emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
+    emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
     unpin_reg(res);
     emitln("mov %s, 0", x86_reg_str[res]);
     emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"l":"b", x86_lbreg_str[res]);
     /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
+
 void x86_let(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1307,13 +1352,14 @@ void x86_let(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     pin_reg(res);
-    emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
+    emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
     unpin_reg(res);
     emitln("mov %s, 0", x86_reg_str[res]);
     emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"le":"be", x86_lbreg_str[res]);
     /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
+
 void x86_gt(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1321,13 +1367,14 @@ void x86_gt(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     pin_reg(res);
-    emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
+    emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
     unpin_reg(res);
     emitln("mov %s, 0", x86_reg_str[res]);
     emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"g":"a", x86_lbreg_str[res]);
     /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
+
 void x86_get(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1335,7 +1382,7 @@ void x86_get(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     pin_reg(res);
-    emitln("cmp %s, %s", x86_reg_str[res], get_operand(arg2));
+    emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
     unpin_reg(res);
     emitln("mov %s, 0", x86_reg_str[res]);
     emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"ge":"ae", x86_lbreg_str[res]);
@@ -1352,6 +1399,7 @@ void x86_neg(int i, unsigned tar, unsigned arg1, unsigned arg2)
     emitln("neg %s", x86_reg_str[res]);
     UPDATE_ADDRESSES_UNARY(res);
 }
+
 void x86_cmpl(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1361,6 +1409,7 @@ void x86_cmpl(int i, unsigned tar, unsigned arg1, unsigned arg2)
     emitln("not %s", x86_reg_str[res]);
     UPDATE_ADDRESSES_UNARY(res);
 }
+
 void x86_not(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1373,6 +1422,7 @@ void x86_not(int i, unsigned tar, unsigned arg1, unsigned arg2)
     /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES_UNARY(res);
 }
+
 void x86_ch(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1384,6 +1434,7 @@ void x86_ch(int i, unsigned tar, unsigned arg1, unsigned arg2)
     emitln("movsx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
     UPDATE_ADDRESSES_UNARY(res);
 }
+
 void x86_uch(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1395,6 +1446,7 @@ void x86_uch(int i, unsigned tar, unsigned arg1, unsigned arg2)
     emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
     UPDATE_ADDRESSES_UNARY(res);
 }
+
 void x86_sh(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1404,6 +1456,7 @@ void x86_sh(int i, unsigned tar, unsigned arg1, unsigned arg2)
     emitln("movsx %s, %s", x86_reg_str[res], x86_lwreg_str[res]);
     UPDATE_ADDRESSES_UNARY(res);
 }
+
 void x86_ush(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1413,6 +1466,7 @@ void x86_ush(int i, unsigned tar, unsigned arg1, unsigned arg2)
     emitln("movzx %s, %s", x86_reg_str[res], x86_lwreg_str[res]);
     UPDATE_ADDRESSES_UNARY(res);
 }
+
 void x86_addr_of(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1424,20 +1478,21 @@ void x86_addr_of(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
 void x86_ind(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    BSet *s;
+    // BSet *s;
     X86_Reg res;
     char *reg_str;
 
     /* spill any target currently in a register */
-    if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
-        int j;
-
-        for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
-            if (addr_descr_tab[j].in_reg)
-                spill_reg(addr_descr_tab[j].r);
-    } else {
-        spill_all();
-    }
+    // if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
+        // int j;
+//
+        // for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
+            // if (addr_descr_tab[j].in_reg)
+                // spill_reg(addr_descr_tab[j].r);
+    // } else {
+        // spill_all();
+    // }
+    spill_aliased_objects();
 
     res = get_reg(i);
     x86_load(res, arg1);
@@ -1465,6 +1520,7 @@ void x86_ind(int i, unsigned tar, unsigned arg1, unsigned arg2)
     }
     UPDATE_ADDRESSES_UNARY(res);
 }
+
 void x86_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
@@ -1491,6 +1547,7 @@ void x86_pre_call(int i)
         emitln("push eax");
     }
 }
+
 void x86_post_call(unsigned arg2)
 {
     int na, nb;
@@ -1503,23 +1560,24 @@ void x86_post_call(unsigned arg2)
     if (nb)
         emitln("add esp, %d", nb);
 }
+
 void x86_indcall(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     x86_pre_call(i);
-    emitln("call %s", get_operand(arg1));
+    emitln("call %s", x86_get_operand(arg1));
     x86_post_call(arg2);
+    update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
     if (tar)
         update_tar_descriptors(X86_EAX, tar, tar_liveness(i), tar_next_use(i));
-    update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
 }
+
 void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     x86_pre_call(i);
-    emitln("call %s", address(arg1).cont.var.e->attr.str);
+    emitln("call $%s", address(arg1).cont.var.e->attr.str);
     x86_post_call(arg2);
     if (tar)
         update_tar_descriptors(X86_EAX, tar, tar_liveness(i), tar_next_use(i));
-    /*update_arg_descriptors(arg1, instruction(i).liveness[1], instruction(i).next_use[1]);*/
 }
 
 #define emit_lab(n)         emitln(".L%ld:", n)
@@ -1531,42 +1589,43 @@ void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
 void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    BSet *s;
-    Token ty;
+    // BSet *s;
+    Token cat;
     X86_Reg res, pr;
     char *siz_str, *reg_str;
 
     /* force the reload of any target currently in a register */
-    if ((s=get_pointer_targets(i, address_nid(tar))) != NULL) {
-        int j;
+    // if ((s=get_pointer_targets(i, address_nid(tar))) != NULL) {
+        // int j;
+//
+        // for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
+            // if (addr_descr_tab[j].in_reg)
+                // spill_reg(addr_descr_tab[j].r);
+    // } else {
+        // spill_all();
+    // }
+    spill_aliased_objects();
 
-        for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
-            if (addr_descr_tab[j].in_reg)
-                spill_reg(addr_descr_tab[j].r);
-    } else {
-        spill_all();
-    }
-
-    ty = get_type_category(instruction(i).type);
-    if (ty==TOK_STRUCT || ty==TOK_UNION) {
+    cat = get_type_category(instruction(i).type);
+    if (cat==TOK_STRUCT || cat==TOK_UNION) {
         int cluttered;
 
         cluttered = 0;
-        if (!addr_in_reg(arg1) || addr_reg(arg1)!=X86_ESI) {
-            if (reg_descr_tab[X86_ESI].naddrs != 0) {
+        if (addr_reg(arg1) != X86_ESI) {
+            if (!reg_is_empty(X86_ESI)) {
                 cluttered |= 1;
                 emitln("push esi");
             }
             x86_load(X86_ESI, arg1);
         }
-        if (!addr_in_reg(tar) || addr_reg(tar)!=X86_EDI) {
-            if (reg_descr_tab[X86_EDI].naddrs != 0) {
+        if (addr_reg(tar) != X86_EDI) {
+            if (!reg_is_empty(X86_EDI)) {
                 cluttered |= 2;
                 emitln("push edi");
             }
             x86_load(X86_EDI, tar);
         }
-        if (reg_descr_tab[X86_ECX].naddrs != 0) {
+        if (!reg_is_empty(X86_ECX)) {
             cluttered |= 4;
             emitln("push ecx");
         }
@@ -1585,7 +1644,7 @@ void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
     res = get_reg(i);
     x86_load(res, arg1);
     pin_reg(res);
-    switch (ty) {
+    switch (cat) {
     case TOK_SHORT:
     case TOK_UNSIGNED_SHORT:
         siz_str = "word";
@@ -1603,7 +1662,7 @@ void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
         reg_str = x86_reg_str[res];
         break;
     }
-    if (!addr_in_reg(tar)) {
+    if (addr_reg(tar) == -1) {
         if ((pr=get_empty_reg()) == -1) {
             pr = get_unpinned_reg();
             assert(pr != -1);
@@ -1616,17 +1675,20 @@ void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
     emitln("mov %s [%s], %s", siz_str, x86_reg_str[pr], reg_str);
     unpin_reg(res);
 done:
-    update_arg_descriptors(tar, tar_liveness(i), tar_next_use(i));
     update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
+    update_arg_descriptors(tar, tar_liveness(i), tar_next_use(i));
 }
+
 void x86_lab(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     emit_lab(address(tar).cont.val);
 }
+
 void x86_jmp(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     emit_jmp(address(tar).cont.val);
 }
+
 void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     Token cat;
@@ -1646,7 +1708,7 @@ void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
     cat = get_type_category(&ty);
     if (cat!=TOK_STRUCT && cat!=TOK_UNION) {
-        emitln("push %s", get_operand(arg1));
+        emitln("push %s", x86_get_operand(arg1));
         arg_stack[arg_stack_top++] = 4;
     } else {
         unsigned siz, asiz;
@@ -1658,15 +1720,15 @@ void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
         arg_stack[arg_stack_top++] = asiz;
 
         cluttered = savnb = 0;
-        if (!addr_in_reg(arg1) || addr_reg(arg1)!=X86_ESI) {
-            if (reg_descr_tab[X86_ESI].naddrs != 0) {
+        if (addr_reg(arg1) != X86_ESI) {
+            if (!reg_is_empty(X86_ESI)) {
                 cluttered |= 1;
                 emitln("push esi");
                 savnb += 4;
             }
             x86_load(X86_ESI, arg1);
         }
-        if (reg_descr_tab[X86_EDI].naddrs != 0) {
+        if (!reg_is_empty(X86_EDI)) {
             cluttered |= 2;
             emitln("push edi");
             savnb += 4;
@@ -1675,7 +1737,7 @@ void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
             emitln("mov edi, esp");
         else
             emitln("lea edi, [esp+%d]", savnb);
-        if (reg_descr_tab[X86_ECX].naddrs != 0) {
+        if (!reg_is_empty(X86_ECX)) {
             cluttered |= 4;
             emitln("push ecx");
         }
@@ -1691,6 +1753,7 @@ void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
     }
     update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
 }
+
 void x86_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     if (!big_return) {
@@ -1699,31 +1762,33 @@ void x86_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
         unsigned siz;
 
         siz = compute_sizeof(instruction(i).type);
-        /*if (reg_descr_tab[X86_ESI].naddrs != 0)
+        /*if (!reg_is_empty(X86_ESI))
             spill_reg(X86_ESI);*/
         x86_load(X86_ESI, arg1);
         modified[X86_ESI] = TRUE;
-        if (reg_descr_tab[X86_EDI].naddrs != 0)
+        if (!reg_is_empty(X86_EDI))
             spill_reg(X86_EDI);
         emitln("mov edi, dword [ebp-4]");
         modified[X86_EDI] = TRUE;
-        if (reg_descr_tab[X86_ECX].naddrs != 0)
+        if (!reg_is_empty(X86_ECX))
             spill_reg(X86_ECX);
         emitln("mov ecx, %u", siz);
         emitln("rep movsb");
-        /*if (reg_descr_tab[X86_EAX].naddrs != 0)
+        /*if (!reg_is_empty(X86_EAX))
             spill_reg(X86_EAX);
         emitln("mov eax, dword [ebp-4]");*/
     }
     update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
 }
+
 void x86_cbr(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    compare_against_constant(tar, 0);
+    x86_compare_against_constant(tar, 0);
     update_arg_descriptors(tar, tar_liveness(i), tar_next_use(i)); /* do any spilling before the jumps */
     emit_jmpeq(address(arg2).cont.val);
     emit_jmp(address(arg1).cont.val);
 }
+
 void x86_nop(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     /* nothing */
@@ -1741,7 +1806,7 @@ void x86_switch(int i, unsigned tar, unsigned arg1, unsigned arg2)
     char **jmp_tab, def_lab[16];
     long ncase, min, max, interval_size, holes;
 
-    if (!addr_in_reg(arg1)) {
+    if (addr_reg(arg1) == -1) {
         res = get_reg(i);
         x86_load(res, arg1);
     } else {
@@ -1843,6 +1908,7 @@ linear_search:
         emit_jmpeq(address(arg1).cont.val);
     }
 }
+
 void x86_case(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     /* nothing */
@@ -1910,8 +1976,8 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     emit_prologln("\n; ==== start of definition of function `%s' ====", curr_func);
     SET_SEGMENT(TEXT_SEG, emit_prologln);
     if ((scs=get_sto_class_spec(decl_specs))==NULL || scs->op!=TOK_STATIC)
-        emit_prologln("global %s", curr_func);
-    emit_prologln("%s:", curr_func);
+        emit_prologln("global $%s", curr_func);
+    emit_prologln("$%s:", curr_func);
     if (big_return) {
         emit_prologln("pop eax");
         emit_prologln("xchg [esp], eax");
@@ -1974,13 +2040,12 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     temp_struct_size = 0;
     calls_to_fix_counter = 0;
     memset(modified, 0, sizeof(int)*X86_NREG);
-    /*memset(addr_descr_tab, 0, sizeof(AddrDescr)*nid_counter);*/
     free_all_temps();
-    /*memset(reg_descr_tab, 0, sizeof(RegDescr)*X86_NREG);*/
+    /*memset(addr_descr_tab, -1, nid_counter*sizeof(int));*/
+    /*memset(reg_descr_tab, 0, sizeof(unsigned)*X86_NREG);*/
+    dump_addr_descr_tab();
+    dump_reg_descr_tab();
 }
-
-static int x86_static_expr(ExecNode *e);
-static void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e);
 
 /*
  * Try to generate a NASM compatible expression.
@@ -2050,7 +2115,7 @@ int x86_static_expr(ExecNode *e)
                     L; emit_decl("-"); emit_decl("("); R;
                     emit_decl("*%u)", compute_sizeof(&ty));
                 } else { /* ptr-ptr */
-                    /* note: for this to work both operands must reside in the same segment! */
+                    /* Note: for this to work both operands must reside in the same segment! */
                     emit_decl("(");
                     L; emit_decl("-"); R;
                     emit_decl(")/%u", compute_sizeof(&ty));
@@ -2068,9 +2133,9 @@ int x86_static_expr(ExecNode *e)
         emit_decl("%lu", e->attr.uval);
         break;
     case StrLitExp:
-        emit_strln("_@S%d:", string_literal_counter);
+        emit_strln("_@S%d:", string_literals_counter);
         emit_raw_string(str_lits, e->attr.str);
-        emit_decl("_@S%d", string_literal_counter++);
+        emit_decl("_@S%d", string_literals_counter++);
         break;
     case IdExp:
         emit_decl("%s", e->attr.str);
@@ -2231,13 +2296,13 @@ void x86_allocate_static_objects(void)
                 emit_declln("alignb %u", al);
         }
         if (np->status != 0) { /* static local */
-            emit_declln("%s@%s:", (char *)np->status, np->declarator->str);
+            emit_declln("$%s@%s:", (char *)np->status, np->declarator->str);
         } else {
             TypeExp *scs;
 
             if ((scs=get_sto_class_spec(np->decl_specs))==NULL || scs->op!=TOK_STATIC)
                 emit_declln("global %s", np->declarator->str);
-            emit_declln("%s:", np->declarator->str);
+            emit_declln("$%s:", np->declarator->str);
         }
         if (initzr != NULL)
             x86_static_init(ty.decl_specs, ty.idl, initzr);
@@ -2248,4 +2313,24 @@ void x86_allocate_static_objects(void)
         np = np->next;
         free(tmp);
     }
+}
+
+void emit_raw_string(String *q, char *s)
+{
+    unsigned len, i;
+
+    len = strlen(s)+1;
+    for (i = len/4; i; i--) {
+        string_printf(q, "dd 0x%02x%02x%02x%02x\n", s[3], s[2], s[1], s[0]);
+        s += 4;
+    }
+    for (i = len%4; i; i--)
+        string_printf(q, "db 0x%02x\n", *s++);
+}
+
+int new_string_literal(unsigned a)
+{
+    emit_strln("_@S%d:", string_literals_counter);
+    emit_raw_string(str_lits, address(a).cont.str);
+    return string_literals_counter++;
 }
