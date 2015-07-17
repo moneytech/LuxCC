@@ -704,10 +704,10 @@ address(arg1).cont.val = _op_ address(arg1).cont.val
         // case OpCase:
 
         case OpCBr:
-            if (is_iconst(tar)) {
+            if (is_iconst(arg1)) {
                 instruction(i).op = OpJmp;
-                if (address(tar).cont.val)
-                    instruction(i).tar = arg1;
+                if (address(arg1).cont.val)
+                    ; //instruction(i).tar = tar;
                 else
                     instruction(i).tar = arg2;
             }
@@ -1031,7 +1031,7 @@ void build_CFG(void)
             }
             break;
         case OpCBr:
-            leader = lab2instr[address(instruction(i).arg1).cont.val];
+            leader = lab2instr[address(instruction(i).tar).cont.val];
             if (!*(p=&leader2node[leader-ic_func_first_instr])) {
                 *p = cfg_nodes_counter;
                 new_cfg_node(leader);
@@ -1071,7 +1071,7 @@ void build_CFG(void)
         case OpCBr: {
             unsigned succ1, succ2;
 
-            leader = lab2instr[address(instruction(last).arg1).cont.val];
+            leader = lab2instr[address(instruction(last).tar).cont.val];
             succ1 = leader2node[leader-ic_func_first_instr];
             leader = lab2instr[address(instruction(last).arg2).cont.val];
             succ2 = leader2node[leader-ic_func_first_instr];
@@ -1253,7 +1253,7 @@ void ic_if_statement(ExecNode *s)
 {
     /*
     ==> if (<e>) <stmt1> else <stmt2>
-    CBr <e>, L1, L2
+    CBr L1, <e>, L2
     L1:
     <stmt1>
     Jmp L3
@@ -1274,7 +1274,7 @@ void ic_if_statement(ExecNode *s)
     if (else_part)
         L3 = new_label();
 
-    emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L2);
+    emit_i(OpCBr, NULL, L1, ic_expression2(s->child[0]), L2);
     emit_label(L1);
     ic_statement(s->child[1]);
     emit_i(OpJmp, NULL, else_part?L3:L2, 0, 0);
@@ -1289,12 +1289,12 @@ void ic_while_statement(ExecNode *s)
 {
     /*
     ==> while (<e>) <stmt>
-    CBr <e>, L1, L3
+    CBr L1, <e>, L3
     L1:
     <stmt>
     Jmp L2
     L2:
-    CBr <e>, L1, L3
+    CBr L1, <e>, L3
     L3:
     ...
      */
@@ -1304,13 +1304,13 @@ void ic_while_statement(ExecNode *s)
     L2 = new_label();
     L3 = new_label();
 
-    emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
+    emit_i(OpCBr, NULL, L1, ic_expression2(s->child[0]), L3);
     emit_label(L1);
     push_break_target(L3), push_continue_target(L2);
     ic_statement(s->child[1]);
     pop_break_target(), pop_continue_target();
     emit_label(L2);
-    emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
+    emit_i(OpCBr, NULL, L1, ic_expression2(s->child[0]), L3);
     emit_label(L3);
 }
 
@@ -1322,7 +1322,7 @@ void ic_do_statement(ExecNode *s)
     <stmt>
     Jmp L2
     L2:
-    CBr <e>, L1, L3
+    CBr L1, <e>, L3
     L3:
     ...
      */
@@ -1344,7 +1344,7 @@ void ic_do_statement(ExecNode *s)
     ic_statement(s->child[1]);
     pop_break_target(), pop_continue_target();
     emit_label(L2);
-    emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
+    emit_i(OpCBr, NULL, L1, ic_expression2(s->child[0]), L3);
     emit_label(L3);
 }
 
@@ -1353,13 +1353,13 @@ void ic_for_statement(ExecNode *s)
     /*
     ==> for (<e1>; <e2>; <e3>) <stmt>
     <e1>
-    CBr <e2>, L1, L3
+    CBr L1, <e2>, L3
     L1:
     <stmt>
     Jmp L2
     L2:
     <e3>
-    CBr <e2>, L1, L3
+    CBr L1, <e2>, L3
     L3:
     ...
      */
@@ -1372,7 +1372,7 @@ void ic_for_statement(ExecNode *s)
     if (s->child[1] != NULL)
         ic_expression2(s->child[1]);
     if (s->child[0] != NULL)
-        emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
+        emit_i(OpCBr, NULL, L1, ic_expression2(s->child[0]), L3);
     emit_label(L1);
     push_break_target(L3), push_continue_target(L2);
     ic_statement(s->child[3]);
@@ -1381,7 +1381,7 @@ void ic_for_statement(ExecNode *s)
     if (s->child[2] != NULL)
         ic_expression2(s->child[2]);
     if (s->child[0] != NULL)
-        emit_i(OpCBr, NULL, ic_expression2(s->child[0]), L1, L3);
+        emit_i(OpCBr, NULL, L1, ic_expression2(s->child[0]), L3);
     else
         emit_i(OpJmp, NULL, L1, 0, 0);
     emit_label(L3);
@@ -1858,7 +1858,7 @@ scalar:
         ty = malloc(sizeof(Declaration));
         ty->decl_specs = ds;
         ty->idl = dct;
-        emit_i(OpIndAsn, ty, a1, ic_expr_convert(e, ty), 0);
+        emit_i(OpIndAsn, ty, 0, a1, ic_expr_convert(e, ty));
     }
 }
 // =============================================================================
@@ -1952,7 +1952,7 @@ void ic_indirect_assignment(unsigned ptr, unsigned expr, Declaration *ty)
         ptr = tmp;
     }
     /* *(ty *)ptr = expr */
-    emit_i(OpIndAsn, ty, ptr, expr, 0);
+    emit_i(OpIndAsn, ty, 0, ptr, expr);
 }
 
 unsigned get_step_size(ExecNode *e)
@@ -2056,7 +2056,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             L3 = new_label();
 
             a = new_temp_addr();
-            emit_i(OpCBr, NULL, ic_expression(e->child[0], FALSE), L1, L2);
+            emit_i(OpCBr, NULL, L1, ic_expression(e->child[0], FALSE), L2);
             emit_label(L1);
             emit_i(OpAsn, NULL, a, ic_expression(e->child[1], FALSE), 0);
             emit_i(OpJmp, NULL, L3, 0, 0);
@@ -2077,9 +2077,9 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             L4 = new_label();
 
             a = new_temp_addr();
-            emit_i(OpCBr, NULL, ic_expression(e->child[0], FALSE), L1, L2);
+            emit_i(OpCBr, NULL, L1, ic_expression(e->child[0], FALSE), L2);
             emit_label(L2);
-            emit_i(OpCBr, NULL, ic_expression(e->child[1], FALSE), L1, L3);
+            emit_i(OpCBr, NULL, L1, ic_expression(e->child[1], FALSE), L3);
             emit_label(L1);
             emit_i(OpAsn, NULL, a, true_addr, 0);
             emit_i(OpJmp, NULL, L4, 0, 0);
@@ -2100,9 +2100,9 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             L4 = new_label();
 
             a = new_temp_addr();
-            emit_i(OpCBr, NULL, ic_expression(e->child[0], FALSE), L1, L3);
+            emit_i(OpCBr, NULL, L1, ic_expression(e->child[0], FALSE), L3);
             emit_label(L1);
-            emit_i(OpCBr, NULL, ic_expression(e->child[1], FALSE), L2, L3);
+            emit_i(OpCBr, NULL, L2, ic_expression(e->child[1], FALSE), L3);
             emit_label(L2);
             emit_i(OpAsn, NULL, a, true_addr, 0);
             emit_i(OpJmp, NULL, L4, 0, 0);
@@ -2731,7 +2731,12 @@ void dump_ic(unsigned fn)
         case OpUCh:  print_unaop(p, "(unsigned char)");  break;
         case OpSh:   print_unaop(p, "(short)");          break;
         case OpUSh:  print_unaop(p, "(unsigned short)"); break;
-        case OpIndAsn: printf("*");
+        case OpIndAsn:
+            printf("*");
+            print_addr(p->arg1);
+            printf(" = ");
+            print_addr(p->arg2);
+            break;
         case OpAsn:    print_unaop(p, "");  break;
         case OpAddrOf: print_unaop(p, "&"); break;
         case OpInd:    print_unaop(p, "*"); break;
@@ -2755,9 +2760,9 @@ void dump_ic(unsigned fn)
             printf(", L%ld, %ld", address(p->arg1).cont.val, address(p->arg2).cont.val);
             break;
         case OpCBr:
-            printf("cbr ");
-            print_addr(p->tar);
-            printf(", L%ld, L%ld", address(p->arg1).cont.val, address(p->arg2).cont.val);
+            printf("cbr L%ld, ", address(p->tar).cont.val);
+            print_addr(p->arg1);
+            printf(", L%ld", address(p->arg2).cont.val);
             break;
 
         case OpArg:

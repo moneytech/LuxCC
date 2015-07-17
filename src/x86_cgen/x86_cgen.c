@@ -23,15 +23,6 @@
 #include "../dflow.h"
 #include "../str.h"
 
-// #define LIVE          0
-// #define DEAD         -1
-// #define NO_NEXT_USE  -1
-
-/*typedef struct QuadLiveNext QuadLiveNext;
-static struct QuadLiveNext {
-    char liveness[3];
-    int next_use[3];
-} *liveness_and_next_use;*/
 static unsigned char *liveness_and_next_use;
 static BSet *operand_liveness;
 static BSet *operand_next_use;
@@ -140,24 +131,8 @@ static int *addr_descr_tab;
 static unsigned reg_descr_tab[X86_NREG];
 #define addr_reg(a)     (addr_descr_tab[address_nid(a)])
 #define reg_is_empty(r) (reg_descr_tab[r] == 0)
-static
-void dump_addr_descr_tab(void)
-{
-    int i;
-
-    for (i = 0; i < nid_counter; i++)
-        if (addr_descr_tab[i] != -1)
-            printf("%s => %s\n", nid2sid_tab[i], x86_reg_str[addr_descr_tab[i]]);
-}
-static
-void dump_reg_descr_tab(void)
-{
-    int i;
-
-    for (i = 0; i < X86_NREG; i++)
-        if (!reg_is_empty(i))
-            printf("%s => %s\n", x86_reg_str[i], address_sid(reg_descr_tab[i]));
-}
+static void dump_addr_descr_tab(void);
+static void dump_reg_descr_tab(void);
 
 static X86_Reg get_empty_reg(void);
 static X86_Reg get_unpinned_reg(void);
@@ -277,14 +252,6 @@ void x86_cgen(FILE *outf)
  */
 void init_operand_table(BSet *block_LiveOut)
 {
-    // int i;
-
-    // memset(operand_liveness, DEAD, nid_counter*sizeof(char));
-    // memset(operand_next_use, NO_NEXT_USE, nid_counter*sizeof(int));
-    // for (i = bset_iterate(bLO); i != -1; i = bset_iterate(NULL)) {
-        // operand_liveness[i] = LIVE;
-        // /*operand_next_use[i] = NO_NEXT_USE;*/
-    // }
     bset_clear(operand_next_use);
     bset_cpy(operand_liveness, block_LiveOut);
 }
@@ -330,25 +297,6 @@ void compute_liveness_and_next_use(unsigned fn)
                 bset_delete(operand_next_use, tar_nid);\
             } else {\
                 liveness_and_next_use[i] &= ~0x08;\
-            }\
-        } while (0)
-/* for when tar isn't actually modified */
-#define update_tar2()\
-        do {\
-            int tar_nid;\
-\
-            tar_nid = address_nid(tar);\
-            if (bset_member(operand_liveness, tar_nid)) {\
-                liveness_and_next_use[i] |= 0x01;\
-            } else {\
-                liveness_and_next_use[i] &= ~0x01;\
-                bset_insert(operand_liveness, tar_nid);\
-            }\
-            if (bset_member(operand_next_use, tar_nid)) {\
-                liveness_and_next_use[i] |= 0x08;\
-            } else {\
-                liveness_and_next_use[i] &= ~0x08;\
-                bset_insert(operand_next_use, tar_nid);\
             }\
         } while (0)
 #define update_arg1()\
@@ -409,6 +357,7 @@ void compute_liveness_and_next_use(unsigned fn)
             case OpArg:
             case OpRet:
             case OpSwitch:
+            case OpCBr:
                 if (nonconst_addr(arg1))
                     update_arg1();
                 continue;
@@ -424,9 +373,9 @@ void compute_liveness_and_next_use(unsigned fn)
                 continue;
 
             case OpIndAsn:
-                update_tar2();
-                if (nonconst_addr(arg1))
-                    update_arg1();
+                update_arg1();
+                if (nonconst_addr(arg2))
+                    update_arg2();
                 continue;
 
             case OpCall:
@@ -437,11 +386,6 @@ void compute_liveness_and_next_use(unsigned fn)
                     update_arg1();
                 bset_union(operand_liveness, cg_node(fn).modified_static_objects);
                 bset_union(operand_liveness, address_taken_variables);
-                continue;
-
-            case OpCBr:
-                if (nonconst_addr(tar))
-                    update_tar2();
                 continue;
 
             default: /* other */
@@ -515,6 +459,7 @@ void print_liveness_and_next_use(unsigned fn)
             case OpArg:
             case OpRet:
             case OpSwitch:
+            case OpCBr:
                 if (nonconst_addr(arg1)) {
                     print_arg1();
                 }
@@ -531,10 +476,10 @@ void print_liveness_and_next_use(unsigned fn)
                 break;
 
             case OpIndAsn:
-                print_tar();
-                if (nonconst_addr(arg1)) {
+                print_arg1();
+                if (nonconst_addr(arg2)) {
                     printf(" | ");
-                    print_arg1();
+                    print_arg2();
                 }
                 break;
 
@@ -548,11 +493,6 @@ void print_liveness_and_next_use(unsigned fn)
                 }
                 break;
 
-            case OpCBr:
-                if (nonconst_addr(tar))
-                    print_tar();
-                break;
-
             default:
                 continue;
             } /* instructions */
@@ -562,8 +502,24 @@ void print_liveness_and_next_use(unsigned fn)
     }
 }
 
-// =======================================================================================
-// ---
+void dump_addr_descr_tab(void)
+{
+    int i;
+
+    for (i = 0; i < nid_counter; i++)
+        if (addr_descr_tab[i] != -1)
+            printf("%s => %s\n", nid2sid_tab[i], x86_reg_str[addr_descr_tab[i]]);
+}
+
+void dump_reg_descr_tab(void)
+{
+    int i;
+
+    for (i = 0; i < X86_NREG; i++)
+        if (!reg_is_empty(i))
+            printf("%s => %s\n", x86_reg_str[i], address_sid(reg_descr_tab[i]));
+}
+
 // =======================================================================================
 
 X86_Reg get_empty_reg(void)
@@ -1009,11 +965,6 @@ void x86_compare_against_constant(unsigned a, long c)
 
 void update_arg_descriptors(unsigned arg, unsigned char liveness, int next_use)
 {
-    /* If arg is in a register r and arg has no next use, then
-       a) If arg is LIVE, generate spill code to move the value of r to memory
-       location of arg.
-       b) Mark the register and address descriptor tables to indicate that the
-       register r no longer contains the value of arg. */
     if (const_addr(arg) || next_use)
         return;
 
@@ -1036,12 +987,7 @@ void update_tar_descriptors(X86_Reg res, unsigned tar, unsigned char liveness, i
 {
     /* Note: maintain the order of the operations for x86_store() to work correctly */
 
-    /* update the address descriptor table to indicate
-       that the value of tar is stored in res only */
     addr_reg(tar) = res;
-
-    /* update the register descriptor table to indicate that
-       res contains the value of tar only */
     reg_descr_tab[res] = tar;
 
     if (!next_use) {
@@ -1051,6 +997,8 @@ void update_tar_descriptors(X86_Reg res, unsigned tar, unsigned char liveness, i
         reg_descr_tab[res] = 0;
     }
 }
+
+// =======================================================================================
 
 #define UPDATE_ADDRESSES(res_reg)\
     do {\
@@ -1557,21 +1505,11 @@ void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
 void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    // BSet *s;
     Token cat;
-    X86_Reg res, pr;
-    char *siz_str, *reg_str;
+    X86_Reg pr;
+    char *siz_str;
 
     /* force the reload of any target currently in a register */
-    // if ((s=get_pointer_targets(i, address_nid(tar))) != NULL) {
-        // int j;
-//
-        // for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
-            // if (addr_descr_tab[j].in_reg)
-                // spill_reg(addr_descr_tab[j].r);
-    // } else {
-        // spill_all();
-    // }
     spill_aliased_objects();
 
     cat = get_type_category(instruction(i).type);
@@ -1579,19 +1517,19 @@ void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
         int cluttered;
 
         cluttered = 0;
-        if (addr_reg(arg1) != X86_ESI) {
+        if (addr_reg(arg2) != X86_ESI) {
             if (!reg_is_empty(X86_ESI)) {
                 cluttered |= 1;
                 emitln("push esi");
             }
-            x86_load(X86_ESI, arg1);
+            x86_load(X86_ESI, arg2);
         }
-        if (addr_reg(tar) != X86_EDI) {
+        if (addr_reg(arg1) != X86_EDI) {
             if (!reg_is_empty(X86_EDI)) {
                 cluttered |= 2;
                 emitln("push edi");
             }
-            x86_load(X86_EDI, tar);
+            x86_load(X86_EDI, arg1);
         }
         if (!reg_is_empty(X86_ECX)) {
             cluttered |= 4;
@@ -1609,42 +1547,73 @@ void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
         goto done;
     }
 
-    res = get_reg(i);
-    x86_load(res, arg1);
-    pin_reg(res);
+    /*
+     * <= 4 bytes indirect assignment.
+     */
+
+    if (addr_reg(arg1) == -1) {
+        pr = get_reg(i);
+        x86_load(pr, arg1);
+        pin_reg(pr);
+    } else {
+        pr = addr_reg(arg1);
+    }
+
     switch (cat) {
     case TOK_SHORT:
     case TOK_UNSIGNED_SHORT:
         siz_str = "word";
-        reg_str = x86_lwreg_str[res];
         break;
     case TOK_CHAR:
     case TOK_SIGNED_CHAR:
     case TOK_UNSIGNED_CHAR:
-        /* TODO: handle the case where the register is esi or edi */
         siz_str = "byte";
-        reg_str = x86_lbreg_str[res];
         break;
     default:
         siz_str = "dword";
-        reg_str = x86_reg_str[res];
         break;
     }
-    if (addr_reg(tar) == -1) {
-        if ((pr=get_empty_reg()) == -1) {
-            pr = get_unpinned_reg();
-            assert(pr != -1);
-            spill_reg(pr);
-        }
-        x86_load(pr, tar);
+
+    if (address(arg2).kind == IConstKind) {
+        emitln("mov %s [%s], %lu", siz_str, x86_reg_str[pr], address(arg2).cont.uval);
+    } else if (address(arg2).kind == StrLitKind) {
+        emitln("mov %s [%s], _@S%d", siz_str, x86_reg_str[pr], new_string_literal(arg2));
     } else {
-        pr = addr_reg(tar);
+        X86_Reg r;
+        char *reg_str;
+
+        if (addr_reg(arg2) == -1) {
+            if ((r=get_empty_reg()) == -1) {
+                r = get_unpinned_reg();
+                assert(r != -1);
+                spill_reg(r);
+            }
+            x86_load(r, arg2);
+        } else {
+            r = addr_reg(arg2);
+        }
+        switch (cat) {
+        case TOK_SHORT:
+        case TOK_UNSIGNED_SHORT:
+            reg_str = x86_lwreg_str[r];
+            break;
+        case TOK_CHAR:
+        case TOK_SIGNED_CHAR:
+        case TOK_UNSIGNED_CHAR:
+            assert(r != X86_ESI); /* TBD */
+            assert(r != X86_EDI); /* TBD */
+            reg_str = x86_lbreg_str[r];
+            break;
+        default:
+            reg_str = x86_reg_str[r];
+            break;
+        }
+        emitln("mov %s [%s], %s", siz_str, x86_reg_str[pr], reg_str);
     }
-    emitln("mov %s [%s], %s", siz_str, x86_reg_str[pr], reg_str);
-    unpin_reg(res);
+    unpin_reg(pr);
 done:
     update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
-    update_arg_descriptors(tar, tar_liveness(i), tar_next_use(i));
+    update_arg_descriptors(arg2, arg2_liveness(i), arg2_next_use(i));
 }
 
 void x86_lab(int i, unsigned tar, unsigned arg1, unsigned arg2)
@@ -1751,10 +1720,10 @@ void x86_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
 void x86_cbr(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    x86_compare_against_constant(tar, 0);
-    update_arg_descriptors(tar, tar_liveness(i), tar_next_use(i)); /* do any spilling before the jumps */
+    x86_compare_against_constant(arg1, 0);
+    update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i)); /* do any spilling before the jumps */
     emit_jmpeq(address(arg2).cont.val);
-    emit_jmp(address(arg1).cont.val);
+    emit_jmp(address(tar).cont.val);
 }
 
 void x86_nop(int i, unsigned tar, unsigned arg1, unsigned arg2)

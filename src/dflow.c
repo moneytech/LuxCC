@@ -339,6 +339,7 @@ void live_init_block(unsigned b, int exit_bb)
         case OpArg:
         case OpRet:
         case OpSwitch:
+        case OpCBr:
             if (nonconst_addr(arg1))
                 add_UEVar(arg1);
             continue;
@@ -364,18 +365,16 @@ void live_init_block(unsigned b, int exit_bb)
             // add_VarDefPoint(tar);
             continue;
 
-        case OpIndAsn: {
+        case OpIndAsn:
             /*
              * Must-point-to information is required in order
              * to include pointer targets in the VarKill set.
              * For safety, underestimate ambiguous indirect
              * assignments (assume no variables are modified).
              */
-
-            if (nonconst_addr(arg1))
-                add_UEVar(arg1);
-            add_UEVar(tar);
-        }
+            if (nonconst_addr(arg2))
+                add_UEVar(arg2);
+            add_UEVar(arg1);
             continue;
 
         case OpCall:
@@ -394,11 +393,6 @@ void live_init_block(unsigned b, int exit_bb)
                 add_VarKill(tar);
                 // add_VarDefPoint(tar);
             }
-            continue;
-
-        case OpCBr:
-            if (nonconst_addr(tar))
-                add_UEVar(tar);
             continue;
 
         default:
