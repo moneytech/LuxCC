@@ -228,7 +228,9 @@ void dflow_Dom(unsigned fn)
             int j, i2;
             unsigned pred;
 
-            i2 = CFG_RPO[i];
+            i2 = cfg_node(i).RPO;
+            assert(i2 >= entry_bb);
+            assert(i2 <= exit_bb);
             if ((pred = cfg_node(i2).in.edges[0])) {
                 bset_cpy(temp, cfg_node(pred).Dom);
                 for (j = 1; j<cfg_node(i2).in.n && (pred=cfg_node(i2).in.edges[j]); j++)
@@ -376,50 +378,22 @@ void live_init_block(unsigned b, int exit_bb)
         }
             continue;
 
-        case OpCall: {
-            /*BSet *temp;
-            unsigned fn;
+        case OpCall:
+        case OpIndCall:
+            bset_cpy(live_tmp, address_taken_variables);
+            bset_diff(live_tmp, VarKill);
+            bset_union(UEVar, live_tmp);
 
-            fn = new_cg_node(address(arg1).cont.var.e->attr.str);
-            temp = bset_new(nid_counter);
-            bset_cpy(temp, cg_node(fn).MayRef);
-            bset_diff(temp, VarKill);
-            bset_union(UEVar, temp);
-            bset_free(temp);*/
-            if (tar) {
-                add_VarKill(tar);
-                // add_VarDefPoint(tar);
-            }
-        }
-            continue;
+            bset_cpy(live_tmp, modified_static_objects);
+            bset_diff(live_tmp, VarKill);
+            bset_union(UEVar, live_tmp);
 
-        case OpIndCall: {
-            /*BSet *s;
-
-            if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
-                unsigned j;
-
-                for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL)) {
-                    BSet *temp;
-                    unsigned fn;
-
-                    fn = new_cg_node(nid2sid_tab[j]);
-                    temp = bset_new(nid_counter);
-                    bset_cpy(temp, cg_node(fn).MayRef);
-                    bset_diff(temp, VarKill);
-                    bset_union(UEVar, temp);
-                    bset_free(temp);
-                }
-            } else {
-                bset_fill(UEVar, nid_counter);
-            }*/
-            if (nonconst_addr(arg1))
+            if (instruction(i).op==OpIndCall && nonconst_addr(arg1))
                 add_UEVar(arg1);
             if (tar) {
                 add_VarKill(tar);
                 // add_VarDefPoint(tar);
             }
-        }
             continue;
 
         case OpCBr:
@@ -481,8 +455,7 @@ void dflow_LiveOut(unsigned fn)
         for (i = entry_bb; i <= exit_bb; i++) {
             unsigned succ, b;
 
-            // b = RCFG_RPO[i];
-            b = i;
+            b = cfg_node(i).PO;
             assert(b >= entry_bb);
             assert(b <= exit_bb);
             /*

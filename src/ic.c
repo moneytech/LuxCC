@@ -389,10 +389,9 @@ void ic_free_all(void)
 static unsigned curr_cg_node;
 static void print_CG(void);
 static unsigned ic_func_first_instr;
-static void disassemble(unsigned fn);
+static void dump_ic(unsigned fn);
 static void build_CFG(void);
 static void print_CFG(unsigned fn);
-static void number_CFGs(void);
 static void number_CG(void);
 static void ic_simplify(void);
 
@@ -739,33 +738,25 @@ void ic_main(ExternId *func_def_list[])
         return;
 
     address_taken_variables = bset_new(nid_counter);
-    for (i = 0; i < atv_counter; i++) {
+    for (i = 0; i < atv_counter; i++)
         bset_insert(address_taken_variables, atv[i]);
-        // fprintf(stderr, ">> %s\n", nid2sid_tab[atv[i]]);
-    }
+    free(atv);
 
     /*
-     * We now have some of the call graph nodes.
-     * Pointer analysis may add some more and
-     * will connect the graph (add all the edges).
-     *
      * [!] Important: from now on the nid counter
      * must stand still for the analyses to work
      * correctly.
      */
-    // number_CFGs();
-    // dflow_PointOut();
-    // number_CG();
-    // dflow_summaries();
+    number_CG();
     // opt_main();
     for (i = 0; i < cg_nodes_counter; i++) {
-        // disassemble(i);
-        // print_CFG(i);
-        // dflow_Dom(i);
+        dump_ic(i);
+        print_CFG(i);
+        dflow_Dom(i);
         dflow_LiveOut(i);
         // dflow_ReachIn(i, i == cg_nodes_counter-1);
     }
-    // print_CG();
+    print_CG();
 }
 
 static void fix_gotos(void);
@@ -840,9 +831,6 @@ static int *visited, nunvisited;
 // =============================================================================
 // Call-Graph (CG)
 // =============================================================================
-/* post-order and reverse post-order of the CG */
-unsigned *CG_PO;
-unsigned *CG_RPO;
 static void number_subCG(unsigned n);
 static void print_CG_ordering(void);
 
@@ -852,11 +840,11 @@ void print_CG_ordering(void)
 
     printf("CG PO = [ ");
     for (i = 0; i < cg_nodes_counter; i++)
-        printf("%u, ", CG_PO[i]);
+        printf("%u, ", cg_node(i).PO);
     printf("]\n");
     printf("CG RPO = [ ");
     for (i = 0; i < cg_nodes_counter; i++)
-        printf("%u, ", CG_RPO[i]);
+        printf("%u, ", cg_node(i).RPO);
     printf("]\n");
 }
 
@@ -865,7 +853,9 @@ void print_CG(void)
     unsigned i;
 
     printf("Program Call-Graph\n");
+// #if DEBUG
     print_CG_ordering();
+// #endif
     printf("digraph {\n");
     for (i = 0; i < cg_nodes_counter; i++) {
         unsigned j;
@@ -880,11 +870,9 @@ void print_CG(void)
 
 void number_CG(void)
 {
-    unsigned n, j;
+    unsigned n, n2;
 
     visited = calloc(cg_nodes_counter, sizeof(int));
-    CG_PO = calloc(cg_nodes_counter, sizeof(unsigned));
-    CG_RPO = malloc(cg_nodes_counter*sizeof(unsigned));
     nunvisited = cg_nodes_counter;
     pocount = 0;
 
@@ -894,8 +882,8 @@ void number_CG(void)
                 break;
         number_subCG(n);
     }
-    for (j=cg_nodes_counter-1, n=0; n < cg_nodes_counter; j--, n++)
-        CG_RPO[n] = CG_PO[j];
+    for (n2=cg_nodes_counter-1, n=0; n < cg_nodes_counter; n2--, n++)
+        cg_node(n).RPO = cg_node(n2).PO;
 
     free(visited);
 }
@@ -915,22 +903,15 @@ void number_subCG(unsigned n)
                 number_subCG(succ);
         }
     }
-    assert(CG_PO[pocount] == 0);
-    CG_PO[pocount++] = n;
+    cg_node(pocount).PO = n;
+    ++pocount;
 }
 
 // =============================================================================
 // Control Flow Graph (CFG)
 // =============================================================================
-/* post-order and reverse post-order of the CFG */
-unsigned *CFG_PO;
-unsigned *CFG_RPO;
-/* post-order and reverse post-order of the reverse CFG */
-unsigned *RCFG_PO;
-unsigned *RCFG_RPO;
-
+static void number_CFG(void);
 static void number_subCFG(unsigned n);
-static void number_subRCFG(unsigned n);
 static void print_CFG_ordering(unsigned fn);
 
 void print_CFG_ordering(unsigned fn)
@@ -943,19 +924,12 @@ void print_CFG_ordering(unsigned fn)
 
     printf("CFG PO = [ ");
     for (i = entry_bb; i <= last_bb; i++)
-        printf("%u, ", CFG_PO[i]);
+        printf("%u, ", cfg_node(i).PO);
     printf("]\n");
+
     printf("CFG RPO = [ ");
     for (i = entry_bb; i <= last_bb; i++)
-        printf("%u, ", CFG_RPO[i]);
-    printf("]\n");
-    printf("RCFG PO = [ ");
-    for (i = entry_bb; i <= last_bb; i++)
-        printf("%u, ", RCFG_PO[i]);
-    printf("]\n");
-    printf("RCFG RPO = [ ");
-    for (i = entry_bb; i <= last_bb; i++)
-        printf("%u, ", RCFG_RPO[i]);
+        printf("%u, ", cfg_node(i).RPO);
     printf("]\n");
 }
 
@@ -967,7 +941,9 @@ void print_CFG(unsigned fn)
     if (cg_node_is_empty(fn))
         return;
 
+// #if DEBUG
     print_CFG_ordering(fn);
+// #endif
 
     printf("digraph {\n");
     for (i = cg_node(fn).bb_i; i <= cg_node(fn).bb_f; i++) {
@@ -984,50 +960,25 @@ void print_CFG(unsigned fn)
     printf("}\n");
 }
 
-void number_CFGs(void)
+void number_CFG(void)
 {
-    unsigned fn, n;
+    unsigned n, n2;
 
-    visited = calloc(cfg_nodes_counter, sizeof(int));
-    CFG_PO = calloc(cfg_nodes_counter, sizeof(unsigned));
-    CFG_RPO = malloc(cfg_nodes_counter*sizeof(unsigned));
-    pocount = 1;
+    visited = calloc(cg_node_nbb(curr_cg_node), sizeof(int));
+    pocount = cg_node(curr_cg_node).bb_i;
 
-    for (fn = 0; fn < cg_nodes_counter; fn++) {
-        unsigned j;
-
-        if (cg_node_is_empty(fn))
-            continue;
-        nunvisited = cg_node_nbb(fn);
-        while (nunvisited != 0) {
-            for (n = cg_node(fn).bb_i; n <= cg_node(fn).bb_f; n++)
-                if (!visited[n])
-                    break;
-            number_subCFG(n);
-        }
-        for (j=cg_node(fn).bb_f, n=cg_node(fn).bb_i; n <= cg_node(fn).bb_f; j--, n++)
-            CFG_RPO[n] = CFG_PO[j];
+    nunvisited = cg_node_nbb(curr_cg_node);
+    while (nunvisited != 0) {
+        for (n = cg_node(curr_cg_node).bb_i; n <= cg_node(curr_cg_node).bb_f; n++)
+            if (!visited[n-cg_node(curr_cg_node).bb_i])
+                break;
+        number_subCFG(n);
     }
-
-    memset(visited, 0, sizeof(int)*cfg_nodes_counter);
-    RCFG_PO = calloc(cfg_nodes_counter, sizeof(unsigned));
-    RCFG_RPO = malloc(cfg_nodes_counter*sizeof(unsigned));
-    pocount = 1;
-
-    for (fn = 0; fn < cg_nodes_counter; fn++) {
-        unsigned j;
-
-        if (cg_node_is_empty(fn))
-            continue;
-        nunvisited = cg_node_nbb(fn);
-        while (nunvisited != 0) {
-            for (n = cg_node(fn).bb_i; n <= cg_node(fn).bb_f; n++)
-                if (!visited[n])
-                    break;
-            number_subRCFG(n);
-        }
-        for (j=cg_node(fn).bb_f, n=cg_node(fn).bb_i; n <= cg_node(fn).bb_f; n++, j--)
-            RCFG_RPO[n] = RCFG_PO[j];
+    n = cg_node(curr_cg_node).bb_i;
+    n2 = cg_node(curr_cg_node).bb_f;
+    while (n <= cg_node(curr_cg_node).bb_f) {
+        cfg_node(n).RPO = cfg_node(n2).PO;
+        --n2, ++n;
     }
 
     free(visited);
@@ -1037,34 +988,17 @@ void number_subCFG(unsigned n)
 {
     int i;
 
-    visited[n] = TRUE;
+    visited[n-cg_node(curr_cg_node).bb_i] = TRUE;
     --nunvisited;
     for (i = 0; i < cfg_node(n).out.n; i++) {
         unsigned succ;
 
         succ = cfg_node(n).out.edges[i];
-        if (!visited[succ])
+        if (!visited[succ-cg_node(curr_cg_node).bb_i])
             number_subCFG(succ);
     }
-    assert(CFG_PO[pocount] == 0);
-    CFG_PO[pocount++] = n;
-}
-
-void number_subRCFG(unsigned n)
-{
-    int i;
-
-    visited[n] = TRUE;
-    --nunvisited;
-    for (i = 0; i < cfg_node(n).in.n; i++) {
-        unsigned pred;
-
-        pred = cfg_node(n).in.edges[i];
-        if (!visited[pred])
-            number_subRCFG(pred);
-    }
-    assert(RCFG_PO[pocount] == 0);
-    RCFG_PO[pocount++] = n;
+    cfg_node(pocount).PO = n;
+    ++pocount;
 }
 
 void build_CFG(void)
@@ -1196,6 +1130,7 @@ void build_CFG(void)
         }
     }
     free(leader2node);
+    number_CFG();
 }
 
 // =============================================================================
@@ -2756,7 +2691,7 @@ void print_unaop(Quad *i, char *op)
     print_addr(i->arg1);
 }
 
-void disassemble(unsigned fn)
+void dump_ic(unsigned fn)
 {
     unsigned i;
     unsigned first, last;

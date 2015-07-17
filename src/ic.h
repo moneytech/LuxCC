@@ -100,12 +100,13 @@ struct GraphEdge {
 #define ENTRY_NODE      1
 struct CFGNode { /* CFG node == basic block */
     unsigned leader, last;
-    GraphEdge out;  /* successors */
-    GraphEdge in;   /* predecessors */
-    BSet *UEVar;    /* upward-exposed variables in the block */
-    BSet *VarKill;  /* variables defined/killed in the block */
-    BSet *LiveOut;  /* variables live on exit from the block */
-    BSet *Dom;      /* blocks that dominate this block */
+    GraphEdge out;      /* successors */
+    GraphEdge in;       /* predecessors */
+    BSet *UEVar;        /* upward-exposed variables in the block */
+    BSet *VarKill;      /* variables defined/killed in the block */
+    BSet *LiveOut;      /* variables live on exit from the block */
+    BSet *Dom;          /* blocks that dominate this block */
+    unsigned PO, RPO;   /* post-order & reverse post-order numbers */
     // BSet *DEDef;    /* downward-exposed definitions */
     // BSet *DefKill;  /* all definition points obscured by this block */
     // BSet *ReachIn;  /* definitions that reach this block */
@@ -124,15 +125,8 @@ struct CGNode { /* CG node == function */
     ParamNid *pn;
     BSet *modified_static_objects;
     unsigned size_of_local_area;
+    unsigned PO, RPO;
 };
-
-extern unsigned *CFG_PO;
-extern unsigned *CFG_RPO;
-extern unsigned *RCFG_PO;
-extern unsigned *RCFG_RPO;
-
-extern unsigned *CG_PO;
-extern unsigned *CG_RPO;
 
 #define instruction(n)      (ic_instructions[n])
 #define address(n)          (ic_addresses[n])

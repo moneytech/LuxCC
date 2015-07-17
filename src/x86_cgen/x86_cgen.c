@@ -417,63 +417,31 @@ void compute_liveness_and_next_use(unsigned fn)
                 update_tar();
                 continue;
 
-            case OpInd: {
-                // int j;
-                // BSet *s;
-//
+            case OpInd:
                 update_tar();
                 update_arg1();
                 bset_union(operand_liveness, address_taken_variables);
-
-                // if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
-                    // for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
-                        // operand_liveness[j] = LIVE;
-                // } else {
-                    // /*
-                     // * TBD: if temporaries cannot cross basic block boundaries,
-                     // * only programmer declared variables need to be marked 'LIVE'.
-                     // */
-                    // memset(operand_liveness, LIVE, nid_counter*sizeof(char));
-                // }
-            }
                 continue;
 
             case OpIndAsn:
-                // tar_liveness(i) = operand_liveness[address_nid(tar)];
-                // tar_next_use(i) = operand_next_use[address_nid(tar)];
-                // operand_liveness[address_nid(tar)] = LIVE;
-                // operand_next_use[address_nid(tar)] = i;
                 update_tar2();
                 if (nonconst_addr(arg1))
                     update_arg1();
                 continue;
 
             case OpCall:
-                if (tar)
-                    update_tar();
-                /*
-                 * The called function should be able the see
-                 * the most recent value of static objects.
-                 */
-                bset_union(operand_liveness, cg_node(fn).modified_static_objects);
-                continue;
-
             case OpIndCall:
                 if (tar)
                     update_tar();
-                if (nonconst_addr(arg1))
+                if (instruction(i).op==OpIndCall && nonconst_addr(arg1))
                     update_arg1();
                 bset_union(operand_liveness, cg_node(fn).modified_static_objects);
+                bset_union(operand_liveness, address_taken_variables);
                 continue;
 
             case OpCBr:
-                if (nonconst_addr(tar)) {
-                    // tar_liveness(i) = operand_liveness[address_nid(tar)];
-                    // tar_next_use(i) = operand_next_use[address_nid(tar)];
-                    // operand_liveness[address_nid(tar)] = LIVE;
-                    // operand_next_use[address_nid(tar)] = i;
+                if (nonconst_addr(tar))
                     update_tar2();
-                }
                 continue;
 
             default: /* other */
