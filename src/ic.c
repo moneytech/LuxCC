@@ -458,9 +458,11 @@ void ic_simplify(void)
          * x = 0*y  => x = 0
          * x = 1*y  => x = y
          * x = -1*y => x = -y
+         * x = p*y  => x = y<<n (with p == 2^n)
          * x = y*0  => x = 0
          * x = y*1  => x = y
          * x = y*-1 => x = -y
+         * x = y*p  => x = y<<n
          */
         case OpMul:
             if (is_iconst(arg1)) {
@@ -474,6 +476,11 @@ void ic_simplify(void)
                 } else if (address(arg1).cont.val == -1) {
                     instruction(i).op = OpNeg;
                     instruction(i).arg1 = arg2;
+                } else if (is_po2(address(arg1).cont.uval)) {
+                    instruction(i).op = OpSHL;
+                    address(arg1).cont.uval = ilog2(address(arg1).cont.uval);
+                    instruction(i).arg1 = arg2;
+                    instruction(i).arg2 = arg1;
                 }
             } else if (is_iconst(arg2)) {
                 if (address(arg2).cont.val == 0) {
@@ -484,6 +491,9 @@ void ic_simplify(void)
                     instruction(i).op = OpAsn;
                 } else if (address(arg2).cont.val == -1) {
                     instruction(i).op = OpNeg;
+                } else if (is_po2(address(arg2).cont.uval)) {
+                    instruction(i).op = OpSHL;
+                    address(arg2).cont.uval = ilog2(address(arg2).cont.uval);
                 }
             }
             break;
@@ -747,7 +757,7 @@ void ic_main(ExternId *func_def_list[])
      * must stand still for the analyses to work
      * correctly.
      */
-    number_CG();
+    // number_CG();
     // opt_main();
     for (i = 0; i < cg_nodes_counter; i++) {
         dump_ic(i);
@@ -756,7 +766,7 @@ void ic_main(ExternId *func_def_list[])
         dflow_LiveOut(i);
         // dflow_ReachIn(i, i == cg_nodes_counter-1);
     }
-    print_CG();
+    // print_CG();
 }
 
 static void fix_gotos(void);

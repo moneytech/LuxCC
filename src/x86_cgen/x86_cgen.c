@@ -1012,6 +1012,13 @@ void update_tar_descriptors(X86_Reg res, unsigned tar, unsigned char liveness, i
         update_tar_descriptors(res_reg, tar, tar_liveness(i), tar_next_use(i));\
     } while (0)
 
+#define emit_lab(n)         emitln(".L%ld:", n)
+#define emit_jmp(target)    emitln("jmp .L%ld", target)
+#define emit_jmpeq(target)  emitln("je .L%ld", target)
+#define emit_jmpneq(target) emitln("jne .L%ld", target)
+#define emit_jl(target)     emitln("jl .L%ld", target)
+#define emit_jg(target)     emitln("jg .L%ld", target)
+
 static void x86_add(int i, unsigned tar, unsigned arg1, unsigned arg2);
 static void x86_sub(int i, unsigned tar, unsigned arg1, unsigned arg2);
 static void x86_mul(int i, unsigned tar, unsigned arg1, unsigned arg2);
@@ -1227,7 +1234,6 @@ void x86_eq(int i, unsigned tar, unsigned arg1, unsigned arg2)
     unpin_reg(res);
     emitln("mov %s, 0", x86_reg_str[res]);
     emitln("sete %s", x86_lbreg_str[res]);
-    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
 
@@ -1242,7 +1248,6 @@ void x86_neq(int i, unsigned tar, unsigned arg1, unsigned arg2)
     unpin_reg(res);
     emitln("mov %s, 0", x86_reg_str[res]);
     emitln("setne %s", x86_lbreg_str[res]);
-    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
 
@@ -1257,7 +1262,6 @@ void x86_lt(int i, unsigned tar, unsigned arg1, unsigned arg2)
     unpin_reg(res);
     emitln("mov %s, 0", x86_reg_str[res]);
     emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"l":"b", x86_lbreg_str[res]);
-    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
 
@@ -1272,7 +1276,6 @@ void x86_let(int i, unsigned tar, unsigned arg1, unsigned arg2)
     unpin_reg(res);
     emitln("mov %s, 0", x86_reg_str[res]);
     emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"le":"be", x86_lbreg_str[res]);
-    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
 
@@ -1287,7 +1290,6 @@ void x86_gt(int i, unsigned tar, unsigned arg1, unsigned arg2)
     unpin_reg(res);
     emitln("mov %s, 0", x86_reg_str[res]);
     emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"g":"a", x86_lbreg_str[res]);
-    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
 
@@ -1302,7 +1304,6 @@ void x86_get(int i, unsigned tar, unsigned arg1, unsigned arg2)
     unpin_reg(res);
     emitln("mov %s, 0", x86_reg_str[res]);
     emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"ge":"ae", x86_lbreg_str[res]);
-    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES(res);
 }
 
@@ -1335,7 +1336,6 @@ void x86_not(int i, unsigned tar, unsigned arg1, unsigned arg2)
     emitln("cmp %s, 0", x86_reg_str[res]);
     emitln("mov %s, 0", x86_reg_str[res]);
     emitln("sete %s", x86_lbreg_str[res]);
-    /*emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);*/
     UPDATE_ADDRESSES_UNARY(res);
 }
 
@@ -1394,20 +1394,10 @@ void x86_addr_of(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
 void x86_ind(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    // BSet *s;
     X86_Reg res;
     char *reg_str;
 
     /* spill any target currently in a register */
-    // if ((s=get_pointer_targets(i, address_nid(arg1))) != NULL) {
-        // int j;
-//
-        // for (j = bset_iterate(s); j != -1; j = bset_iterate(NULL))
-            // if (addr_descr_tab[j].in_reg)
-                // spill_reg(addr_descr_tab[j].r);
-    // } else {
-        // spill_all();
-    // }
     spill_aliased_objects();
 
     res = get_reg(i);
@@ -1495,13 +1485,6 @@ void x86_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
     if (tar)
         update_tar_descriptors(X86_EAX, tar, tar_liveness(i), tar_next_use(i));
 }
-
-#define emit_lab(n)         emitln(".L%ld:", n)
-#define emit_jmp(target)    emitln("jmp .L%ld", target)
-#define emit_jmpeq(target)  emitln("je .L%ld", target)
-#define emit_jmpneq(target) emitln("jne .L%ld", target)
-#define emit_jl(target)     emitln("jl .L%ld", target)
-#define emit_jg(target)     emitln("jg .L%ld", target)
 
 void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
@@ -1778,10 +1761,12 @@ void x86_switch(int i, unsigned tar, unsigned arg1, unsigned arg2)
         i = case_start;
         interval_size = max-min+1;
         holes = interval_size-ncase;
-        /*fprintf(stderr, "min=%d\n", min);
+#if 0
+        fprintf(stderr, "min=%d\n", min);
         fprintf(stderr, "max=%d\n", max);
         fprintf(stderr, "interval=%d\n", interval_size);
-        fprintf(stderr, "holes=%d\n", holes);*/
+        fprintf(stderr, "holes=%d\n", holes);
+#endif
         if (holes <= JMP_TAB_MAX_HOLES)
             goto jump_table;
     }

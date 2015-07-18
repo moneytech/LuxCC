@@ -20,5 +20,7 @@
 unsigned long hash2(unsigned long k);
 unsigned hash(char *s);
 int round_up(int num, int multiple);
+#define is_po2(x) (x!=0 && (x & (x-1))==0)
+int ilog2(unsigned val);
 
 #endif

@@ -32,3 +32,14 @@ int round_up(int num, int multiple)
     else
         return num+multiple-remainder;
 }
+
+int ilog2(unsigned val)
+{
+    int x = -1;
+
+    while (val != 0) {
+        val >>= 1;
+        ++x;
+    }
+    return x;
+}
