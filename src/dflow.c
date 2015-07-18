@@ -355,7 +355,6 @@ void live_init_block(unsigned b, int exit_bb)
              * references (assume all address-taken variables
              * are referenced).
              */
-            // bset_fill(live_tmp, nid_counter);
             bset_cpy(live_tmp, address_taken_variables);
             bset_diff(live_tmp, VarKill);
             bset_union(UEVar, live_tmp);

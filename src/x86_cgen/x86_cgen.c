@@ -1606,6 +1606,9 @@ void x86_lab(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
 void x86_jmp(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
+    if (instruction(i+1).op == OpLab
+    && address(instruction(i+1).tar).cont.val == address(tar).cont.val)
+        return;
     emit_jmp(address(tar).cont.val);
 }
 
@@ -1705,8 +1708,10 @@ void x86_cbr(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     x86_compare_against_constant(arg1, 0);
     update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i)); /* do any spilling before the jumps */
-    emit_jmpeq(address(arg2).cont.val);
-    emit_jmp(address(tar).cont.val);
+    if (address(tar).cont.val == address(instruction(i+1).tar).cont.val)
+        emit_jmpeq(address(arg2).cont.val);
+    else
+        emit_jmpneq(address(tar).cont.val);
 }
 
 void x86_nop(int i, unsigned tar, unsigned arg1, unsigned arg2)

@@ -757,7 +757,7 @@ void ic_main(ExternId *func_def_list[])
      * must stand still for the analyses to work
      * correctly.
      */
-    // number_CG();
+    number_CG();
     // opt_main();
     for (i = 0; i < cg_nodes_counter; i++) {
         dump_ic(i);
@@ -822,10 +822,14 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
 
     entry_label = new_label();
     exit_label = new_label();
+
+    /* build ENTRY node */
     emit_i(OpJmp, NULL, entry_label, 0, 0);
     emit_label(entry_label);
+
     ic_compound_statement(header->attr.e, FALSE);
-    emit_label(exit_label);
+    emit_label(exit_label); /* return's target */
+
     /* build EXIT node */
     exit_label = new_label();
     emit_i(OpJmp, NULL, exit_label, 0, 0);
@@ -1269,7 +1273,6 @@ void ic_if_statement(ExecNode *s)
     Jmp L3
     L2:
     <stmt2>
-    Jmp L3
     L3:
     ...
      */
@@ -1287,7 +1290,8 @@ void ic_if_statement(ExecNode *s)
     emit_i(OpCBr, NULL, L1, ic_expression2(s->child[0]), L2);
     emit_label(L1);
     ic_statement(s->child[1]);
-    emit_i(OpJmp, NULL, else_part?L3:L2, 0, 0);
+    if (else_part)
+        emit_i(OpJmp, NULL, L3, 0, 0);
     emit_label(L2);
     if (else_part) {
         ic_statement(s->child[2]);
@@ -1302,7 +1306,6 @@ void ic_while_statement(ExecNode *s)
     CBr L1, <e>, L3
     L1:
     <stmt>
-    Jmp L2
     L2:
     CBr L1, <e>, L3
     L3:
@@ -1330,7 +1333,6 @@ void ic_do_statement(ExecNode *s)
     ==> do <stmt> while (<e>)
     L1:
     <stmt>
-    Jmp L2
     L2:
     CBr L1, <e>, L3
     L3:
@@ -1345,7 +1347,6 @@ void ic_do_statement(ExecNode *s)
     iprev = ic_instructions_counter-1;
     if (instruction(iprev).op != OpLab) {
         L1 = new_label();
-        emit_i(OpJmp, NULL, L1, 0, 0);
         emit_label(L1);
     } else {
         L1 = instruction(iprev).tar;
@@ -1366,7 +1367,6 @@ void ic_for_statement(ExecNode *s)
     CBr L1, <e2>, L3
     L1:
     <stmt>
-    Jmp L2
     L2:
     <e3>
     CBr L1, <e2>, L3
