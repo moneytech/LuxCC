@@ -394,6 +394,86 @@ static void build_CFG(void);
 static void print_CFG(unsigned fn);
 static void number_CG(void);
 static void ic_simplify(void);
+static void ic_find_atv_in_expr(ExecNode *e);
+static void ic_find_atv_in_init(TypeExp *ds, TypeExp *dct, ExecNode *e);
+static void ic_find_atv(void);
+
+/* find address-taken variables in static initializer expression */
+void ic_find_atv_in_expr(ExecNode *e)
+{
+    if (e->kind.exp == OpExp) {
+        switch (e->attr.op) {
+        case TOK_UNARY_PLUS:
+        case TOK_UNARY_MINUS:
+        case TOK_COMPLEMENT:
+        case TOK_NEGATION:
+        case TOK_ADDRESS_OF:
+            ic_find_atv_in_expr(e->child[0]);
+            break;
+        case TOK_MUL:
+        case TOK_DIV:
+        case TOK_REM:
+        case TOK_LSHIFT:
+        case TOK_RSHIFT:
+        case TOK_BW_AND:
+        case TOK_BW_XOR:
+        case TOK_BW_OR:
+        case TOK_PLUS:
+        case TOK_MINUS:
+            ic_find_atv_in_expr(e->child[0]);
+            ic_find_atv_in_expr(e->child[1]);
+            break;
+        default:
+            break;
+        }
+    } else if (e->kind.exp == IdExp) {
+        new_atv(get_var_nid(e->attr.str, e->attr.var.scope));
+    }
+}
+
+/* find address-taken variables in static initializer */
+void ic_find_atv_in_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
+{
+    TypeExp *ts;
+
+    if (dct != NULL) {
+        if (dct->op != TOK_SUBSCRIPT) {
+            ic_find_atv_in_expr(e);
+            return;
+        }
+        if (e->kind.exp == StrLitExp)
+            return;
+        for (e = e->child[0]; e != NULL; e = e->sibling)
+            ic_find_atv_in_init(ds, dct->child, e);
+    } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
+        DeclList *d;
+
+        e = e->child[0];
+        d = ts->attr.dl;
+        for (; d != NULL; d = d->next) {
+            dct = d->decl->idl;
+            for (; e!=NULL && dct!=NULL; e=e->sibling, dct=dct->sibling)
+                ic_find_atv_in_init(d->decl->decl_specs, dct->child, e);
+            if (e == NULL)
+                break;
+        }
+    } else if (ts->op == TOK_UNION) {
+        e = e->child[0];
+        ic_find_atv_in_init(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e);
+    } else {
+        ic_find_atv_in_expr(e);
+    }
+}
+
+/* find address-taken variables in static initializers */
+void ic_find_atv(void)
+{
+    ExternId *np;
+
+    for (np = static_objects_list; np != NULL; np = np->next)
+        if (np->declarator->attr.e != NULL)
+            ic_find_atv_in_init(np->decl_specs, np->declarator->child, np->declarator->attr.e);
+}
 
 void ic_simplify(void)
 {
@@ -747,6 +827,7 @@ void ic_main(ExternId *func_def_list[])
     if (i == 0)
         return;
 
+    ic_find_atv();
     address_taken_variables = bset_new(nid_counter);
     for (i = 0; i < atv_counter; i++)
         bset_insert(address_taken_variables, atv[i]);

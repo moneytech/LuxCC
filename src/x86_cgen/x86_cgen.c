@@ -167,7 +167,7 @@ static void free_all_temps(void);
 void x86_cgen(FILE *outf)
 {
     unsigned i, j;
-    ExternId *ed, *func_def_list[512] = { NULL }, *func_decl_list[512] = { NULL };
+    ExternId *ed, *func_def_list[512] = { NULL }, *ext_sym_list[512] = { NULL };
 
     x86_output_file = outf;
     for (ed=get_extern_symtab(), i=j=0; ed != NULL; ed = ed->next) {
@@ -175,7 +175,7 @@ void x86_cgen(FILE *outf)
 
         if (ed->status == REFERENCED) {
             if ((scs=get_sto_class_spec(ed->decl_specs))==NULL || scs->op!=TOK_STATIC)
-                func_decl_list[j++] = ed;
+                ext_sym_list[j++] = ed;
         } else {
             if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION) {
                 func_def_list[i++] = ed;
@@ -222,7 +222,7 @@ void x86_cgen(FILE *outf)
     x86_allocate_static_objects();
     emit_declln("\n; == extern symbols");
     /* emit extern directives only for those symbols that were referenced */
-    for (j = 0; (ed=func_decl_list[j]) != NULL; j++) {
+    for (j = 0; (ed=ext_sym_list[j]) != NULL; j++) {
         int tmp;
 
         tmp = nid_counter;
@@ -1911,7 +1911,6 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     }
     emit_prologln("push ebp");
     emit_prologln("mov ebp, esp");
-    emit_prolog("sub esp, ");
 
     i = cfg_node(cg_node(fn).bb_i).leader;
     last_i = cfg_node(cg_node(fn).bb_f).last;
@@ -1939,7 +1938,8 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     }
     string_set_pos(func_body, pos_tmp);
 
-    emit_prologln("%d", -size_of_local_area);
+    if (size_of_local_area)
+        emit_prologln("sub esp, %d", -size_of_local_area);
     if (modified[X86_ESI]) emit_prologln("push esi");
     if (modified[X86_EDI]) emit_prologln("push edi");
     if (modified[X86_EBX]) emit_prologln("push ebx");
@@ -1992,26 +1992,26 @@ int x86_static_expr(ExecNode *e)
                 emit_decl("%u", compute_sizeof(&e->child[0]->type));
             break;
 #define R x86_static_expr(e->child[0]);
-        case TOK_UNARY_PLUS:    emit_decl("+"); R; break;
-        case TOK_UNARY_MINUS:   emit_decl("-"); R; break;
-        case TOK_COMPLEMENT:    emit_decl("~"); R; break;
-        case TOK_NEGATION:      emit_decl("!"); R; break;
-        case TOK_ADDRESS_OF:    R; break;
+        case TOK_UNARY_PLUS:    emit_decl("+"); return R;
+        case TOK_UNARY_MINUS:   emit_decl("-"); return R;
+        case TOK_COMPLEMENT:    emit_decl("~"); return R;
+        case TOK_NEGATION:      emit_decl("!"); return R;
+        case TOK_ADDRESS_OF:    return R;
 #undef R
 
 #define L x86_static_expr(e->child[0])
 #define R x86_static_expr(e->child[1])
-        case TOK_MUL:       L; emit_decl("*");  R; break;
-        case TOK_DIV:       L; emit_decl("/");  R; break;
-        case TOK_REM:       L; emit_decl("%");  R; break;
-        case TOK_LSHIFT:    L; emit_decl("<<"); R; break;
-        case TOK_RSHIFT:    L; emit_decl(">>"); R; break; /* NASM's right shift is always unsigned */
-        case TOK_BW_AND:    L; emit_decl("&");  R; break;
-        case TOK_BW_XOR:    L; emit_decl("^");  R; break;
-        case TOK_BW_OR:     L; emit_decl("|");  R; break;
+        case TOK_MUL:       if (L) return -1; emit_decl("*");  return R;
+        case TOK_DIV:       if (L) return -1; emit_decl("/");  return R;
+        case TOK_REM:       if (L) return -1; emit_decl("%");  return R;
+        case TOK_LSHIFT:    if (L) return -1; emit_decl("<<"); return R;
+        case TOK_RSHIFT:    if (L) return -1; emit_decl(">>"); return R; /* NASM's right shift is always unsigned */
+        case TOK_BW_AND:    if (L) return -1; emit_decl("&");  return R;
+        case TOK_BW_XOR:    if (L) return -1; emit_decl("^");  return R;
+        case TOK_BW_OR:     if (L) return -1; emit_decl("|");  return R;
         case TOK_PLUS:
             if (is_integer(get_type_category(&e->type))) {
-                L; emit_decl("+"); R;
+                if (L) return -1; emit_decl("+"); return R;
             } else {
                 int pi;
                 Declaration ty;
@@ -2022,29 +2022,29 @@ int x86_static_expr(ExecNode *e)
                 ty = e->child[pi]->type;
                 ty.idl = ty.idl->child;
                 if (pi == 0) {
-                    L; emit_decl("+("); R;
+                    if (L) return -1; emit_decl("+("); if (R) return -1;
                     emit_decl("*%u)", compute_sizeof(&ty));
                 } else {
-                    R; emit_decl("+("); L;
+                    if (R) return -1; emit_decl("+("); if (L) return -1;
                     emit_decl("*%u)", compute_sizeof(&ty));
                 }
             }
             break;
         case TOK_MINUS:
             if (is_integer(get_type_category(&e->child[0]->type))) { /* int-int */
-                L; emit_decl("-"); R;
+                if (L) return -1; emit_decl("-"); return R;
             } else {
                 Declaration ty;
 
                 ty = e->child[0]->type;
                 ty.idl = ty.idl->child;
                 if (is_integer(get_type_category(&e->child[1]->type))) { /* ptr-int */
-                    L; emit_decl("-"); emit_decl("("); R;
+                    if (L) return -1; emit_decl("-"); emit_decl("("); if (R) return -1;
                     emit_decl("*%u)", compute_sizeof(&ty));
                 } else { /* ptr-ptr */
                     /* Note: for this to work both operands must reside in the same segment! */
                     emit_decl("(");
-                    L; emit_decl("-"); R;
+                    if (L) return -1; emit_decl("-"); if (R) return -1;
                     emit_decl(")/%u", compute_sizeof(&ty));
                 }
             }
@@ -2094,7 +2094,7 @@ void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
                 emit_declln("times %u db 0", nelem-n);
         } else {
             /* handle elements with explicit initializer */
-            for (e = e->child[0]; e!=NULL && nelem!=0; e=e->sibling, --nelem)
+            for (e = e->child[0]; e!=NULL /*&& nelem!=0*/; e=e->sibling, --nelem)
                 x86_static_init(ds, dct->child, e);
 
             /* handle elements without explicit initializer */

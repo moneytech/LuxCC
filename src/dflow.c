@@ -379,10 +379,7 @@ void live_init_block(unsigned b, int exit_bb)
         case OpCall:
         case OpIndCall:
             bset_cpy(live_tmp, address_taken_variables);
-            bset_diff(live_tmp, VarKill);
-            bset_union(UEVar, live_tmp);
-
-            bset_cpy(live_tmp, modified_static_objects);
+            bset_union(live_tmp, modified_static_objects);
             bset_diff(live_tmp, VarKill);
             bset_union(UEVar, live_tmp);
 
