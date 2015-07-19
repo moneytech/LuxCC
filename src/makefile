@@ -36,5 +36,6 @@ dflow.o: dflow.h bset.h util.h ic.h parser.h lexer.h pre.h expr.h
 opt.o: opt.h bset.h util.h ic.h expr.h
 vm_cgen.o: vm_cgen/vm_cgen.h vm_cgen/vm_cgen.c decl.h parser.h lexer.h pre.h util.h expr.h stmt.h arena.h imp_lim.h error.h loc.h
 	$(CC) $(CFLAGS) vm_cgen/vm_cgen.c
-x86_cgen.o: x86_cgen/x86_cgen.c x86_cgen/x86_cgen.h decl.h util.h expr.h ic.h arena.h imp_lim.h error.h bset.h str.h dflow.h
+x86_cgen.o: x86_cgen/x86_cgen.c x86_cgen/x86_cgen.h decl.h parser.h lexer.h pre.h util.h expr.h ic.h arena.h imp_lim.h \
+error.h bset.h str.h dflow.h
 	$(CC) $(CFLAGS) x86_cgen/x86_cgen.c

@@ -75,19 +75,19 @@ const char *token_table[] = {
     "CONTINUE", "continue",
     "DEFAULT", "default",
     "DO", "do",
-    "DOUBLE", "double",
+    /*"DOUBLE", "double",*/
     "ELSE", "else",
     "ENUM", "enum",
     "EXTERN", "extern",
-    "FLOAT", "float",
+    /*"FLOAT", "float",*/
     "FOR", "for",
     "GOTO", "goto",
     "IF", "if",
-    "INLINE", "inline",
+    /*"INLINE", "inline",*/
     "INT", "int",
     "LONG", "long",
     "REGISTER", "register",
-    "RESTRICT", "restrict",
+    /*"RESTRICT", "restrict",*/
     "RETURN", "return",
     "SHORT", "short",
     "SIGNED", "signed",
@@ -143,19 +143,19 @@ static const struct Keyword {
     {"continue", TOK_CONTINUE},
     {"default", TOK_DEFAULT},
     {"do", TOK_DO},
-    {"double", TOK_DOUBLE},
+    /*{"double", TOK_DOUBLE},*/
     {"else", TOK_ELSE},
     {"enum", TOK_ENUM},
     {"extern", TOK_EXTERN},
-    {"float", TOK_FLOAT},
+    /*{"float", TOK_FLOAT},*/
     {"for", TOK_FOR},
     {"goto", TOK_GOTO},
     {"if", TOK_IF},
-    {"inline", TOK_INLINE},
+    /*{"inline", TOK_INLINE},*/
     {"int", TOK_INT},
     {"long", TOK_LONG},
     {"register", TOK_REGISTER},
-    {"restrict", TOK_RESTRICT},
+    /*{"restrict", TOK_RESTRICT},*/
     {"return", TOK_RETURN},
     {"short", TOK_SHORT},
     {"signed", TOK_SIGNED},

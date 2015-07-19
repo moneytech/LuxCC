@@ -69,19 +69,19 @@ typedef enum {
     TOK_CONTINUE,
     TOK_DEFAULT,
     TOK_DO,
-    TOK_DOUBLE,
+    /*TOK_DOUBLE,*/
     TOK_ELSE,
     TOK_ENUM,
     TOK_EXTERN,
-    TOK_FLOAT,
+    /*TOK_FLOAT,*/
     TOK_FOR,
     TOK_GOTO,
     TOK_IF,
-    TOK_INLINE,
+    /*TOK_INLINE,*/
     TOK_INT,
     TOK_LONG,
     TOK_REGISTER,
-    TOK_RESTRICT,
+    /*TOK_RESTRICT,*/
     TOK_RETURN,
     TOK_SHORT,
     TOK_SIGNED,
