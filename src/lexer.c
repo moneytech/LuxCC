@@ -6,12 +6,16 @@
 #include <assert.h>
 #include "util.h"
 #include "error.h"
+#include "arena.h"
 
 static int get_esc_seq_val(char **c);
 static void check_integer_constant(char *ic);
 
 static PreTokenNode *pre_tok; /* declared global so ERROR can access it */
 unsigned number_of_c_tokens;
+extern unsigned number_of_pre_tokens;
+static Arena *token_nodes_arena;
+static Arena *lexemes_arena;
 
 #define ERROR(...) emit_error(TRUE, pre_tok->src_file, pre_tok->src_line, pre_tok->src_column, __VA_ARGS__)
 
@@ -276,11 +280,13 @@ static void convert_string(char *s)
     *dest = *src; /* copy '\0' */
 }
 
-static TokenNode *new_token(Token token, PreTokenNode *ptok)
+static
+TokenNode *new_token(Token token, PreTokenNode *ptok)
 {
     TokenNode *temp;
 
-    temp = malloc(sizeof(TokenNode));
+    // temp = malloc(sizeof(TokenNode));
+    temp = arena_alloc(token_nodes_arena, sizeof(TokenNode));
     temp->token = token;
     temp->lexeme = ptok->lexeme;
     temp->src_line = ptok->src_line;
@@ -299,6 +305,9 @@ static TokenNode *new_token(Token token, PreTokenNode *ptok)
 TokenNode *lexer(PreTokenNode *pre_token_list)
 {
     TokenNode *first, *tok;
+
+    token_nodes_arena = arena_new(number_of_pre_tokens*sizeof(TokenNode));
+    lexemes_arena = arena_new(8192);
 
     pre_tok = pre_token_list;
     first = tok = malloc(sizeof(TokenNode)); /* dummy node, it's removed before return */
@@ -348,7 +357,8 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
                 }
             }
             tok->next = new_token(TOK_ICONST, pre_tok);
-            tok->next->lexeme = malloc(strlen(buf)+1); /* replace prev lexeme */
+            // tok->next->lexeme = malloc(strlen(buf)+1); /* replace prev lexeme */
+            tok->next->lexeme = arena_alloc(lexemes_arena, strlen(buf)+1);
             strcpy(tok->next->lexeme, buf);
         }
             break;
@@ -378,7 +388,8 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
                 ++new_len; /* make room for '\0' */
 
                 /* allocate all at one time */
-                tok->next->lexeme = malloc(new_len);
+                // tok->next->lexeme = malloc(new_len);
+                tok->next->lexeme = arena_alloc(lexemes_arena, new_len);
                 tok->next->lexeme[0] = '\0';
 
                 /* copy the strings to the buffer (pre_tok is
