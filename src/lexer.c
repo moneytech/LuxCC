@@ -293,7 +293,7 @@ static TokenNode *new_token(Token token, PreTokenNode *ptok)
 }
 
 /*
- * Take a sequence of preprocessing tokens and convert it to a sequence
+ * Take a sequence of preprocessing tokens and convert it in a sequence
  * of C tokens (roughly translation phases 5, 6, and part of 7 of the standard).
  */
 TokenNode *lexer(PreTokenNode *pre_token_list)

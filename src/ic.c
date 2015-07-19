@@ -841,13 +841,13 @@ void ic_main(ExternId *func_def_list[])
     number_CG();
     // opt_main();
     for (i = 0; i < cg_nodes_counter; i++) {
-        dump_ic(i);
-        print_CFG(i);
+        // dump_ic(i);
+        // print_CFG(i);
         dflow_Dom(i);
         dflow_LiveOut(i);
         // dflow_ReachIn(i, i == cg_nodes_counter-1);
     }
-    print_CG();
+    // print_CG();
 }
 
 static void fix_gotos(void);

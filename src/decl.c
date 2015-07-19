@@ -80,14 +80,14 @@ static Arena *tags_arena[MAX_NEST];
 void init_symbol_tables(void)
 {
     enum {
-        OIDS_ARENA_SIZE = 8192,
-        TAGS_ARENA_SIZE = 4096
+        OIDS_ARENA_SIZE = 64,
+        TAGS_ARENA_SIZE = 32
     };
     int i;
 
     for (i = 0; i < MAX_NEST; i++) {
-        oids_arena[i] = arena_new(OIDS_ARENA_SIZE);
-        tags_arena[i] = arena_new(TAGS_ARENA_SIZE);
+        oids_arena[i] = arena_new(sizeof(Symbol)*OIDS_ARENA_SIZE);
+        tags_arena[i] = arena_new(sizeof(TypeTag)*TAGS_ARENA_SIZE);
     }
 }
 
