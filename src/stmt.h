@@ -12,5 +12,6 @@ void empty_label_table(void);
 void resolve_gotos(void);
 void increase_switch_nesting_level(void);
 int decrease_switch_nesting_level(void);
+void alloc_stmt_buffers(void);
 
 #endif

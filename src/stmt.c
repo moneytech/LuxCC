@@ -4,10 +4,13 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <assert.h>
 #include "util.h"
 #include "decl.h"
 #include "expr.h"
 #include "error.h"
+#include "arena.h"
+#include "imp_lim.h"
 
 #define ERROR(tok, ...) emit_error(FALSE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
 
@@ -19,18 +22,15 @@
 
 #define WARNING(tok, ...) emit_warning((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
 
-#define HASH_SIZE           4093
-#define MAX_SWITCH_NEST     16
-#define HASH_VAL(s)         (hash(s)%HASH_SIZE)
-#define HASH_VAL2(x)        (hash2(x)%HASH_SIZE)
-
+#define HASH_SIZE     4093
+#define HASH_VAL(s)   (hash(s)%HASH_SIZE)
+#define HASH_VAL2(x)  (hash2(x)%HASH_SIZE)
 
 typedef struct UnresolvedGoto UnresolvedGoto;
-struct UnresolvedGoto {
+static struct UnresolvedGoto {
     ExecNode *s;
     UnresolvedGoto *next;
 } *unresolved_gotos_list;
-
 
 typedef struct SwitchLabel SwitchLabel;
 static struct SwitchLabel {
@@ -41,8 +41,38 @@ static struct SwitchLabel {
 
 static int switch_nesting_level = -1;
 static int switch_case_counter[MAX_SWITCH_NEST];
+static Arena *switch_arena[MAX_SWITCH_NEST];
+static int install_switch_label(long val, int is_default);
 
-static
+typedef struct LabelName LabelName;
+static struct LabelName {
+    char *name;
+    LabelName *next;
+} *label_names[HASH_SIZE];
+static LabelName *lookup_label_name(char *name);
+static int install_label_name(char *name);
+static Arena *label_names_arena;
+
+/* Return type of the current function being processed. Used for return statement. */
+static Declaration ret_ty;
+
+void set_return_type(TypeExp *ds, TypeExp *dct)
+{
+    ret_ty.decl_specs = ds;
+    ret_ty.idl = dct;
+}
+
+void alloc_stmt_buffers(void)
+{
+    int i;
+
+    for (i = 0; i < MAX_SWITCH_NEST; i++)
+        switch_arena[i] = arena_new(sizeof(SwitchLabel)*8);
+    label_names_arena = arena_new(sizeof(LabelName)*16);
+}
+
+// =============================================================================
+
 int install_switch_label(long val, int is_default)
 {
     SwitchLabel *np;
@@ -62,7 +92,7 @@ int install_switch_label(long val, int is_default)
 
     if (np == NULL) {
         /* not found in this switch nesting level */
-        np = malloc(sizeof(SwitchLabel));
+        np = arena_alloc(switch_arena[switch_nesting_level], sizeof(SwitchLabel));
         np->val = val;
         np->is_default = is_default;
         np->next = switch_labels[switch_nesting_level][h];
@@ -75,35 +105,22 @@ int install_switch_label(long val, int is_default)
 
 void increase_switch_nesting_level(void)
 {
-    switch_case_counter[++switch_nesting_level] = 1;
+    ++switch_nesting_level;
+    assert(switch_nesting_level < MAX_SWITCH_NEST);
+    switch_case_counter[switch_nesting_level] = 1;
 }
 
 int decrease_switch_nesting_level(void)
 {
-    int i;
-    SwitchLabel *np, *temp;
+    assert(switch_nesting_level >= 0);
+    memset(&switch_labels[switch_nesting_level][0], 0, sizeof(SwitchLabel *)*HASH_SIZE);
+    arena_reset(switch_arena[switch_nesting_level]);
 
-    for (i = 0; i < HASH_SIZE; i++) {
-        if (switch_labels[switch_nesting_level][i] != NULL) {
-            for (np = switch_labels[switch_nesting_level][i]; np != NULL;) {
-                temp = np;
-                np = np->next;
-                free(temp);
-            }
-            switch_labels[switch_nesting_level][i] = NULL;
-        }
-    }
     return switch_case_counter[switch_nesting_level--];
 }
 
+// =============================================================================
 
-typedef struct LabelName LabelName;
-static struct LabelName {
-    char *name;
-    LabelName *next;
-} *label_names[HASH_SIZE];
-
-static
 LabelName *lookup_label_name(char *name)
 {
     LabelName *np;
@@ -114,7 +131,6 @@ LabelName *lookup_label_name(char *name)
     return NULL; /* not found */
 }
 
-static
 int install_label_name(char *name)
 {
     unsigned h;
@@ -126,7 +142,7 @@ int install_label_name(char *name)
             break;
 
     if (np == NULL) {
-        np = malloc(sizeof(LabelName));
+        np = arena_alloc(label_names_arena, sizeof(LabelName));
         np->name = strdup(name);
         np->next = label_names[h];
         label_names[h] = np;
@@ -138,19 +154,8 @@ int install_label_name(char *name)
 
 void empty_label_table(void)
 {
-    int i;
-    LabelName *np, *temp;
-
-    for (i = 0; i < HASH_SIZE; i++) {
-        if (label_names[i] != NULL) {
-            for (np = label_names[i]; np != NULL;) {
-                temp = np;
-                np = np->next;
-                free(temp);
-            }
-            label_names[i] = NULL;
-        }
-    }
+    memset(label_names, 0, sizeof(LabelName *)*HASH_SIZE);
+    arena_reset(label_names_arena);
 }
 
 /*
@@ -173,28 +178,14 @@ void resolve_gotos(void)
         p = p->next;
         free(temp);
     }
-
     unresolved_gotos_list = NULL;
 }
 
-/*
- * Return type of the current function being processed.
- * Used for return statement.
- */
-static Declaration ret_ty;
+// =============================================================================
 
-void set_return_type(TypeExp *ds, TypeExp *dct)
-{
-    ret_ty.decl_specs = ds;
-    ret_ty.idl = dct;
-}
-
-/*
- * This functions is similar to expr.c's one, but also considers
- * as scalars to array and function expressions.
- */
-static
-int is_scalar(Token op)
+/* This functions is similar to expr.c's one, but also
+ considers as scalars to array and function expressions. */
+static int is_scalar(Token op)
 {
     return (op==TOK_STAR || op==TOK_SUBSCRIPT || op==TOK_FUNCTION || is_integer(op));
 }

@@ -191,7 +191,8 @@ static int in_first_declaration_specifiers(void)
 ExternDecl *parser(TokenNode *tokens)
 {
     curr_tok = tokens;
-    init_symbol_tables(); /* initialize decl.c's tables */
+    init_symbol_tables();   /* initialize decl.c's tables */
+    alloc_stmt_buffers();
     return translation_unit();
 }
 

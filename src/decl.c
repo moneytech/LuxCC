@@ -39,7 +39,7 @@ extern int colored_diagnostics;
 
 static ExternId *external_declarations[HASH_SIZE];
 
-/* Note: messes up the table! */
+/* return a linked list of all the external declarations */
 ExternId *get_extern_symtab(void)
 {
     int i;
@@ -89,26 +89,6 @@ void init_symbol_tables(void)
         oids_arena[i] = arena_new(OIDS_ARENA_SIZE);
         tags_arena[i] = arena_new(TAGS_ARENA_SIZE);
     }
-}
-
-static Symbol *new_symbol(void)
-{
-    void *p;
-
-    if ((p=arena_alloc(oids_arena[nesting_level], sizeof(Symbol))) == NULL)
-        assert(0); /* TODO: print "out of memory" or something */
-
-    return p;
-}
-
-static TypeTag *new_tag(void)
-{
-    void *p;
-
-    if ((p=arena_alloc(tags_arena[nesting_level], sizeof(TypeTag))) == NULL)
-        assert(0); /* TODO: print "out of memory" or something */
-
-    return p;
 }
 
 static int is_sto_class_spec(Token t)
@@ -205,11 +185,6 @@ TypeExp *get_type_qual(TypeExp *d)
 /* pop_scope() just set a flag. This function performs the actual delete. */
 static void delete_scope(void)
 {
-    /*int i;
-    Symbol *np, *temp;
-    TypeTag *np2, *temp2;*/
-
-    /* test for underflow */
     assert(nesting_level >= 0);
 
     memset(&ordinary_identifiers[nesting_level][0], 0, sizeof(Symbol *)*HASH_SIZE);
@@ -218,24 +193,6 @@ static void delete_scope(void)
     memset(&tags[nesting_level][0], 0, sizeof(TypeTag *)*HASH_SIZE);
     arena_reset(tags_arena[nesting_level]);
 
-    /*for (i = 0; i < HASH_SIZE; i++) {
-        if (ordinary_identifiers[nesting_level][i] != NULL) {
-            for (np = ordinary_identifiers[nesting_level][i]; np != NULL;) {
-                temp = np;
-                np = np->next;
-                free(temp);
-            }
-            ordinary_identifiers[nesting_level][i] = NULL;
-        }
-        if (tags[nesting_level][i] != NULL) {
-            for (np2 = tags[nesting_level][i]; np2 != NULL;) {
-                temp2 = np2;
-                np2 = np2->next;
-                free(temp2);
-            }
-            tags[nesting_level][i] = NULL;
-        }
-    }*/
     --nesting_level;
     delayed_delete = FALSE;
 }
@@ -295,10 +252,9 @@ TypeTag *lookup_tag(char *id, int all)
     }
 }
 
+/* Note: the parser already take care of redefinitions */
 void install_tag(TypeExp *ty)
 {
-    /* Note: the parser already take care of redefinitions */
-
     unsigned h;
     TypeTag *np;
 
@@ -307,8 +263,7 @@ void install_tag(TypeExp *ty)
     if (delayed_delete)
         delete_scope();
 
-    // np = malloc(sizeof(TypeTag));
-    np = new_tag();
+    np = arena_alloc(tags_arena[nesting_level], sizeof(TypeTag));
     np->type = ty;
     h = HASH_VAL(ty->str);
     np->next = tags[nesting_level][h];
@@ -357,10 +312,8 @@ void install(TypeExp *decl_specs, TypeExp *declarator, int is_param)
         if (equal(declarator->str, np->declarator->str))
             break;
 
-    if (np == NULL) {
-        /* not found in this scope */
-        // np = malloc(sizeof(Symbol));
-        np = new_symbol();
+    if (np == NULL) { /* not found in this scope */
+        np = arena_alloc(oids_arena[nesting_level], sizeof(Symbol));
         np->decl_specs = decl_specs;
         np->declarator = declarator;
         np->is_param = (short)is_param;
@@ -771,7 +724,6 @@ void analyze_enumerator(TypeExp *e)
     }
 
     e->attr.e->attr.val = en_val;
-    // printf("en_val=%ld\n", en_val);
 error:
     install(&enum_ds, e, FALSE);
 }
@@ -1988,7 +1940,7 @@ incomp_error:
 }
 
 /*
- * If show_decayed is TRUE, array are shown as pointers to the element
+ * If show_decayed is TRUE, arrays are shown as pointers to the element
  * type and function designators are shown as pointers to the function
  * they designate.
  */

@@ -847,7 +847,7 @@ void ic_main(ExternId *func_def_list[])
         dflow_LiveOut(i);
         // dflow_ReachIn(i, i == cg_nodes_counter-1);
     }
-    // print_CG();
+    print_CG();
 }
 
 static void fix_gotos(void);

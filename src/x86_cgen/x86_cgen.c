@@ -1997,6 +1997,7 @@ int x86_static_expr(ExecNode *e)
         case TOK_COMPLEMENT:    emit_decl("~"); return R;
         case TOK_NEGATION:      emit_decl("!"); return R;
         case TOK_ADDRESS_OF:    return R;
+        case TOK_CAST:          return R; /* TOFIX */
 #undef R
 
 #define L x86_static_expr(e->child[0])
