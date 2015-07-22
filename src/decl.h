@@ -63,27 +63,32 @@ void analyze_type_name(Declaration *tn);
 void push_scope(void);
 void pop_scope(void);
 void restore_scope(void);
-void reset_enum_val(void);
 Symbol *lookup(char *id, int all);
 void install_tag(TypeExp *ty);
 TypeTag *lookup_tag(char *id, int all);
 int is_typedef_name(char *id);
+int get_curr_scope_id(void);
+
+ExternId *lookup_external_id(char *id);
+ExternId *new_extern_id_node(void);
+
+void alloc_decl_buffers(void);
+void reset_enum_val(void);
 char *stringify_type_exp(Declaration *d, int show_decayed);
-TypeExp *get_sto_class_spec(TypeExp *d);
-TypeExp *get_type_spec(TypeExp *d);
-TypeExp *get_type_qual(TypeExp *d);
-TypeExp *dup_declarator(TypeExp *d);
 int are_compatible(TypeExp *ds1, TypeExp *dct1, TypeExp *ds2, TypeExp *dct2, int qualified, int compose);
 int is_complete(char *tag);
 int is_struct_union_enum(Token t);
 int is_external_id(char *id);
 void set_attributes(ExecNode *e, Symbol *sym);
+
+TypeExp *get_sto_class_spec(TypeExp *d);
+TypeExp *get_type_spec(TypeExp *d);
+TypeExp *get_type_qual(TypeExp *d);
+TypeExp *dup_declarator(TypeExp *d);
+
 void push_struct_descriptor(TypeExp *ty);
 void pop_struct_descriptor(void);
 StructDescriptor *lookup_struct_descriptor(char *tag);
-void init_symbol_tables(void);
-ExternId *lookup_external_id(char *id);
 StructMember *get_member_descriptor(TypeExp *ty, char *id);
-int get_curr_scope_id(void);
 
 #endif

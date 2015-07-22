@@ -9,9 +9,11 @@
 #include "expr.h"
 #include "stmt.h"
 #include "error.h"
+#include "arena.h"
 
 static TokenNode *curr_tok;
 unsigned number_of_ast_nodes;
+static Arena *parser_arena;
 
 /*
  * All syntax errors are fatal.
@@ -49,7 +51,7 @@ static TypeExp *type_qualifier_list(void);
 static DeclList *parameter_type_list(void);
 static DeclList *parameter_list(void);
 static Declaration *parameter_declaration(void);
-// void identifier_list(void);
+/*void identifier_list(void);*/
 static Declaration *type_name(void);
 static TypeExp *typedef_name(void);
 static ExecNode *initializer(void);
@@ -96,10 +98,105 @@ static ExecNode *argument_expression_list(void);
 static ExecNode *primary_expression(void);
 static ExecNode *postfix(void);
 
+static ExecNode *new_stmt_node(StmtKind kind);
+static ExecNode *new_op_node(Token op);
+static ExecNode *new_pri_exp_node(ExpKind kind);
+static ExternDecl *new_extern_decl_node(void);
+
+/*
+ * Node allocation functions.
+ */
+
+ExternDecl *new_extern_decl_node(void)
+{
+    ExternDecl *n;
+
+    n = arena_alloc(parser_arena, sizeof(ExternDecl));
+    ++number_of_ast_nodes;
+    return n;
+}
+
+TypeExp *new_type_exp_node(void)
+{
+    TypeExp *n;
+
+    n = arena_alloc(parser_arena, sizeof(TypeExp));
+    memset(n, 0, sizeof(TypeExp));
+    n->info = curr_tok;
+    ++number_of_ast_nodes;
+    return n;
+}
+
+Declaration *new_declaration_node(void)
+{
+    Declaration *n;
+
+    n = arena_alloc(parser_arena, sizeof(Declaration));
+    ++number_of_ast_nodes;
+    return n;
+}
+
+DeclList *new_decl_list_node(void)
+{
+    DeclList *n;
+
+    n = arena_alloc(parser_arena, sizeof(DeclList));
+    ++number_of_ast_nodes;
+    return n;
+}
+
+ExecNode *new_exec_node(void)
+{
+    ExecNode *n;
+
+    n = arena_alloc(parser_arena, sizeof(ExecNode));
+    memset(n, 0, sizeof(ExecNode));
+    n->info = curr_tok;
+    ++number_of_ast_nodes;
+    return n;
+}
+
+ExecNode *new_stmt_node(StmtKind kind)
+{
+    ExecNode *n;
+
+    n = new_exec_node();
+    n->node_kind = StmtNode;
+    n->kind.exp = kind;
+    // n->info = curr_tok;
+    // ++number_of_ast_nodes;
+    return n;
+}
+
+ExecNode *new_op_node(Token op)
+{
+    ExecNode *n;
+
+    n = new_exec_node();
+    n->node_kind = ExpNode;
+    n->kind.exp = OpExp;
+    n->attr.op = op;
+    // n->info = curr_tok;
+    // ++number_of_ast_nodes;
+    return n;
+}
+
+ExecNode *new_pri_exp_node(ExpKind kind)
+{
+    ExecNode *n;
+
+    n = new_exec_node();
+    n->node_kind = ExpNode;
+    n->kind.exp = kind;
+    // n->info = curr_tok;
+    // ++number_of_ast_nodes;
+    return n;
+}
 
 /*
  * Helper functions.
  */
+
 static Token lookahead(int i)
 {
     TokenNode *p;
@@ -125,7 +222,7 @@ static void match(Token token)
     if (curr_tok->token == token)
         curr_tok = curr_tok->next;
     else
-        ERROR("expecting `%s'; found `%s'", token_table[token*2+1], curr_tok->lexeme);
+        ERROR("expecting `%s'; found `%s'", tok2lex(token), curr_tok->lexeme);
 }
 
 
@@ -191,8 +288,9 @@ static int in_first_declaration_specifiers(void)
 ExternDecl *parser(TokenNode *tokens)
 {
     curr_tok = tokens;
-    init_symbol_tables();   /* initialize decl.c's tables */
+    alloc_decl_buffers();
     alloc_stmt_buffers();
+    parser_arena = arena_new(4096);
     return translation_unit();
 }
 
@@ -227,7 +325,7 @@ ExternDecl *external_declaration(void)
     TypeExp *p, *q;
 
     q = NULL;
-    e = malloc(sizeof(ExternDecl));
+    e = new_extern_decl_node();
     e->sibling = NULL;
 
     p = declaration_specifiers(FALSE);
@@ -237,11 +335,9 @@ ExternDecl *external_declaration(void)
 
     if (lookahead(1) == TOK_LBRACE) {
         e->kind = FUNCTION_DEFINITION;
-        // e->ed.f = function_definition(p, q);
         e->d = function_definition(p, q);
     } else {
         e->kind = DECLARATION;
-        // e->ed.d = declaration(p, q);
         e->d = declaration(p, q);
     }
 
@@ -256,7 +352,7 @@ Declaration *function_definition(TypeExp *decl_specs, TypeExp *header)
     ExternId *ed;
     Declaration *f;
 
-    f = malloc(sizeof(Declaration));
+    f = new_declaration_node();
     f->decl_specs = decl_specs;
     f->idl = header;
     restore_scope(); /* restore parameters' scope */
@@ -284,7 +380,7 @@ Declaration *declaration(TypeExp *decl_specs, TypeExp *first_declarator)
 {
     Declaration *d;
 
-    d = malloc(sizeof(Declaration));
+    d = new_declaration_node();
     d->idl = NULL;
     if (decl_specs != NULL) { /* declaration() was called from external_declaration() */
         d->decl_specs = decl_specs;
@@ -383,17 +479,6 @@ TypeExp *init_declarator(TypeExp *decl_specs, TypeExp *first_declarator)
     return n;
 }
 
-static TypeExp *new_type_exp_node(void)
-{
-    TypeExp *new_node;
-
-    new_node = calloc(1, sizeof(TypeExp));
-    new_node->info = curr_tok;
-    ++number_of_ast_nodes;
-
-    return new_node;
-}
-
 /*
  * storage_class_specifier = "typedef" |
  *                           "extern" |
@@ -450,38 +535,23 @@ TypeExp *type_specifier(void)
 {
     TypeExp *n;
 
-    n = new_type_exp_node();
-    n->op = lookahead(1);
-
     switch (lookahead(1)) {
     case TOK_VOID:
-        match(TOK_VOID);
-        break;
     case TOK_CHAR:
-        match(TOK_CHAR);
-        break;
     case TOK_SHORT:
-        match(TOK_SHORT);
-        break;
     case TOK_INT:
-        match(TOK_INT);
-        break;
     case TOK_LONG:
-        match(TOK_LONG);
-        break;
     case TOK_SIGNED:
-        match(TOK_SIGNED);
-        break;
     case TOK_UNSIGNED:
-        match(TOK_UNSIGNED);
+        n = new_type_exp_node();
+        n->op = lookahead(1);
+        match(n->op);
         break;
     case TOK_STRUCT:
     case TOK_UNION:
-        free(n);
         n = struct_or_union_specifier();
         break;
     case TOK_ENUM:
-        free(n);
         n = enum_specifier();
         break;
     case TOK_ID:
@@ -489,7 +559,6 @@ TypeExp *type_specifier(void)
          * assume in_first_type_specifier() said
          * lookahead(1) is a typedef-name.
          */
-        free(n);
         n = typedef_name();
         break;
     default:
@@ -541,7 +610,7 @@ TypeExp *struct_or_union_specifier(void)
         match(TOK_ID);
         if (lookahead(1) == TOK_LBRACE) {
             if (cur!=NULL && cur->type->attr.dl!=NULL)
-                ERROR("redefinition of `%s %s'", token_table[n->op*2+1], n->str);
+                ERROR("redefinition of `%s %s'", tok2lex(n->op), n->str);
             push_struct_descriptor(n);
             match(TOK_LBRACE);
             n->attr.dl = struct_declaration_list();
@@ -551,7 +620,9 @@ TypeExp *struct_or_union_specifier(void)
             pop_struct_descriptor();
         }
     } else if (lookahead(1) == TOK_LBRACE) {
-        n->str = strdup("<anonymous>");
+        // n->str = strdup("<anonymous>");
+        n->str = arena_alloc(parser_arena, strlen("<anonymous>")+1);
+        strcpy(n->str, "<anonymous>");
         push_struct_descriptor(n);
         match(TOK_LBRACE);
         n->attr.dl = struct_declaration_list();
@@ -589,11 +660,11 @@ DeclList *struct_declaration_list(void)
 {
     DeclList *n, *temp;
 
-    n = temp = malloc(sizeof(DeclList));
+    n = temp = new_decl_list_node();
     n->decl = struct_declaration();
     n->next = NULL;
     while (in_first_specifier_qualifier_list()) {
-        temp->next = malloc(sizeof(DeclList));
+        temp->next = new_decl_list_node();
         temp = temp->next;
         temp->decl = struct_declaration();
         temp->next = NULL;
@@ -609,7 +680,7 @@ Declaration *struct_declaration(void)
 {
     Declaration *n;
 
-    n = malloc(sizeof(Declaration));
+    n = new_declaration_node();
 
     n->decl_specs = specifier_qualifier_list(FALSE);
     analyze_decl_specs(n->decl_specs);
@@ -739,7 +810,9 @@ TypeExp *enum_specifier(void)
 
         }
     } else if (lookahead(1) == TOK_LBRACE) {
-        n->str = strdup("<anonymous>");
+        // n->str = strdup("<anonymous>");
+        n->str = arena_alloc(parser_arena, strlen("<anonymous>")+1);
+        strcpy(n->str, "<anonymous>");
         match(TOK_LBRACE);
         n->attr.el = enumerator_list();
         if (lookahead(1) == TOK_COMMA)
@@ -1026,7 +1099,7 @@ TypeExp *type_qualifier_list(void)
         temp = type_qualifier();
         if (temp->op != n->op)
             n->op = TOK_CONST_VOLATILE;
-        free(temp);
+        // free(temp);
     }
 
     return n;
@@ -1051,9 +1124,9 @@ DeclList *parameter_type_list(void)
          */
         while (temp->next != NULL)
             temp = temp->next;
-        temp->next = malloc(sizeof(DeclList));
+        temp->next = new_decl_list_node();
         temp = temp->next;
-        temp->decl = malloc(sizeof(Declaration));
+        temp->decl = new_declaration_node();
         temp->decl->idl = new_type_exp_node();
         temp->decl->idl->op = TOK_ELLIPSIS;
         temp->decl->decl_specs = NULL;
@@ -1069,13 +1142,13 @@ DeclList *parameter_list(void)
 {
     DeclList *n, *temp;
 
-    n = temp = malloc(sizeof(DeclList));
+    n = temp = new_decl_list_node();
     n->next = NULL;
 
     n->decl = parameter_declaration();
     while (lookahead(1)==TOK_COMMA && lookahead(2)!=TOK_ELLIPSIS) {
         match(TOK_COMMA);
-        temp->next = malloc(sizeof(DeclList));
+        temp->next = new_decl_list_node();
         temp = temp->next;
         temp->next = NULL;
         temp->decl = parameter_declaration();
@@ -1092,7 +1165,7 @@ Declaration *parameter_declaration(void)
 {
     Declaration *n;
 
-    n = malloc(sizeof(Declaration));
+    n = new_declaration_node();
     n->idl = NULL;
 
     n->decl_specs = declaration_specifiers(FALSE);
@@ -1122,7 +1195,7 @@ Declaration *type_name(void)
 {
     Declaration *n;
 
-    n = malloc(sizeof(Declaration));
+    n = new_declaration_node();
     n->idl = NULL;
 
     n->decl_specs = specifier_qualifier_list(FALSE);
@@ -1200,19 +1273,6 @@ ExecNode *initializer_list(void)
 // =============================================================================
 // Statements
 // =============================================================================
-
-static ExecNode *new_stmt_node(StmtKind kind)
-{
-    ExecNode *new_node;
-
-    new_node = calloc(1, sizeof(ExecNode));
-    new_node->node_kind = StmtNode;
-    new_node->kind.exp = kind;
-    new_node->info = curr_tok;
-    ++number_of_ast_nodes;
-
-    return new_node;
-}
 
 /*
  * statement = labeled_statement |
@@ -1320,12 +1380,12 @@ DeclList *declaration_list(void)
 {
     DeclList *n, *temp;
 
-    n = temp = malloc(sizeof(DeclList));
+    n = temp = new_decl_list_node();
     n->next = NULL;
 
     n->decl = declaration(NULL, NULL);
     while (in_first_declaration_specifiers()) {
-        temp->next = malloc(sizeof(DeclList));
+        temp->next = new_decl_list_node();
         temp->next->next = NULL;
         temp->next->decl = declaration(NULL, NULL);
         temp = temp->next;
@@ -1493,33 +1553,6 @@ ExecNode *jump_statement(int in_loop, int in_switch)
 // =============================================================================
 // Expressions
 // =============================================================================
-
-static ExecNode *new_op_node(Token op)
-{
-    ExecNode *new_node;
-
-    new_node = calloc(1, sizeof(ExecNode));
-    new_node->node_kind = ExpNode;
-    new_node->kind.exp = OpExp;
-    new_node->attr.op = op;
-    new_node->info = curr_tok;
-    ++number_of_ast_nodes;
-
-    return new_node;
-}
-
-static ExecNode *new_pri_exp_node(ExpKind kind)
-{
-    ExecNode *new_node;
-
-    new_node = calloc(1, sizeof(ExecNode));
-    new_node->node_kind = ExpNode;
-    new_node->kind.exp = kind;
-    new_node->info = curr_tok;
-    ++number_of_ast_nodes;
-
-    return new_node;
-}
 
 /*
  * constant_expression = conditional_expression
@@ -2058,7 +2091,9 @@ ExecNode *primary_expression(void)
         extern char *current_function_name;
 
         n = new_pri_exp_node(StrLitExp);
-        n->attr.str = strdup(current_function_name);
+        // n->attr.str = strdup(current_function_name);
+        n->attr.str = arena_alloc(parser_arena, strlen(current_function_name)+1);
+        strcpy(n->attr.str, current_function_name);
         match(TOK_FUNC_NAME);
         break;
     }

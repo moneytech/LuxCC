@@ -76,19 +76,22 @@ static int scope_id;
 /* memory arenas used to maintain identifier and tag scopes */
 static Arena *oids_arena[MAX_NEST];
 static Arena *tags_arena[MAX_NEST];
+static Arena *decl_arena;
 
-void init_symbol_tables(void)
+void alloc_decl_buffers(void)
 {
-    enum {
-        OIDS_ARENA_SIZE = 64,
-        TAGS_ARENA_SIZE = 32
-    };
     int i;
 
     for (i = 0; i < MAX_NEST; i++) {
-        oids_arena[i] = arena_new(sizeof(Symbol)*OIDS_ARENA_SIZE);
-        tags_arena[i] = arena_new(sizeof(TypeTag)*TAGS_ARENA_SIZE);
+        oids_arena[i] = arena_new(sizeof(Symbol)*64);
+        tags_arena[i] = arena_new(sizeof(TypeTag)*32);
     }
+    decl_arena = arena_new(1024);
+}
+
+ExternId *new_extern_id_node(void)
+{
+    return arena_alloc(decl_arena, sizeof(ExternId));
 }
 
 static int is_sto_class_spec(Token t)
@@ -417,7 +420,7 @@ void install_external_id(TypeExp *decl_specs, TypeExp *declarator, ExtIdStatus s
     ExternId *np;
     unsigned h;
 
-    np = malloc(sizeof(ExternId));
+    np = new_extern_id_node();
     np->decl_specs = decl_specs;
     np->declarator = declarator;
     np->status = status;
@@ -530,7 +533,7 @@ void analyze_decl_specs(TypeExp *d)
             if (del_node) {
                 /* delete a type qualifier node */
                 prev->child = d->child;
-                free(d);
+                /*free(d);*/
                 d = prev->child;
             } else {
                 prev = d;
@@ -673,7 +676,7 @@ void analyze_decl_specs(TypeExp *d)
             break;
         } /* switch (state) */
         prev->child = d->child;
-        free(d);
+        /*free(d);*/
         d = prev->child;
     } /* while (TRUE) */
 }
@@ -717,7 +720,7 @@ void analyze_enumerator(TypeExp *e)
         }
         en_val = eval_int_const_expr(e->attr.e);
     } else {
-        e->attr.e = calloc(1, sizeof(ExecNode));
+        e->attr.e = new_exec_node();
         if (en_val+1 < en_val)
             WARNING(e, "overflow in enumeration value");
         ++en_val;
@@ -955,41 +958,41 @@ static TokenNode *typedef_name_info;
 static
 DeclList *new_param_decl(TypeExp *decl_specs, TypeExp *declarator)
 {
-    DeclList *new_node;
+    DeclList *n;
 
-    new_node = malloc(sizeof(DeclList));
-    new_node->decl = malloc(sizeof(Declaration));
-    new_node->decl->decl_specs = decl_specs;
-    new_node->decl->idl = declarator;
-    new_node->next = NULL;
+    n = new_decl_list_node();
+    n->decl = new_declaration_node();
+    n->decl->decl_specs = decl_specs;
+    n->decl->idl = declarator;
+    n->next = NULL;
 
-    return new_node;
+    return n;
 }
 
 TypeExp *dup_declarator(TypeExp *d)
 {
-    TypeExp *new_node;
+    TypeExp *n;
 
     if (d == NULL)
         return d;
 
-    new_node = malloc(sizeof(TypeExp));
-    *new_node = *d;
-    new_node->info = typedef_name_info;
+    n = new_type_exp_node();
+    *n = *d;
+    n->info = typedef_name_info;
     if (d->op == TOK_FUNCTION) {
         DeclList *p, *temp;
 
         p = d->attr.dl;
-        new_node->attr.dl = temp = new_param_decl(p->decl->decl_specs, dup_declarator(p->decl->idl));
+        n->attr.dl = temp = new_param_decl(p->decl->decl_specs, dup_declarator(p->decl->idl));
         p = p->next;
         while (p != NULL) {
             temp->next = new_param_decl(p->decl->decl_specs, dup_declarator(p->decl->idl));
             temp=temp->next, p=p->next;
         }
     }
-    new_node->child = dup_declarator(d->child);
+    n->child = dup_declarator(d->child);
 
-    return new_node;
+    return n;
 }
 
 static
@@ -1084,7 +1087,7 @@ common:
     }
     /* qualify the pointer */
     if (declarator->attr.el == NULL) {
-        declarator->attr.el = malloc(sizeof(TypeExp));
+        declarator->attr.el = new_type_exp_node();
         declarator->attr.el->op = temp->op;
     } else if (declarator->attr.el->op != temp->op) {
         declarator->attr.el->op = TOK_CONST_VOLATILE;
@@ -1105,7 +1108,7 @@ nothing:
             temp = decl_specs;
             while (temp->child != NULL)
                 temp = temp->child;
-            temp->child = calloc(1, sizeof(TypeExp));
+            temp->child = new_type_exp_node();
             temp->child->op = tq->op;
         }
     }
@@ -1149,11 +1152,10 @@ void analyze_type_name(Declaration *tn)
 {
     analyze_decl_specs(tn->decl_specs);
     replace_typedef_name(tn);
-    if (!examine_declarator(tn->decl_specs, tn->idl)) {
-        /* the type is faulty */
+    if (!examine_declarator(tn->decl_specs, tn->idl)) { /* the type is faulty */
         TypeExp *err_ty;
 
-        err_ty = malloc(sizeof(TypeExp));
+        err_ty = new_type_exp_node();
         err_ty->op = TOK_ERROR;
         err_ty->child = tn->decl_specs;
         tn->decl_specs = err_ty;
@@ -1201,14 +1203,14 @@ void analyze_parameter_declaration(Declaration *d)
                 /* 6.7.5.3#7 */
                 p->op = TOK_STAR;
                 if (p->attr.e != NULL) {
-                    free_expression_tree(p->attr.e);
+                    /*free_expression_tree(p->attr.e);*/
                     p->attr.e = NULL;
                 }
             } else if (p->op == TOK_FUNCTION) {
                 /* 6.7.5.3#8 */
                 TypeExp *temp;
 
-                temp = malloc(sizeof(TypeExp));
+                temp = new_type_exp_node();
                 *temp = *p;
                 p->child = temp;
                 p->op = TOK_STAR;
@@ -1266,7 +1268,7 @@ void analyze_function_definition(Declaration *f)
      * extern or static.
      */
     if ((spec=get_sto_class_spec(f->decl_specs))!=NULL && spec->op!=TOK_EXTERN && spec->op!=TOK_STATIC)
-        ERROR(spec, "invalid storage class `%s' in function definition", token_table[spec->op*2+1]);
+        ERROR(spec, "invalid storage class `%s' in function definition", tok2lex(spec->op));
 
     /* check that the function doesn't return an incomplete type */
     if (f->idl->child->child == NULL) {
@@ -1489,7 +1491,7 @@ void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
                 /* array with unspecified bounds */
 
                 /* complete the array type */
-                dct->attr.e = calloc(1, sizeof(ExecNode));
+                dct->attr.e = new_exec_node();
                 dct->attr.e->attr.val = size+1; /* make room for '\0' */
             }
         } else {
@@ -1512,7 +1514,7 @@ void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
                     analyze_initializer(ds, dct->child, e, const_expr);
 
                 /* complete the array type */
-                dct->attr.e = calloc(1, sizeof(ExecNode));
+                dct->attr.e = new_exec_node();
                 dct->attr.e->attr.val = i;
             }
         }
@@ -1647,7 +1649,7 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
      * specifiers in an external declaration.
      */
     if (scs!=NULL && (scs->op==TOK_AUTO||scs->op==TOK_REGISTER))
-        ERROR(scs, "file-scope declaration of `%s' specifies `%s'", declarator->str, token_table[scs->op*2+1]);
+        ERROR(scs, "file-scope declaration of `%s' specifies `%s'", declarator->str, tok2lex(scs->op));
 
     /*
      * 6.7
@@ -1738,7 +1740,7 @@ block_scope:
      */
     if (is_func_decl && scs!=NULL && scs->op!=TOK_TYPEDEF && scs->op!=TOK_EXTERN)
         ERROR(declarator->child, "function `%s' declared in block scope cannot have `%s' storage class",
-        declarator->str, token_table[scs->op*2+1]);
+        declarator->str, tok2lex(scs->op));
 
     if (is_initialized) {
         /*
@@ -1809,7 +1811,7 @@ void new_struct_member(TypeExp *decl_specs, TypeExp *declarator)
         if (equal(declarator->str, p->id))
             FATAL_ERROR(declarator, "duplicate member `%s'", declarator->str);
 
-    n = malloc(sizeof(StructMember));
+    n = arena_alloc(decl_arena, sizeof(StructMember));
     /* set tag and type */
     n->id = declarator->str;
     n->type.decl_specs = decl_specs;
@@ -1848,10 +1850,10 @@ void push_struct_descriptor(TypeExp *ty)
      */
     for (i = descr_stack_top; i >= 0; i--)
         if (*tag!='<' && equal(tag, descriptor_stack[i]->tag))
-            FATAL_ERROR(ty, "nested redefinition of `%s %s'", token_table[ty->op*2+1], tag);
+            FATAL_ERROR(ty, "nested redefinition of `%s %s'", tok2lex(ty->op), tag);
 
     /* push new descriptor */
-    n = malloc(sizeof(StructDescriptor));
+    n = arena_alloc(decl_arena, sizeof(StructDescriptor));
     n->tag = tag;
     n->size = n->alignment = 0;
     n->members = NULL;
@@ -1954,7 +1956,7 @@ char *stringify_type_exp(Declaration *d, int show_decayed)
     e = d->decl_specs;
     while (e != NULL) {
         if (e->op) {
-            strcat(ds, token_table[e->op*2+1]);
+            strcat(ds, tok2lex(e->op));
             if (is_struct_union_enum(e->op)) {
                 strcat(ds, " ");
                 strcat(ds, e->str);
@@ -2016,12 +2018,12 @@ char *stringify_type_exp(Declaration *d, int show_decayed)
         } else if (e->op == TOK_STAR) {
             if (e->child!=NULL && (e->child->op==TOK_SUBSCRIPT || e->child->op==TOK_FUNCTION)) {
                 if (e->attr.el != NULL)
-                    sprintf(temp, "(*%s%s)", token_table[e->attr.el->op*2+1], out);
+                    sprintf(temp, "(*%s%s)", tok2lex(e->attr.el->op), out);
                 else
                     sprintf(temp, "(*%s)", out);
             } else {
                 if (e->attr.el != NULL)
-                    sprintf(temp, "*%s%s", token_table[e->attr.el->op*2+1], out);
+                    sprintf(temp, "*%s%s", tok2lex(e->attr.el->op), out);
                 else
                     sprintf(temp, "*%s", out);
             }

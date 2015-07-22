@@ -2202,9 +2202,9 @@ scalar:
 
 void x86_allocate_static_objects(void)
 {
-    ExternId *np, *tmp;
+    ExternId *np;
 
-    for (np = static_objects_list; np != NULL; ) {
+    for (np = static_objects_list; np != NULL; np = np->next) {
         unsigned al;
         Declaration ty;
         ExecNode *initzr;
@@ -2236,10 +2236,6 @@ void x86_allocate_static_objects(void)
             x86_static_init(ty.decl_specs, ty.idl, initzr);
         else
             emit_declln("resb %u", compute_sizeof(&ty));
-
-        tmp = np;
-        np = np->next;
-        free(tmp);
     }
 }
 

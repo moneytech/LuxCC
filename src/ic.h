@@ -107,9 +107,11 @@ struct CFGNode { /* CFG node == basic block */
     BSet *LiveOut;      /* variables live on exit from the block */
     BSet *Dom;          /* blocks that dominate this block */
     unsigned PO, RPO;   /* post-order & reverse post-order numbers */
-    // BSet *DEDef;    /* downward-exposed definitions */
-    // BSet *DefKill;  /* all definition points obscured by this block */
-    // BSet *ReachIn;  /* definitions that reach this block */
+#if 0
+    BSet *DEDef;    /* downward-exposed definitions */
+    BSet *DefKill;  /* all definition points obscured by this block */
+    BSet *ReachIn;  /* definitions that reach this block */
+#endif
 };
 
 struct ParamNid {
@@ -122,7 +124,9 @@ struct CGNode { /* CG node == function */
     char *func_id;
     unsigned bb_i, bb_f;
     GraphEdge out;
+#if 0
     ParamNid *pn;
+#endif
     BSet *modified_static_objects;
     unsigned size_of_local_area;
     unsigned PO, RPO;

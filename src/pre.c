@@ -58,8 +58,7 @@ static char token_string[MAX_LOG_LINE_LEN+1];
 static PreTokenNode *curr_tok;
 static int curr_line, src_column;
 unsigned number_of_pre_tokens;
-static Arena *preprocessing_tokens_arena;
-static Arena *lexemes_arena;
+static Arena *pre_arena;
 
 static
 char *dup_lexeme(const char *s)
@@ -70,7 +69,7 @@ char *dup_lexeme(const char *s)
     if (!s)
         return NULL;
     len = strlen(s);
-    t = arena_alloc(lexemes_arena, len+1);
+    t = arena_alloc(pre_arena, len+1);
     memcpy(t, s, len+1);
     return t;
 }
@@ -80,10 +79,8 @@ PreTokenNode *new_node(PreToken token, char *lexeme)
 {
     PreTokenNode *temp;
 
-    // temp = malloc(sizeof(PreTokenNode));
-    temp = arena_alloc(preprocessing_tokens_arena, sizeof(PreTokenNode));
+    temp = arena_alloc(pre_arena, sizeof(PreTokenNode));
     temp->token = token;
-    // temp->lexeme = strdup(lexeme);
     temp->lexeme = dup_lexeme(lexeme);
     temp->next = NULL;
     temp->deleted = FALSE;
@@ -167,6 +164,7 @@ void init(char *file_path)
     fseek(fp, 0, SEEK_END);
     buf_size = ftell(fp); /* number of chars of the file */
     ++buf_size; /* make room for '\0' */
+    ++buf_size; /* so tokenize() doesn't read off limits when doing '*curr' */
     rewind(fp);
     curr = buf = malloc(buf_size);
 
@@ -202,7 +200,7 @@ void init(char *file_path)
      * the name of the file from where it was obtained. This is
      * used for diagnostic messages.
      */
-    curr_source_file = strdup(file_path);
+    curr_source_file = dup_lexeme(file_path); //strdup(file_path);
 }
 
 static void preprocessing_file(void);
@@ -216,9 +214,8 @@ PreTokenNode *preprocess(char *source_file)
 {
     PreTokenNode *token_list;
 
+    pre_arena = arena_new(2048);
     init(source_file);
-    preprocessing_tokens_arena = arena_new(sizeof(PreTokenNode)*2048);
-    lexemes_arena = arena_new(8192);
     token_list = curr_tok = tokenize();
     preprocessing_file();
 
@@ -981,7 +978,7 @@ void preprocessing_token(int skip)
             n = strlen(curr_tok->src_file);
             /*free(curr_tok->lexeme);*/
             // curr_tok->lexeme = malloc(n+2+1); /* +2 for "", +1 for '\0' */
-            curr_tok->lexeme = arena_alloc(lexemes_arena, n+2+1);
+            curr_tok->lexeme = arena_alloc(pre_arena, n+2+1);
             curr_tok->lexeme[0] = '\"';
             strcpy(curr_tok->lexeme+1, curr_tok->src_file);
             curr_tok->lexeme[n+1] = '\"';

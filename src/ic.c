@@ -380,10 +380,16 @@ void ic_free_all(void)
         bset_free(cfg_node(i).Dom);
     }
     free(cfg_nodes);
+    for (i = 0; i < cg_nodes_counter; i++) {
+        edge_free(&cg_node(i).out);
+        if (!cg_node_is_empty(i))
+            bset_free(cg_node(i).modified_static_objects);
+    }
+    free(cg_nodes);
     arena_destroy(id_table_arena);
     arena_destroy(temp_names_arena);
-    /*free_PointOut();*/
     free(lab2instr);
+    free(nid2sid_tab);
 }
 
 static unsigned curr_cg_node;
@@ -796,9 +802,7 @@ address(arg1).cont.val = _op_ address(arg1).cont.val
         case OpCBr:
             if (is_iconst(arg1)) {
                 instruction(i).op = OpJmp;
-                if (address(arg1).cont.val)
-                    ; //instruction(i).tar = tar;
-                else
+                if (!address(arg1).cont.val)
                     instruction(i).tar = arg2;
             }
             break;
@@ -877,6 +881,7 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
         ty.idl = p->decl->idl->child;
         param_offs += round_up(compute_sizeof(&ty), 4);
 
+#if 0
         if (cg_node(curr_cg_node).pn == NULL) {
             cg_node(curr_cg_node).pn = malloc(sizeof(ParamNid));
             cg_node(curr_cg_node).pn->sid = p->decl->idl->str;
@@ -892,6 +897,7 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
             pn->nid = -1;
             pn->next = NULL;
         }
+#endif
 
         p = p->next;
     }
@@ -1516,7 +1522,7 @@ void ic_return_statement(ExecNode *s)
     if (s->child[0] != NULL) {
         Declaration *ty;
 
-        ty = malloc(sizeof(Declaration));
+        ty = new_declaration_node();
         ty->decl_specs = (TypeExp *)s->child[1];
         ty->idl = (TypeExp *)s->child[2];
         emit_i(OpRet, ty, 0, ic_expr_convert(s->child[0], ty), 0);
@@ -1644,7 +1650,7 @@ void ic_compound_statement(ExecNode *s, int push_scope)
                     for (dct = dl->decl->idl; dct != NULL; dct = dct->sibling) {
                         ExternId *np;
 
-                        np = malloc(sizeof(ExternId));
+                        np = new_extern_id_node();
                         np->decl_specs = dl->decl->decl_specs;
                         np->declarator = dct;
                         np->status = (ExtIdStatus)cg_node(curr_cg_node).func_id;
@@ -1673,7 +1679,7 @@ void ic_compound_statement(ExecNode *s, int push_scope)
                     unsigned a;
                     ExecNode *id_node;
 
-                    id_node = calloc(1, sizeof(ExecNode));
+                    id_node = new_exec_node();
                     id_node->node_kind = ExpNode;
                     id_node->kind.exp = IdExp;
                     id_node->attr.var.id = dct->str;
@@ -1946,7 +1952,7 @@ scalar:
             emit_i(OpAdd, NULL, a3, a1, a2);
             a1 = a3;
         }
-        ty = malloc(sizeof(Declaration));
+        ty = new_declaration_node();
         ty->decl_specs = ds;
         ty->idl = dct;
         emit_i(OpIndAsn, ty, 0, a1, ic_expr_convert(e, ty));
@@ -2110,7 +2116,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
              *      *tmp = *tmp+123
              */
 
-            new_e = malloc(sizeof(ExecNode));
+            new_e = new_exec_node();
             *new_e = *e;
             switch (e->attr.op) {
                 case TOK_MUL_ASSIGN:    new_e->attr.op = TOK_MUL;     break;
@@ -2309,8 +2315,8 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                     a4 = new_temp_addr();
                     emit_i(OpMul, NULL, a4, a2, a3);
                     a5 = new_temp_addr();
-                    emit_i(OpSub, (Declaration *)1, a5, a1, a4); /* the '1' is a mark for later pointer analysis; */
-                } else { /* ptr-ptr */                           /* it signals ptr-int */
+                    emit_i(OpSub, NULL, a5, a1, a4);
+                } else { /* ptr-ptr */
                     a4 = new_temp_addr();
                     emit_i(OpSub, NULL, a4, a1, a2);
                     a5 = new_temp_addr();
@@ -2567,6 +2573,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
         address(a1).cont.nid = get_var_nid(e->attr.str, e->attr.var.scope);
         if (e->attr.var.duration == DURATION_AUTO)
             address(a1).cont.var.offset = location_get_offset(e->attr.str);
+#if 0
         if (e->attr.var.is_param) {
             ParamNid *pn;
 
@@ -2578,6 +2585,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             }
             assert(pn != NULL);
         }
+#endif
 
         if (is_addr || (cat=get_type_category(&e->type))==TOK_SUBSCRIPT || cat==TOK_FUNCTION) {
             unsigned a2;

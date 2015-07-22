@@ -397,7 +397,7 @@ void binary_op_error(ExecNode *op)
 
     ty1 = stringify_type_exp(&op->child[0]->type, TRUE);
     ty2 = stringify_type_exp(&op->child[1]->type, TRUE);
-    ERROR(op, "invalid operands to binary %s (`%s' and `%s')", token_table[op->attr.op*2+1], ty1, ty2);
+    ERROR(op, "invalid operands to binary %s (`%s' and `%s')", tok2lex(op->attr.op), ty1, ty2);
     free(ty1), free(ty2);
 }
 
@@ -505,7 +505,7 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
                 }
 
                 WARNING(e, "implicit conversion from `%s' to `%s' changes value from %lu to %ld",
-                token_table[cat_s*2+1], token_table[cat_d*2+1], e->attr.uval, stored_val);
+                tok2lex(cat_s), tok2lex(cat_d), e->attr.uval, stored_val);
 
                 return TRUE;
             }
@@ -521,14 +521,14 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
              */
             if (rank_s > rank_d)
                 WARNING(e, "implicit conversion loses integer precision: `%s' to `%s'",
-                token_table[cat_s*2+1], token_table[cat_d*2+1]);
+                tok2lex(cat_s), tok2lex(cat_d));
             /*
              * Otherwise, emit a warning if the source and destination
              * types do not have the same signedness.
              */
             else if (rank_d==rank_s && is_signed_int(cat_d)!=is_signed_int(cat_s))
                 WARNING(e, "implicit conversion changes signedness: `%s' to `%s'",
-                token_table[cat_s*2+1], token_table[cat_d*2+1]);
+                tok2lex(cat_s), tok2lex(cat_d));
         } else if (is_pointer(cat_s) || cat_s==TOK_FUNCTION) {
             WARNING(e, "pointer to integer conversion without a cast");
         } else {
@@ -742,15 +742,16 @@ void analyze_assignment_expression(ExecNode *e)
 }
 
 /* analyze_conditional_expression()'s helper function */
-static TypeExp *dup_decl_specs_list(TypeExp *ds)
+static
+TypeExp *dup_decl_specs_list(TypeExp *ds)
 {
     TypeExp *new_list, *temp;
 
-    new_list = temp = malloc(sizeof(TypeExp));
+    new_list = temp = new_type_exp_node();
     *new_list = *ds;
     ds = ds->child;
     while (ds != NULL) {
-        temp->child = malloc(sizeof(TypeExp));
+        temp->child = new_type_exp_node();
         *temp->child = *ds;
         temp=temp->child, ds=ds->child;
     }
@@ -896,7 +897,7 @@ void analyze_conditional_expression(ExecNode *e)
                         if (tq2 == NULL) {
                             e->type = e->child[iv]->type;
                         } else {
-                            e->type.decl_specs = calloc(1, sizeof(TypeExp));
+                            e->type.decl_specs = new_type_exp_node();
                             e->type.decl_specs->op = tq2->op;
                             e->type.decl_specs->child = e->child[iv]->type.decl_specs;
                             e->type.idl = e->child[iv]->type.idl;
@@ -957,7 +958,7 @@ void analyze_conditional_expression(ExecNode *e)
                             e->type = e->child[2]->type;
                         } else {
                             e->type.idl = dup_declarator(e->child[1]->type.idl);
-                            e->type.idl->child->attr.el = calloc(1, sizeof(TypeExp));
+                            e->type.idl->child->attr.el = new_type_exp_node();
                             e->type.idl->child->attr.el->op = TOK_CONST_VOLATILE;
                             e->type.decl_specs = e->child[1]->type.decl_specs;
                         }
@@ -1370,7 +1371,7 @@ void analyze_unary_expression(ExecNode *e)
          * #3 The unary & operator yields the address of its operand. If the operand has type ‘‘type’’,
          * the result has type ‘‘pointer to type’’.
          */
-        temp = calloc(1, sizeof(TypeExp));
+        temp = new_type_exp_node();
         temp->op = TOK_STAR;
         temp->child = e->child[0]->type.idl;
 
@@ -1427,7 +1428,7 @@ void analyze_unary_expression(ExecNode *e)
         IS_ERROR_UNARY(e, ty);
 
         if (!is_integer(ty))
-            ERROR_R(e, "invalid operand to %s", token_table[e->attr.op*2+1]);
+            ERROR_R(e, "invalid operand to %s", tok2lex(e->attr.op));
 
         e->type.decl_specs = get_type_node(get_promoted_type(ty));
         break;
@@ -1551,7 +1552,7 @@ subs_incomp:
 
             ts = get_type_spec(e->child[0]->type.decl_specs);
             if (is_struct_union_enum(ts->op) && !is_complete(ts->str))
-                ERROR_R(e, "calling function with incomplete return type `%s %s'", token_table[ts->op*2+1], ts->str);
+                ERROR_R(e, "calling function with incomplete return type `%s %s'", tok2lex(ts->op), ts->str);
         }
 
         /*
@@ -1636,7 +1637,7 @@ non_callable:
         ts = get_type_spec(e->child[0]->type.decl_specs);
 
         if (ts->op!=TOK_STRUCT && ts->op!=TOK_UNION)
-            ERROR_R(e, "left operand of %s has neither structure nor union type", token_table[e->attr.op*2+1]);
+            ERROR_R(e, "left operand of %s has neither structure nor union type", tok2lex(e->attr.op));
         if (e->attr.op == TOK_DOT) {
             if (e->child[0]->type.idl != NULL)
                 ERROR_R(e, "invalid operand to .");
@@ -1664,7 +1665,7 @@ non_callable:
                     goto mem_found;
             }
         }
-        ERROR_R(e, "`%s %s' has no member named `%s'", token_table[ts->op*2+1], ts->str, id);
+        ERROR_R(e, "`%s %s' has no member named `%s'", tok2lex(ts->op), ts->str, id);
 mem_found:
         /*
          * 6.5.2.3
@@ -1689,7 +1690,8 @@ mem_found:
                 if (dct->child->op == TOK_STAR) {
                     TypeExp *new_ptr_node;
 
-                    new_ptr_node = calloc(1, sizeof(TypeExp));
+                    // new_ptr_node = calloc(1, sizeof(TypeExp));
+                    new_ptr_node = new_type_exp_node();
                     *new_ptr_node = *dct->child;
 
                     if (dct->child->attr.el == NULL) {
@@ -1698,7 +1700,7 @@ mem_found:
                     } else if (dct->child->attr.el->op!=tq_l->op
                     && dct->child->attr.el->op!=TOK_CONST_VOLATILE) {
                         /* qualified pointer (by const or volatile, but not both) */
-                        new_ptr_node->attr.el = calloc(1, sizeof(TypeExp));
+                        new_ptr_node->attr.el = new_type_exp_node();
                         new_ptr_node->attr.el->op = TOK_CONST_VOLATILE;
                     } /*else {
                         free(new_ptr_node);
@@ -1724,7 +1726,7 @@ mem_found:
                         } else if (p->attr.el->op!=tq_l->op && p->attr.el->op!=TOK_CONST_VOLATILE) {
                             /* qualified pointer (by const or volatile, but not both) */
                             for (p = new_dct_list; n != 0; p=p->child, --n);
-                            p->attr.el = calloc(1, sizeof(TypeExp));
+                            p->attr.el = new_type_exp_node();
                             p->attr.el->op = TOK_CONST_VOLATILE;
                         } /*else {
                         }*/
@@ -1741,16 +1743,16 @@ decl_specs_qualif:
                 if ((tq_r=get_type_qual(d->decl->decl_specs)) != NULL) {
                     /* the member is already qualified */
                     if (tq_r->op!=tq_l->op && tq_r->op!=TOK_CONST_VOLATILE) {
-                        tq_r = calloc(1, sizeof(TypeExp));
+                        tq_r = new_type_exp_node();
                         tq_r->op = TOK_CONST_VOLATILE;
-                        tq_r->child = calloc(1, sizeof(TypeExp));
+                        tq_r->child = new_type_exp_node();
                         *tq_r->child = *get_type_spec(d->decl->decl_specs);
                         tq_r->child->child = NULL;
                     }
                 } else {
                     /* there is not type qualifier between
                        the member's declaration specifiers */
-                    tq_r = calloc(1, sizeof(TypeExp));
+                    tq_r = new_type_exp_node();
                     tq_r->op = tq_l->op;
                     tq_r->child = d->decl->decl_specs;
                 }
@@ -1820,13 +1822,10 @@ unsigned_ty:
         break;
     }
     case StrLitExp: {
-        // static TypeExp lit_dct = { TOK_SUBSCRIPT };
-
         e->type.decl_specs = get_type_node(TOK_CHAR);
-        // e->type.idl = &lit_dct;
-        e->type.idl = calloc(1, sizeof(TypeExp));
+        e->type.idl = new_type_exp_node();
         e->type.idl->op = TOK_SUBSCRIPT;
-        e->type.idl->attr.e = calloc(1, sizeof(ExecNode));
+        e->type.idl->attr.e = new_exec_node();
         e->type.idl->attr.e->attr.val = strlen(e->attr.str)+1;
         break;
     }

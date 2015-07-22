@@ -11,7 +11,6 @@ typedef struct ExecNode ExecNode;
 typedef struct TypeExp TypeExp;
 typedef struct Declaration Declaration;
 typedef struct DeclList DeclList;
-/*typedef struct FuncDef FuncDef;*/
 typedef struct ExternDecl ExternDecl;
 
 struct TypeExp {
@@ -36,12 +35,6 @@ struct Declaration {
     TypeExp *idl;     /* init declarator list */
 };
 
-/*struct FuncDef {
-    TypeExp *decl_specs;
-    TypeExp *header;
-    ExecNode *body;
-};*/
-
 typedef enum {
     DECLARATION,
     FUNCTION_DEFINITION
@@ -49,10 +42,6 @@ typedef enum {
 
 struct ExternDecl {
     EDKind kind;
-    /*union {
-        Declaration *d;
-        FuncDef *f;
-    } ed;*/
     Declaration *d;
     ExternDecl *sibling;
 };
@@ -112,7 +101,11 @@ struct ExecNode {
     TokenNode *info;
 };
 
-// void parser(TokenNode *);
 ExternDecl *parser(TokenNode *tokens);
+
+TypeExp *new_type_exp_node(void);
+ExecNode *new_exec_node(void);
+Declaration *new_declaration_node(void);
+DeclList *new_decl_list_node(void);
 
 #endif

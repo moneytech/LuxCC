@@ -140,17 +140,6 @@ int main(int argc, char *argv[])
     // tree = parser(tok);
     parser(tok);
 
-    if (option_flags & OPT_SHOW_STATS) {
-        extern unsigned number_of_pre_tokens;
-        extern unsigned number_of_c_tokens;
-        extern unsigned number_of_ast_nodes;
-
-        printf("%u preprocessing tokens were created (aprox)\n", number_of_pre_tokens);
-        printf("%u C tokens were created (aprox)\n", number_of_c_tokens);
-        printf("%u AST nodes were created (aprox)\n", number_of_ast_nodes);
-    }
-    // printf("%d warning and %d error generated\n", warning_count, error_count);
-
     if (option_flags & OPT_ANALYZE)
         exit(EXIT_SUCCESS);
 
@@ -162,8 +151,20 @@ int main(int argc, char *argv[])
         x86_cgen(fp);
         if (output_file_arg != NULL)
             fclose(fp);
-    } else
+    } else {
         return 1;
+    }
+
+    if (option_flags & OPT_SHOW_STATS) {
+        extern unsigned number_of_pre_tokens;
+        extern unsigned number_of_c_tokens;
+        extern unsigned number_of_ast_nodes;
+
+        printf("=> '%u' preprocessing tokens were created (aprox)\n", number_of_pre_tokens);
+        printf("=> '%u' C tokens were created (aprox)\n", number_of_c_tokens);
+        printf("=> '%u' AST nodes were created (aprox)\n", number_of_ast_nodes);
+    }
+    // printf("%d warning and %d error generated\n", warning_count, error_count);
 
 	return 0;
 }

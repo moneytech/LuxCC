@@ -151,6 +151,7 @@ struct TokenNode {
 };
 
 extern const char *token_table[];
+#define tok2lex(tok) (token_table[tok*2+1])
 
 TokenNode *lexer(PreTokenNode *pre_token_list);
 
