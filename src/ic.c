@@ -1538,7 +1538,7 @@ void ic_switch_statement(ExecNode *s)
     ...
     EXIT:
      */
-    unsigned EXIT, i, a;
+    unsigned EXIT, i, a, n;
     SwitchLabel *np, *temp;
 
     ++ic_switch_nesting_level;
@@ -1549,7 +1549,9 @@ void ic_switch_statement(ExecNode *s)
     address(a).cont.val = s->attr.val;
     emit_i(OpSwitch, NULL, 0, ic_expression2(s->child[0]), a);
     i = ic_instructions_counter;
-    ic_instructions_counter += s->attr.val;
+    n = ic_instructions_counter+s->attr.val;
+    while (ic_instructions_counter < n)
+        emit_i(OpCase, NULL, 0, 0, 0);
     ic_statement(s->child[1]);
     pop_break_target();
     emit_label(EXIT);
@@ -1558,7 +1560,7 @@ void ic_switch_statement(ExecNode *s)
         a = new_address(IConstKind);
         address(a).cont.val = np->val;
 
-        ic_instructions[i].op = OpCase;
+        /*ic_instructions[i].op = OpCase;*/
         ic_instructions[i].tar = a;
         ic_instructions[i].arg1 = np->lab;
         ic_instructions[i].arg2 = false_addr;
@@ -1572,7 +1574,7 @@ void ic_switch_statement(ExecNode *s)
 
     np = ic_default_labels[ic_switch_nesting_level];
     ic_default_labels[ic_switch_nesting_level] = NULL;
-    ic_instructions[i].op = OpCase;
+    /*ic_instructions[i].op = OpCase;*/
     ic_instructions[i].tar = false_addr;
     if (np != NULL) {
         ic_instructions[i].arg1 = np->lab;
