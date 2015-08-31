@@ -23,8 +23,12 @@ struct PreTokenNode {
     char deleted; /* TRUE/FALSE */
     PreTokenNode *next;
 };
+typedef enum {
+    SIMPLE,
+    PARAMETERIZED
+} MacroKind;
 
 PreTokenNode *preprocess(char *source_file);
-// void install_macro(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params);
+void install_macro(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params);
 
 #endif

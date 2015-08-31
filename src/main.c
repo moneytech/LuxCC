@@ -14,7 +14,7 @@ int colored_diagnostics = 1;
 
 static void usage(FILE *f, char *program_name)
 {
-    fprintf(f, "USAGE: %s [-Edaqhs] [-o <path>] <file>\n", program_name);
+    fprintf(f, "USAGE: %s [-Edaqhs] [-o <path>] [-t <target>] <file>\n", program_name);
 }
 
 static void print_options(void)
@@ -24,12 +24,17 @@ static void print_options(void)
            "  -d, --dump-tokens         Show tokenized file\n"
            "  -a, --analyze             Perform static analysis only\n"
            "  -q, --quiet               Disable all warnings\n"
-           "  -o, --ouput-file          Write ouput to specified file\n"
+           "  -o, --output-file         Write ouput to specified file\n"
            "  -s, --show-stats          Show compilation stats\n"
            "  -b, --boring              Print uncolored diagnostics\n"
+           "  -t, --target              Specify target machine\n"
            "  -h, --help                Print this help\n"
            );
 }
+
+#define TARGET_X86      1
+#define TARGET_VM       2
+#define TARGET_DEFAULT  TARGET_X86
 
 int main(int argc, char *argv[])
 {
@@ -43,6 +48,8 @@ int main(int argc, char *argv[])
     int option_index, c;
     unsigned option_flags;
     char *output_file_arg = NULL;
+    int target_machine_arg = TARGET_DEFAULT;
+    PreTokenNode dummy_node = { PRE_TOK_NL };
     enum {
         OPT_PREPROCESS_ONLY = 0x1,
         OPT_DUMP_TOKENS     = 0x2,
@@ -55,10 +62,11 @@ int main(int argc, char *argv[])
         {"dump-tokens",     no_argument,        NULL, 'd'},
         {"analyze",         no_argument,        NULL, 'a'},
         {"quiet",           no_argument,        NULL, 'q'},
-        {"ouput-file",      required_argument,  NULL, 'o'},
+        {"output-file",     required_argument,  NULL, 'o'},
         {"help",            no_argument,        NULL, 'h'},
         {"show-stats",      no_argument,        NULL, 's'},
         {"boring",          no_argument,        NULL, 'b'},
+        {"target",          required_argument,  NULL, 't'},
         {NULL,              0,                  NULL,  0}
     };
 
@@ -66,10 +74,9 @@ int main(int argc, char *argv[])
     for (;;) {
         option_index = 0;
 
-        c = getopt_long(argc, argv, "Edaqo:hsb", compiler_options, &option_index);
+        c = getopt_long(argc, argv, "Edaqo:hsbt:", compiler_options, &option_index);
         if (c == -1)
-            /* no more options */
-            break;
+            break; /* no more options */
 
         switch (c) {
             case 'E':
@@ -93,6 +100,12 @@ int main(int argc, char *argv[])
             case 'o':
                 output_file_arg = optarg;
                 break;
+            case 't':
+                if (strcmp(optarg, "x86") == 0)
+                    target_machine_arg = TARGET_X86;
+                else if (strcmp(optarg, "vm") == 0)
+                    target_machine_arg = TARGET_VM;
+                break;
             case 'h':
                 usage(stdout, argv[0]);
                 print_options();
@@ -114,6 +127,10 @@ int main(int argc, char *argv[])
     /*
      * Here begins the processing of the file.
      */
+    if (target_machine_arg == TARGET_X86)
+        install_macro(SIMPLE, "__x86_32__", &dummy_node, NULL);
+    else if (target_machine_arg == TARGET_VM)
+        install_macro(SIMPLE, "__LuxVM__", &dummy_node, NULL);
 
     pre = preprocess(argv[optind]);
     if (option_flags & OPT_PREPROCESS_ONLY) {
@@ -147,8 +164,10 @@ int main(int argc, char *argv[])
         FILE *fp;
 
         fp = (output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb");
-        vm_cgen(fp);
-        // x86_cgen(fp);
+        if (target_machine_arg == TARGET_X86)
+            x86_cgen(fp);
+        else if (target_machine_arg == TARGET_VM)
+            vm_cgen(fp);
         if (output_file_arg != NULL)
             fclose(fp);
     } else {

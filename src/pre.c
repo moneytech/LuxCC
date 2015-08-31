@@ -21,10 +21,6 @@
 // #define STD_INCLUDE_PATH "/usr/local/lib/luxcc/include/"
 #define STD_INCLUDE_PATH "include/";
 
-typedef enum {
-    SIMPLE,
-    PARAMETERIZED
-} MacroKind;
 typedef struct Macro Macro;
 struct Macro {
     char *name;
@@ -34,7 +30,6 @@ struct Macro {
     Macro *next;
 };
 
-static void install_macro(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params);
 static Macro *macro_table[MACRO_TABLE_SIZE];
 static Macro *lookup(char *s);
 static void uninstall_macro(char *name);
