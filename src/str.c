@@ -29,7 +29,7 @@ void string_clear(String *s)
     s->buf_next = 0;
 }
 
-void string_printf(String *s, char *fmt, ...)
+int string_printf(String *s, char *fmt, ...)
 {
 	va_list args;
     unsigned n, n2;
@@ -41,7 +41,7 @@ void string_printf(String *s, char *fmt, ...)
 
         s->buf_max = s->buf_max*2+n2;
         if ((p=realloc(s->buf, s->buf_max)) == NULL) {
-            fprintf(stderr, "String: Out of memory\n");
+            fprintf(stderr, "string_printf: out of memory\n");
             free(s->buf);
             exit(EXIT_FAILURE);
         }
@@ -53,11 +53,7 @@ void string_printf(String *s, char *fmt, ...)
     }
     s->buf_next += n2;
 	va_end(args);
-}
-
-unsigned string_length(String *s)
-{
-    return s->buf_next;
+    return n2;
 }
 
 void string_write(String *s, FILE *fp)

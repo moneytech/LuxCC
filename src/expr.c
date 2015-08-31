@@ -1815,8 +1815,7 @@ unsigned_ty:
         /* try unsigned/unsigned long */
         errno = 0;
         e->attr.uval = strtoul(ic, &ep, 0);
-        if (errno == ERANGE)
-            /* Note: strtoul() saturates its result (we end up with 0xFFFFFFFF) */
+        if (errno == ERANGE) /* Note: strtoul() saturates its result (we end up with 0xFFFFFFFF) */
             WARNING(e, "integer constant is too large for `unsigned long' type");
         e->type.decl_specs = get_type_node(TOK_UNSIGNED);
         break;

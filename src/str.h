@@ -11,8 +11,7 @@ typedef struct String String;
  */
 String *string_new(unsigned siz);
 void string_free(String *s);
-void string_printf(String *s, char *fmt, ...);
-unsigned string_length(String *s); /* including '\0' */
+int string_printf(String *s, char *fmt, ...);
 void string_write(String *s, FILE *fp);
 void string_clear(String *s);
 char *string_curr(String *s);

@@ -520,7 +520,7 @@ void dump_reg_descr_tab(void)
             printf("%s => %s\n", x86_reg_str[i], address_sid(reg_descr_tab[i]));
 }
 
-// =======================================================================================
+// =============================================================================
 
 X86_Reg get_empty_reg(void)
 {
@@ -720,10 +720,7 @@ void x86_load(X86_Reg r, unsigned a)
             else /* global */
                 emitln("%s %s, %s [$%s]", mov_str, x86_reg_str[r], siz_str, e->attr.str);
         } else { /* parameter or local */
-            if (e->attr.var.is_param)
-                emitln("%s %s, %s [ebp+%d]", mov_str, x86_reg_str[r], siz_str, local_offset(a));
-            else
-                emitln("%s %s, %s [ebp-%d]", mov_str, x86_reg_str[r], siz_str, -local_offset(a));
+            emitln("%s %s, %s [ebp+%d]", mov_str, x86_reg_str[r], siz_str, local_offset(a));
         }
     } else if (address(a).kind == TempKind) {
         if (addr_reg(a) != -1) {
@@ -732,7 +729,7 @@ void x86_load(X86_Reg r, unsigned a)
             else
                 emitln("mov %s, %s", x86_reg_str[r], x86_reg_str[addr_reg(a)]);
         } else {
-            emitln("mov %s, dword [ebp-%d]", x86_reg_str[r], -get_temp_offs(a));
+            emitln("mov %s, dword [ebp+%d]", x86_reg_str[r], get_temp_offs(a));
         }
     }
 }
@@ -742,7 +739,7 @@ char *x86_get_operand(unsigned a)
     static char op[256];
 
     if (address(a).kind == IConstKind) {
-        sprintf(op, "%lu", address(a).cont.uval);
+        sprintf(op, "dword %lu", address(a).cont.uval);
     } else if (address(a).kind == StrLitKind) {
         sprintf(op, "_@S%d", new_string_literal(a));
     } else if (address(a).kind == IdKind) {
@@ -772,10 +769,7 @@ char *x86_get_operand(unsigned a)
                     assert(r != -1);
                     spill_reg(r);
                 }
-                if (e->attr.var.is_param)
-                    emitln("lea %s, [ebp+%d]", x86_reg_str[r], local_offset(a));
-                else
-                    emitln("lea %s, [ebp-%d]", x86_reg_str[r], -local_offset(a));
+                emitln("lea %s, [ebp+%d]", x86_reg_str[r], local_offset(a));
                 return x86_reg_str[r];
             }
         case TOK_SHORT:
@@ -804,16 +798,13 @@ char *x86_get_operand(unsigned a)
             else
                 sprintf(op, "dword [$%s]", e->attr.str);
         } else {
-            if (e->attr.var.is_param)
-                sprintf(op, "dword [ebp+%d]", local_offset(a));
-            else
-                sprintf(op, "dword [ebp-%d]", -local_offset(a));
+            sprintf(op, "dword [ebp+%d]", local_offset(a));
         }
     } else if (address(a).kind == TempKind) {
         if (addr_reg(a) != -1)
             return x86_reg_str[addr_reg(a)];
         else
-            sprintf(op, "dword [ebp-%d]", -get_temp_offs(a));
+            sprintf(op, "dword [ebp+%d]", get_temp_offs(a));
     }
 
     return op;
@@ -830,10 +821,7 @@ void x86_load_addr(X86_Reg r, unsigned a)
         else
             emitln("mov %s, $%s", x86_reg_str[r], e->attr.str);
     } else {
-        if (e->attr.var.is_param)
-            emitln("lea %s, [ebp+%d]", x86_reg_str[r], local_offset(a));
-        else
-            emitln("lea %s, [ebp-%d]", x86_reg_str[r], -local_offset(a));
+        emitln("lea %s, [ebp+%d]", x86_reg_str[r], local_offset(a));
     }
 }
 
@@ -903,13 +891,10 @@ void x86_store(X86_Reg r, unsigned a)
             else /* global */
                 emitln("mov %s [$%s], %s", siz_str, e->attr.str, reg_str);
         } else { /* parameter or local */
-            if (e->attr.var.is_param)
-                emitln("mov %s [ebp+%d], %s", siz_str, local_offset(a), reg_str);
-            else
-                emitln("mov %s [ebp-%d], %s", siz_str, -local_offset(a), reg_str);
+            emitln("mov %s [ebp+%d], %s", siz_str, local_offset(a), reg_str);
         }
     } else if (address(a).kind == TempKind) {
-        emitln("mov dword [ebp-%d], %s", -get_temp_offs(a), x86_reg_str[r]);
+        emitln("mov dword [ebp+%d], %s", get_temp_offs(a), x86_reg_str[r]);
     }
 }
 
@@ -950,16 +935,13 @@ void x86_compare_against_constant(unsigned a, long c)
             else
                 emitln("cmp %s [$%s], %lu", siz_str, e->attr.str, c);
         } else {
-            if (e->attr.var.is_param)
-                emitln("cmp %s [ebp+%d], %lu", siz_str, local_offset(a), c);
-            else
-                emitln("cmp %s [ebp-%d], %lu", siz_str, -local_offset(a), c);
+            emitln("cmp %s [ebp+%d], %lu", siz_str, local_offset(a), c);
         }
     } else if (address(a).kind == TempKind) {
         if (addr_reg(a) != -1)
             emitln("cmp %s, %lu", x86_reg_str[addr_reg(a)], c);
         else
-            emitln("cmp dword [ebp-%d], %lu", -get_temp_offs(a), c);
+            emitln("cmp dword [ebp+%d], %lu", get_temp_offs(a), c);
     }
 }
 
@@ -1447,7 +1429,7 @@ void x86_pre_call(int i)
         siz = compute_sizeof(instruction(i).type);
         if (siz > temp_struct_size)
             temp_struct_size = siz;
-        emit("lea eax, [ebp-");
+        emit("lea eax, [ebp+");
         calls_to_fix[calls_to_fix_counter++] = string_get_pos(func_body);
         emitln("XXXXXXXXXXXXXXXX");
         emitln("push eax");
@@ -1691,7 +1673,7 @@ void x86_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
         modified[X86_ESI] = TRUE;
         if (!reg_is_empty(X86_EDI))
             spill_reg(X86_EDI);
-        emitln("mov edi, dword [ebp-4]");
+        emitln("mov edi, dword [ebp+-4]");
         modified[X86_EDI] = TRUE;
         if (!reg_is_empty(X86_ECX))
             spill_reg(X86_ECX);
@@ -1784,7 +1766,7 @@ jump_table:
     emit_jg(def_val);
     if (min != 0)
         emitln("sub %s, %ld", x86_reg_str[res], min);
-    emitln("jmp [.jt%d + %s*4]", jump_tables_counter, x86_reg_str[res]);
+    emitln("jmp [%s*4+.jt%d]", x86_reg_str[res], jump_tables_counter);
 
     /* build jump table */
     jmp_tab = calloc(interval_size, sizeof(char *));
@@ -1810,7 +1792,7 @@ jump_table:
         }
     }
     /* emit jump table */
-    SET_SEGMENT(DATA_SEG, emitln);
+    SET_SEGMENT(ROD_SEG, emitln);
     emitln(".jt%d:", jump_tables_counter++);
     for (i = 0; i < interval_size; i++)
         emitln("dd %s", jmp_tab[i]);
@@ -1931,7 +1913,7 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
 
         string_set_pos(func_body, calls_to_fix[calls_to_fix_counter]);
         s = string_curr(func_body);
-        n = sprintf(s, "%d", -size_of_local_area);
+        n = sprintf(s, "%d", size_of_local_area);
         s[n++] = ']';
         for (; s[n] == 'X'; n++)
             s[n] = ' ';
@@ -1945,8 +1927,8 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     if (modified[X86_EBX]) emit_prologln("push ebx");
 
     if (big_return) {
-        emit_prologln("mov dword [ebp-4], eax");
-        emit_epilogln("mov eax, dword [ebp-4]");
+        emit_prologln("mov dword [ebp+-4], eax");
+        emit_epilogln("mov eax, dword [ebp+-4]");
     }
 
     if (modified[X86_EBX]) emit_epilogln("pop ebx");

@@ -2095,8 +2095,8 @@ ExecNode *primary_expression(void)
         n->attr.str = arena_alloc(parser_arena, strlen(current_function_name)+1);
         strcpy(n->attr.str, current_function_name);
         match(TOK_FUNC_NAME);
-        break;
     }
+        break;
     case TOK_LPAREN:
         match(TOK_LPAREN);
         n = expression();

@@ -13,14 +13,60 @@
 #include "../imp_lim.h"
 #include "../error.h"
 #include "../loc.h"
-
-#define HASH_SIZE       4093
-#define HASH_VAL(s)     (hash(s)%HASH_SIZE)
-#define HASH_VAL2(x)    (hash2(x)%HASH_SIZE)
+#include "../str.h"
 
 static FILE *output_file;
-static char *curr_func; /* name of current function */
+static char *curr_func_name;
 static unsigned temp_struct_size;
+#define MAX_STRLIT  1024
+static char *string_literal_pool[MAX_STRLIT];
+static unsigned str_lit_count;
+static unsigned new_string_literal(char *s);
+static void emit_string_literals(void);
+static String *output_buffer;
+#define emit(...)   (string_printf(output_buffer, __VA_ARGS__))
+#define emitln(...) (string_printf(output_buffer, __VA_ARGS__), string_printf(output_buffer, "\n"))
+
+static void function_definition(TypeExp *decl_specs, TypeExp *header);
+static void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mangle_name);
+
+void vm_cgen(FILE *outf)
+{
+    ExternId *ed;
+
+    location_init();
+    output_file = outf;
+    output_buffer = string_new(4096);
+
+#if 0
+    emitln(".extern malloc"); /* for return of structs */
+#endif
+    for (ed = get_extern_symtab(); ed != NULL; ed = ed->next) {
+        if (ed->status == REFERENCED) {
+            TypeExp *scs;
+
+            if ((scs=get_sto_class_spec(ed->decl_specs))==NULL || scs->op!=TOK_STATIC)
+                emitln(".extern %s", ed->declarator->str);
+        } else {
+            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION)
+                function_definition(ed->decl_specs, ed->declarator);
+            else
+                static_object_definition(ed->decl_specs, ed->declarator, FALSE);
+        }
+
+        string_write(output_buffer, output_file);
+        string_clear(output_buffer);
+    }
+    if (temp_struct_size > 0) {
+        emitln(".bss");
+        emitln(".align 4");
+        emitln("__temp_struct:");
+        emitln(".res %u", temp_struct_size);
+        string_write(output_buffer, output_file);
+        string_clear(output_buffer);
+    }
+    emit_string_literals();
+}
 
 static void compound_statement(ExecNode *s, int push_scope);
 static void if_statement(ExecNode *s);
@@ -37,93 +83,11 @@ static void default_statement(ExecNode *s);
 static void expression_statement(ExecNode *s);
 static void label_statement(ExecNode *s);
 static void statement(ExecNode *s);
-
 static void expression(ExecNode *e, int is_addr);
 static void expr_convert(ExecNode *e, Declaration *dest);
-
-// TODO: make this more flexible using a growable buffer.
-#define OUT_BUF_SIZE    1024*1024
-static char output_buffer[OUT_BUF_SIZE];
-static char *buf_curr = output_buffer;
-#define emit(...) ( buf_curr+=sprintf(buf_curr, __VA_ARGS__), buf_curr+=sprintf(buf_curr, "\n") )
-#define flush_output_buffer() ( fprintf(output_file, "%s", output_buffer), buf_curr=output_buffer )
-
-static void function_definition(TypeExp *decl_specs, TypeExp *header);
-static void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mangle_name);
-
 static void load(ExecNode *e);
 static void load_addr(ExecNode *e);
 static void store(Declaration *dest_ty);
-
-/*
- * String literals.
- */
-static char *string_literal_pool[1024];
-static unsigned str_lit_count;
-
-static unsigned new_string_literal(char *s)
-{
-    /* TODO: search into the pool before add a new string */
-
-    string_literal_pool[str_lit_count] = s;
-
-    return str_lit_count++;
-}
-
-static void emit_string_literals(void)
-{
-    unsigned n;
-    unsigned char *c;
-
-    if (str_lit_count == 0)
-        return;
-
-    emit(".data");
-    for (n = 0; n < str_lit_count; n++) {
-        emit("@S%u:", n);
-        c = (unsigned char *)string_literal_pool[n];
-        do
-            emit(".byte %u", *c);
-        while (*c++ != '\0');
-    }
-    flush_output_buffer();
-}
-
-void vm_cgen(FILE *outf)
-{
-    ExternId *ed;
-
-    location_init();
-    output_file = outf;
-
-#if 0
-    emit(".extern malloc"); /* for return of structs */
-#endif
-    for (ed = get_extern_symtab(); ed != NULL; ed = ed->next) {
-        if (ed->status == REFERENCED) {
-            TypeExp *scs;
-
-            if ((scs=get_sto_class_spec(ed->decl_specs))==NULL || scs->op!=TOK_STATIC)
-                emit(".extern %s", ed->declarator->str);
-        } else {
-            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION)
-                function_definition(ed->decl_specs, ed->declarator);
-            else
-                static_object_definition(ed->decl_specs, ed->declarator, FALSE);
-        }
-
-        flush_output_buffer();
-    }
-    if (temp_struct_size > 0) {
-        emit(".bss");
-        emit(".align 4");
-        emit("__temp_struct:");
-        emit(".res %u", temp_struct_size);
-        flush_output_buffer();
-    }
-
-    emit_string_literals();
-}
 
 /*
  * The amount of space to allocate for the
@@ -146,17 +110,18 @@ void function_definition(TypeExp *decl_specs, TypeExp *header)
     DeclList *p;
     TypeExp *scs;
     int param_offs;
-    char *addsp_param, num[11];
+    char num[11], *cp;
+    unsigned addsp_param, pos_tmp;
 
-    curr_func = header->str;
-    emit("# ==== start of definition of function `%s' ====", curr_func);
-    emit(".text");
-    emit("%s:", curr_func);
+    curr_func_name = header->str;
+    emitln("# ==== start of definition of function `%s' ====", curr_func_name);
+    emitln(".text");
+    emitln("%s:", curr_func_name);
     if ((scs=get_sto_class_spec(decl_specs))==NULL || scs->op!=TOK_STATIC)
-        emit(".global %s", curr_func);
-
-    addsp_param = buf_curr+strlen("addsp")+1; /* for later fix up */
-    emit("addsp XXXXXXXXXXX"); /* space for 10 digits + ';' */
+        emitln(".global %s", curr_func_name);
+    emit("addsp ");
+    addsp_param = string_get_pos(output_buffer);
+    emitln("XXXXXXXXXXX");
 
     location_push_scope();
 
@@ -175,7 +140,7 @@ void function_definition(TypeExp *decl_specs, TypeExp *header)
         pty.idl = p->decl->idl->child;
         param_offs -= round_up(compute_sizeof(&pty), VM_STACK_ALIGN);
         location_new(p->decl->idl->str, param_offs);
-        emit("# param:`%s', offset:%d", p->decl->idl->str, param_offs);
+        emitln("# param:`%s', offset:%d", p->decl->idl->str, param_offs);
 
         p = p->next;
     }
@@ -188,18 +153,22 @@ void function_definition(TypeExp *decl_specs, TypeExp *header)
     location_pop_scope();
 
     /* fix up the amount of storage to allocate for locals */
+    pos_tmp = string_get_pos(output_buffer);
+    string_set_pos(output_buffer, addsp_param);
     sprintf(num, "%d", round_up(size_of_local_area-VM_LOCAL_START, VM_STACK_ALIGN));
-    strncpy(addsp_param, num, 10);
-    addsp_param += strlen(num);
-    *addsp_param++ = ';';
-    while (*addsp_param != '\n')
-        *addsp_param++ = ' ';
+    cp = string_curr(output_buffer);
+    strncpy(cp, num, 10);
+    cp += strlen(num);
+    *cp++ = ';';
+    while (*cp != '\n')
+        *cp++ = ' ';
+    string_set_pos(output_buffer, pos_tmp);
 
     size_of_local_area = 0;
     local_offset = VM_LOCAL_START;
 
-    emit("ldi 0;");
-    emit("ret;");
+    emitln("ldi 0;");
+    emitln("ret;");
 }
 
 void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e/*, int align*/)
@@ -226,12 +195,12 @@ void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e/*, int align*/)
             n = 0;
             c = (unsigned char *)e->attr.str;
             do
-                emit(".byte %u", *c), ++n;
+                emitln(".byte %u", *c), ++n;
             while (n<nelem && *c++!='\0');
 
             /* zero any trailing elements */
             if (n < nelem)
-                emit(".zero %u", nelem-n);
+                emitln(".zero %u", nelem-n);
         } else {
             /*
              * Handle elements with explicit initializer.
@@ -248,8 +217,8 @@ void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e/*, int align*/)
 
                 elem_ty.decl_specs = ds;
                 elem_ty.idl = dct->child;
-                emit(".align %u", get_alignment(&elem_ty));
-                emit(".zero %u", nelem*compute_sizeof(&elem_ty));
+                emitln(".align %u", get_alignment(&elem_ty));
+                emitln(".zero %u", nelem*compute_sizeof(&elem_ty));
             }
         }
     } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
@@ -292,8 +261,8 @@ void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e/*, int align*/)
 
                     ty.decl_specs = d->decl->decl_specs;
                     ty.idl = dct->child;
-                    emit(".align %u", get_alignment(&ty));
-                    emit(".zero %u", compute_sizeof(&ty));
+                    emitln(".align %u", get_alignment(&ty));
+                    emitln(".zero %u", compute_sizeof(&ty));
 
                     dct = dct->sibling;
                 }
@@ -321,21 +290,21 @@ scalar:
         dest_ty.decl_specs = ds;
         dest_ty.idl = dct;
         switch (get_type_category(&dest_ty)) {
-#define BAD_INIT(n) do { emit(".zero %u", n); goto bad_init; } while (0)
+#define BAD_INIT(n) do { emitln(".zero %u", n); goto bad_init; } while (0)
         case TOK_CHAR:
         case TOK_SIGNED_CHAR:
         case TOK_UNSIGNED_CHAR:
             if (is_integer(get_type_category(&e->type)))
-                emit(".byte %lu", eval_int_const_expr(e));
+                emitln(".byte %lu", eval_int_const_expr(e));
             else
                 BAD_INIT(1);
             break;
         case TOK_SHORT:
         case TOK_UNSIGNED_SHORT:
             // if (align)
-            emit(".align 2");
+            emitln(".align 2");
             if (is_integer(get_type_category(&e->type)))
-                emit(".word %lu", eval_int_const_expr(e));
+                emitln(".word %lu", eval_int_const_expr(e));
             else
                 BAD_INIT(2);
             break;
@@ -346,7 +315,7 @@ scalar:
         case TOK_ENUM:
         case TOK_STAR:
             // if (align)
-            emit(".align 4");
+            emitln(".align 4");
             /*
              * The only supported expressions are:
              * 1) any-integer-constant-expression; e.g. 1+2*3
@@ -357,21 +326,21 @@ scalar:
              * 5) x+1, 1+x, or x-1 // if x has array type
              */
             if (is_integer(get_type_category(&e->type))) {
-                emit(".dword %lu", eval_int_const_expr(e));
+                emitln(".dword %lu", eval_int_const_expr(e));
             } else if (e->kind.exp == StrLitExp) {
-                emit(".dword @S%u", new_string_literal(e->attr.str));
+                emitln(".dword @S%u", new_string_literal(e->attr.str));
             } else if (e->kind.exp == IdExp) {
                 Token cat;
 
                 if ((cat=get_type_category(&e->type))==TOK_SUBSCRIPT || cat==TOK_FUNCTION)
-                    emit(".dword %s", e->attr.str);
+                    emitln(".dword %s", e->attr.str);
                 else
                     BAD_INIT(4);
             } else if (e->kind.exp == OpExp) {
                 switch (e->attr.op) {
                 case TOK_ADDRESS_OF:
                     if (e->child[0]->kind.exp == IdExp)
-                        emit(".dword %s", e->child[0]->attr.str);
+                        emitln(".dword %s", e->child[0]->attr.str);
                     else
                         BAD_INIT(4);
                     break;
@@ -389,7 +358,7 @@ scalar:
                         &&  e->child[i]->attr.op == TOK_ADDRESS_OF
                         &&  e->child[i]->child[0]->kind.exp == IdExp) {
                             size = e->child[j]->attr.uval*compute_sizeof(&e->child[i]->child[0]->type);
-                            emit(".dword %s+%u", e->child[i]->child[0]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
+                            emitln(".dword %s+%u", e->child[i]->child[0]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
                             return;
                         /* x+1, x-1, 1+x */
                         } else if (e->child[j]->kind.exp == IConstExp
@@ -398,7 +367,7 @@ scalar:
                             ty.decl_specs = e->child[i]->type.decl_specs;
                             ty.idl = e->child[i]->type.idl->child;
                             size = e->child[j]->attr.uval*compute_sizeof(&ty);
-                            emit(".dword %s+%u", e->child[i]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
+                            emitln(".dword %s+%u", e->child[i]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
                             return;
                         }
                     }
@@ -434,29 +403,29 @@ void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mang
 
     /* segment */
     if (initializer != NULL)
-        emit(".data");
+        emitln(".data");
     else
-        emit(".bss");
+        emitln(".bss");
 
     /* alignment */
     if ((alignment=get_alignment(&ty)) > 1)
-        emit(".align %u", alignment);
+        emitln(".align %u", alignment);
 
     /* label */
     if (mangle_name)
         /* mangled name = '@' + current function name + '_' + static local object name */
-        emit("@%s_%s:", curr_func, declarator->str);
+        emitln("@%s_%s:", curr_func_name, declarator->str);
     else
-        emit("%s:", declarator->str);
+        emitln("%s:", declarator->str);
 
     /* allocation/initialization */
     if (initializer != NULL)
         do_static_init(ty.decl_specs, ty.idl, initializer/*, FALSE*/);
     else
-        emit(".res %u", compute_sizeof(&ty));
+        emitln(".res %u", compute_sizeof(&ty));
 
     if ((scs=get_sto_class_spec(decl_specs))==NULL || scs->op!=TOK_STATIC)
-        emit(".global %s", declarator->str);
+        emitln(".global %s", declarator->str);
 }
 
 // =============================================================================
@@ -558,24 +527,24 @@ void do_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, int offset)
              */
             unsigned n;
 
-            emit("ldbp %u;", offset);
+            emitln("ldbp %u;", offset);
             expression(e, FALSE);
             n = strlen(e->attr.str)+1;
             if (nelem == n) {
                 /* fits nicely */
-                emit("memcpy %u;", n);
+                emitln("memcpy %u;", n);
             } else if (nelem < n) {
                 /* no enough room; just copy the first nelem chars of the string */
-                emit("memcpy %u;", nelem);
+                emitln("memcpy %u;", nelem);
             } else {
                 /* copy all the string and zero the trailing elements */
-                emit("memcpy %u;", n);
-                emit("ldi %u;", n);
-                emit("add;");
-                emit("ldi 0;");
-                emit("fill %u;", nelem-n);
+                emitln("memcpy %u;", n);
+                emitln("ldi %u;", n);
+                emitln("add;");
+                emitln("ldi 0;");
+                emitln("fill %u;", nelem-n);
             }
-            emit("pop;");
+            emitln("pop;");
         } else {
             unsigned elem_size;
             Declaration elem_ty;
@@ -601,10 +570,10 @@ void do_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, int offset)
              */
             if (nelem != 0) {
                 /* there are nelem elements to zero */
-                emit("ldbp %u;", offset);
-                emit("ldi 0;");
-                emit("fill %u;", nelem*elem_size);
-                emit("pop;");
+                emitln("ldbp %u;", offset);
+                emitln("ldi 0;");
+                emitln("fill %u;", nelem*elem_size);
+                emitln("pop;");
             }
         }
     } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
@@ -653,10 +622,10 @@ void do_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, int offset)
                     StructMember *md;
 
                     md = get_member_descriptor(ts, dct->str);
-                    emit("ldbp %u;", offset+md->offset);
-                    emit("ldi 0;");
-                    emit("fill %u;", md->size);
-                    emit("pop;");
+                    emitln("ldbp %u;", offset+md->offset);
+                    emitln("ldi 0;");
+                    emitln("fill %u;", md->size);
+                    emitln("pop;");
                     dct = dct->sibling;
                 }
                 d = d->next;
@@ -686,9 +655,9 @@ scalar:
         dest_ty.decl_specs = ds;
         dest_ty.idl = dct;
         expr_convert(e, &dest_ty);
-        emit("ldbp %u;", offset);
+        emitln("ldbp %u;", offset);
         store(&dest_ty);
-        emit("pop;");
+        emitln("pop;");
     }
 }
 
@@ -713,7 +682,7 @@ void compound_statement(ExecNode *s, int push_scope)
                 if (scs->op == TOK_STATIC) {
                     for (dct = dl->decl->idl; dct != NULL; dct = dct->sibling)
                         static_object_definition(dl->decl->decl_specs, dct, TRUE);
-                    emit(".text");
+                    emitln(".text");
                     continue;
                 } else if (scs->op==TOK_EXTERN || scs->op==TOK_TYPEDEF) {
                     continue;
@@ -730,7 +699,7 @@ void compound_statement(ExecNode *s, int push_scope)
                     continue;
                 local_offset = round_up(local_offset, get_alignment(&lty));
                 location_new(dct->str, local_offset);
-                emit("# var: %s, offset: %d", dct->str, local_offset);
+                emitln("# var: %s, offset: %d", dct->str, local_offset);
                 if (dct->attr.e != NULL)
                     do_auto_init(lty.decl_specs, lty.idl, dct->attr.e, local_offset);
                 local_offset += compute_sizeof(&lty);
@@ -750,10 +719,10 @@ void compound_statement(ExecNode *s, int push_scope)
 }
 
 /* some shorthand macros */
-#define emit_lab(n)         (emit("@L%u:", n))
-#define emit_jmp(target)    (emit("jmp @L%u;", target))
-#define emit_jmpf(target)   (emit("jmpf @L%u;", target))
-#define emit_jmpt(target)   (emit("jmpt @L%u;", target))
+#define emit_lab(n)         (emitln("@L%u:", n))
+#define emit_jmp(target)    (emitln("jmp @L%u;", target))
+#define emit_jmpf(target)   (emitln("jmpf @L%u;", target))
+#define emit_jmpt(target)   (emitln("jmpt @L%u;", target))
 
 static unsigned new_label(void);
 unsigned new_label(void)
@@ -850,7 +819,7 @@ void for_statement(ExecNode *s)
     /* e1 */
     if (s->child[1] != NULL) {
         expression(s->child[1], FALSE);
-        emit("pop;");
+        emitln("pop;");
     }
 
     L1 = new_label();
@@ -872,7 +841,7 @@ void for_statement(ExecNode *s)
     if (s->child[2] != NULL) {
         emit_lab(L2);
         expression(s->child[2], FALSE);
-        emit("pop;");
+        emitln("pop;");
     }
     emit_jmp(L1);
     emit_lab(L3);
@@ -880,13 +849,13 @@ void for_statement(ExecNode *s)
 
 void goto_statement(ExecNode *s)
 {
-    emit("jmp @@%s_%s;", curr_func, s->attr.str);
+    emitln("jmp @@%s_%s;", curr_func_name, s->attr.str);
 }
 
 void label_statement(ExecNode *s)
 {
     /* mangled label name = "@@" + current function name + '_' + label name */
-    emit("@@%s_%s:", curr_func, s->attr.str);
+    emitln("@@%s_%s:", curr_func_name, s->attr.str);
     statement(s->child[0]);
 }
 
@@ -914,11 +883,11 @@ void return_statement(ExecNode *s)
             size = compute_sizeof(&ret_ty);
 #if 0
             /* allocate space on the heap and copy the struct/union there */
-            emit("ldi %u;", size);
-            emit("ldi malloc;");
-            emit("call 4;");
-            emit("swap;");
-            emit("memcpy %u;", size);
+            emitln("ldi %u;", size);
+            emitln("ldi malloc;");
+            emitln("call 4;");
+            emitln("swap;");
+            emitln("memcpy %u;", size);
             /* TODO: free the returned struct/union when it's not used anymore */
 #endif
             /*
@@ -958,14 +927,14 @@ void return_statement(ExecNode *s)
              */
             if (size > temp_struct_size)
                 temp_struct_size = size;
-            emit("ldi __temp_struct;");
-            emit("swap;");
-            emit("memcpy %u;", size);
+            emitln("ldi __temp_struct;");
+            emitln("swap;");
+            emitln("memcpy %u;", size);
         }
     } else {
-        emit("ldi 0;");
+        emitln("ldi 0;");
     }
-    emit("ret;");
+    emitln("ret;");
 }
 
 void expression_statement(ExecNode *s)
@@ -975,7 +944,7 @@ void expression_statement(ExecNode *s)
 
     expression(s->child[0], FALSE);
     /*if (get_type_category(&s->child[0]->type) != TOK_VOID)*/
-        emit("pop;");
+        emitln("pop;");
 }
 
 /*
@@ -983,6 +952,9 @@ void expression_statement(ExecNode *s)
  * TOIMPROVE:
  *  - avoid the HASH_SIZE iterations when building the search table.
  */
+#define HASH_SIZE       1009
+#define HASH_VAL(s)     (hash(s)%HASH_SIZE)
+#define HASH_VAL2(x)    (hash2(x)%HASH_SIZE)
 
 typedef struct SwitchLabel SwitchLabel;
 static struct SwitchLabel {
@@ -1039,8 +1011,8 @@ void switch_statement(ExecNode *s)
      */
     ST = new_label();
     expression(s->child[0], FALSE);
-    emit("ldi @T%u;", ST);
-    emit("switch;");
+    emitln("ldi @T%u;", ST);
+    emitln("switch;");
 
     /*
      * Body.
@@ -1070,14 +1042,14 @@ void switch_statement(ExecNode *s)
     /*
      * Emit search table.
      */
-    emit(".data");
-    emit(".align 4");
-    emit("@T%u:", ST);
+    emitln(".data");
+    emitln(".align 4");
+    emitln("@T%u:", ST);
     if (st_size == 0) {
         /* if there are no labels at all, the body of the switch is skipped */
-        emit(".dword 1");
-        emit(".dword @L%u", EXIT);
-        emit(".text");
+        emitln(".dword 1");
+        emitln(".dword @L%u", EXIT);
+        emitln(".text");
         return;
     }
 
@@ -1085,26 +1057,26 @@ void switch_statement(ExecNode *s)
     /* the first value corresponds to the default case and is the size of the search table */
     if (!search_table[0]->is_default) {
         /* there is no default label */
-        emit(".dword %u", st_size+1);
+        emitln(".dword %u", st_size+1);
         i = 0;
     } else {
-        emit(".dword %u", st_size);
+        emitln(".dword %u", st_size);
         i = 1;
     }
     while (i < st_size) {
-        emit(".dword %u", search_table[i]->val);
+        emitln(".dword %u", search_table[i]->val);
         ++i;
     }
 
     /* emit labels */
     /* the first label correspond to the default case; if there is none the exit label acts as default */
     if (!search_table[0]->is_default)
-        emit(".dword @L%u", EXIT);
+        emitln(".dword @L%u", EXIT);
     for (i = 0; i < st_size; i++) {
-        emit(".dword @L%u", search_table[i]->lab);
+        emitln(".dword @L%u", search_table[i]->lab);
         free(search_table[i]);
     }
-    emit(".text");
+    emitln(".text");
 }
 
 void case_statement(ExecNode *s)
@@ -1148,22 +1120,22 @@ void expr_convert(ExecNode *e, Declaration *dest)
     case TOK_CHAR:
     case TOK_SIGNED_CHAR:
         if (cat_src!=TOK_CHAR && cat_src!=TOK_SIGNED_CHAR)
-            emit("dw2b;");
+            emitln("dw2b;");
         break;
     case TOK_UNSIGNED_CHAR:
         if (cat_src != TOK_UNSIGNED_CHAR)
-            emit("dw2ub;");
+            emitln("dw2ub;");
         break;
     case TOK_SHORT:
         if (cat_src != TOK_CHAR
         &&  cat_src != TOK_SIGNED_CHAR
         &&  cat_src != TOK_UNSIGNED_CHAR
         &&  cat_src != TOK_SHORT)
-            emit("dw2w;");
+            emitln("dw2w;");
         break;
     case TOK_UNSIGNED_SHORT:
         if (cat_src!=TOK_UNSIGNED_CHAR && cat_src!=TOK_UNSIGNED_SHORT)
-            emit("dw2uw;");
+            emitln("dw2uw;");
         break;
     default: /* no conversion required */
         break;
@@ -1215,8 +1187,8 @@ unsigned function_argument(ExecNode *arg, DeclList *param)
      * Copy struct/unions by value.
      */
     if ((ty_cat=get_type_category(&ty))==TOK_STRUCT || ty_cat==TOK_UNION) {
-        emit("ldn %u;", real_arg_size);
-        emit("addsp %u;", aligned_arg_size-VM_STACK_ALIGN);
+        emitln("ldn %u;", real_arg_size);
+        emitln("addsp %u;", aligned_arg_size-VM_STACK_ALIGN);
     }
 
     return arg_area_size;
@@ -1229,7 +1201,7 @@ void expression(ExecNode *e, int is_addr)
         switch (e->attr.op) {
         case TOK_COMMA:
             expression(e->child[0], FALSE);
-            emit("pop;");
+            emitln("pop;");
             expression(e->child[1], FALSE);
             break;
         case TOK_ASSIGN:
@@ -1302,10 +1274,10 @@ void expression(ExecNode *e, int is_addr)
             emit_jmpt(L1);
             expression(e->child[1], FALSE);
             emit_jmpt(L1);
-            emit("ldi 0;");
+            emitln("ldi 0;");
             emit_jmp(L2);
             emit_lab(L1);
-            emit("ldi 1;");
+            emitln("ldi 1;");
             emit_lab(L2);
             break;
         }
@@ -1319,10 +1291,10 @@ void expression(ExecNode *e, int is_addr)
             emit_jmpf(L1);
             expression(e->child[1], FALSE);
             emit_jmpf(L1);
-            emit("ldi 1;");
+            emitln("ldi 1;");
             emit_jmp(L2);
             emit_lab(L1);
-            emit("ldi 0;");
+            emitln("ldi 0;");
             emit_lab(L2);
             break;
         }
@@ -1330,24 +1302,24 @@ void expression(ExecNode *e, int is_addr)
 #define BIN_OPS() expression(e->child[0], FALSE), expression(e->child[1], FALSE)
         case TOK_BW_OR:
             BIN_OPS();
-            emit("or;");
+            emitln("or;");
             break;
         case TOK_BW_XOR:
             BIN_OPS();
-            emit("xor;");
+            emitln("xor;");
             break;
         case TOK_BW_AND:
             BIN_OPS();
-            emit("and;");
+            emitln("and;");
             break;
 
         case TOK_EQ:
             BIN_OPS();
-            emit("eq;");
+            emitln("eq;");
             break;
         case TOK_NEQ:
             BIN_OPS();
-            emit("neq;");
+            emitln("neq;");
             break;
         case TOK_LT:
         case TOK_GT:
@@ -1369,32 +1341,32 @@ void expression(ExecNode *e, int is_addr)
             }
 relational_signed:
             switch (e->attr.op) {
-            case TOK_LT: emit("slt;"); break;
-            case TOK_GT: emit("sgt;"); break;
-            case TOK_LET: emit("slet;"); break;
-            case TOK_GET: emit("sget;"); break;
+            case TOK_LT: emitln("slt;"); break;
+            case TOK_GT: emitln("sgt;"); break;
+            case TOK_LET: emitln("slet;"); break;
+            case TOK_GET: emitln("sget;"); break;
             }
             break;
 relational_unsigned:
             switch (e->attr.op) {
-            case TOK_LT: emit("ult;"); break;
-            case TOK_GT: emit("ugt;"); break;
-            case TOK_LET: emit("ulet;"); break;
-            case TOK_GET: emit("uget;"); break;
+            case TOK_LT: emitln("ult;"); break;
+            case TOK_GT: emitln("ugt;"); break;
+            case TOK_LET: emitln("ulet;"); break;
+            case TOK_GET: emitln("uget;"); break;
             }
             break;
         }
 
         case TOK_LSHIFT:
             BIN_OPS();
-            emit("sll;");
+            emitln("sll;");
             break;
         case TOK_RSHIFT:
             BIN_OPS();
             if (is_unsigned_int(get_type_category(&e->type)))
-                emit("srl;");
+                emitln("srl;");
             else
-                emit("sra;");
+                emitln("sra;");
             break;
 
         case TOK_PLUS:
@@ -1413,15 +1385,15 @@ relational_unsigned:
 
                 expression(e->child[j], FALSE);
                 expression(e->child[i], FALSE);
-                emit("ldi %u;", compute_sizeof(&ty));
-                emit("mul;");
+                emitln("ldi %u;", compute_sizeof(&ty));
+                emitln("mul;");
             }
-            emit("add;");
+            emitln("add;");
             break;
         case TOK_MINUS:
             if (is_integer(get_type_category(&e->child[0]->type))) {
                 BIN_OPS();
-                emit("sub;");
+                emitln("sub;");
             } else {
                 Declaration ty;
 
@@ -1431,35 +1403,35 @@ relational_unsigned:
                 expression(e->child[1], FALSE);
                 if (is_integer(get_type_category(&e->child[1]->type))) {
                     /* pointer - integer */
-                    emit("ldi %u;", compute_sizeof(&ty));
-                    emit("mul;");
-                    emit("sub;");
+                    emitln("ldi %u;", compute_sizeof(&ty));
+                    emitln("mul;");
+                    emitln("sub;");
                 } else {
                     /* pointer - pointer */
-                    emit("sub;");
-                    emit("ldi %u;", compute_sizeof(&ty));
-                    emit("sdiv;");
+                    emitln("sub;");
+                    emitln("ldi %u;", compute_sizeof(&ty));
+                    emitln("sdiv;");
                 }
             }
             break;
 
         case TOK_MUL:
             BIN_OPS();
-            emit("mul;");
+            emitln("mul;");
             break;
         case TOK_DIV:
             BIN_OPS();
             if (is_unsigned_int(get_type_category(&e->type)))
-                emit("udiv;");
+                emitln("udiv;");
             else
-                emit("sdiv;");
+                emitln("sdiv;");
             break;
         case TOK_REM:
             BIN_OPS();
             if (is_unsigned_int(get_type_category(&e->type)))
-                emit("umod;");
+                emitln("umod;");
             else
-                emit("smod;");
+                emitln("smod;");
             break;
 
         case TOK_CAST:
@@ -1469,46 +1441,46 @@ relational_unsigned:
         case TOK_PRE_INC:
         case TOK_PRE_DEC:
             expression(e->child[0], TRUE);
-            emit("dup;");
-            emit("dup;");
+            emitln("dup;");
+            emitln("dup;");
             load(e);
             if (is_integer(get_type_category(&e->type))) {
-                emit("ldi 1;");
+                emitln("ldi 1;");
             } else { /* pointer */
                 Declaration pointed_to_ty;
 
                 pointed_to_ty.decl_specs = e->type.decl_specs;
                 pointed_to_ty.idl = e->type.idl->child;
-                emit("ldi %u;", compute_sizeof(&pointed_to_ty));
+                emitln("ldi %u;", compute_sizeof(&pointed_to_ty));
             }
-            (e->attr.op == TOK_PRE_INC) ? emit("add;") : emit("sub;");
-            emit("swap;");
+            (e->attr.op == TOK_PRE_INC) ? emitln("add;") : emitln("sub;");
+            emitln("swap;");
             store(&e->type);
-            emit("pop;");
+            emitln("pop;");
             /* reload incremented/decremented value */
             load(e);
             break;
         case TOK_POS_INC:
         case TOK_POS_DEC:
             expression(e->child[0], TRUE);
-            emit("dup;");
+            emitln("dup;");
             load(e);
-            emit("swap;");
-            emit("dup;");
+            emitln("swap;");
+            emitln("dup;");
             load(e);
             if (is_integer(get_type_category(&e->type))) {
-                emit("ldi 1;");
+                emitln("ldi 1;");
             } else { /* pointer */
                 Declaration pointed_to_ty;
 
                 pointed_to_ty.decl_specs = e->type.decl_specs;
                 pointed_to_ty.idl = e->type.idl->child;
-                emit("ldi %u;", compute_sizeof(&pointed_to_ty));
+                emitln("ldi %u;", compute_sizeof(&pointed_to_ty));
             }
-            (e->attr.op == TOK_POS_INC) ? emit("add;") : emit("sub;");
-            emit("swap;");
+            (e->attr.op == TOK_POS_INC) ? emitln("add;") : emitln("sub;");
+            emitln("swap;");
             store(&e->type);
-            emit("pop;");
+            emitln("pop;");
             break;
         case TOK_ADDRESS_OF:
             expression(e->child[0], TRUE);
@@ -1524,15 +1496,15 @@ relational_unsigned:
             break;
         case TOK_UNARY_MINUS:
             expression(e->child[0], FALSE);
-            emit("neg;");
+            emitln("neg;");
             break;
         case TOK_COMPLEMENT:
             expression(e->child[0], FALSE);
-            emit("cmpl;");
+            emitln("cmpl;");
             break;
         case TOK_NEGATION:
             expression(e->child[0], FALSE);
-            emit("not;");
+            emitln("not;");
             break;
 
         case TOK_SUBSCRIPT:
@@ -1545,9 +1517,9 @@ relational_unsigned:
                 expression(e->child[1], FALSE);
                 expression(e->child[0], FALSE);
             }
-            emit("ldi %u;", compute_sizeof(&e->type));
-            emit("mul;");
-            emit("add;");
+            emitln("ldi %u;", compute_sizeof(&e->type));
+            emitln("mul;");
+            emitln("add;");
             if (!is_addr)
                 load(e);
             break;
@@ -1556,7 +1528,7 @@ relational_unsigned:
 
             arg_siz = function_argument(e->child[1], e->locals);
             expression(e->child[0], FALSE);
-            emit("call %u;", arg_siz);
+            emitln("call %u;", arg_siz);
             break;
         }
         case TOK_DOT:
@@ -1573,8 +1545,8 @@ relational_unsigned:
                 StructMember *m;
 
                 m = get_member_descriptor(get_type_spec(e->child[0]->type.decl_specs), e->child[1]->attr.str);
-                emit("ldi %u;", m->offset);
-                emit("add;");
+                emitln("ldi %u;", m->offset);
+                emitln("add;");
             }
             if (!is_addr)
                 load(e);
@@ -1583,10 +1555,10 @@ relational_unsigned:
         } /* switch (e->attr.op) */
         break;
     case IConstExp:
-        emit("ldi %lu;", e->attr.uval);
+        emitln("ldi %lu;", e->attr.uval);
         break;
     case StrLitExp:
-        emit("ldi @S%u;", new_string_literal(e->attr.str));
+        emitln("ldi @S%u;", new_string_literal(e->attr.str));
         break;
     case IdExp:
         load_addr(e);
@@ -1602,11 +1574,11 @@ void store(Declaration *dest_ty)
     case TOK_CHAR:
     case TOK_SIGNED_CHAR:
     case TOK_UNSIGNED_CHAR:
-        emit("stb;");
+        emitln("stb;");
         break;
     case TOK_SHORT:
     case TOK_UNSIGNED_SHORT:
-        emit("stw;");
+        emitln("stw;");
         break;
     case TOK_INT:
     case TOK_LONG:
@@ -1616,12 +1588,12 @@ void store(Declaration *dest_ty)
     case TOK_STAR:
     case TOK_SUBSCRIPT: /* ? */
     case TOK_FUNCTION:  /* ? */
-        emit("stdw;");
+        emitln("stdw;");
         break;
     case TOK_STRUCT:
     case TOK_UNION:
-        emit("swap;");
-        emit("memcpy %u;", compute_sizeof(dest_ty));
+        emitln("swap;");
+        emitln("memcpy %u;", compute_sizeof(dest_ty));
         break;
     }
 }
@@ -1645,20 +1617,20 @@ void load(ExecNode *e)
     case TOK_INT:
     case TOK_UNSIGNED:
     case TOK_ENUM:
-        emit("lddw;");
+        emitln("lddw;");
         break;
     case TOK_SHORT:
-        emit("ldw;");
+        emitln("ldw;");
         break;
     case TOK_UNSIGNED_SHORT:
-        emit("lduw;");
+        emitln("lduw;");
         break;
     case TOK_CHAR:
     case TOK_SIGNED_CHAR:
-        emit("ldb;");
+        emitln("ldb;");
         break;
     case TOK_UNSIGNED_CHAR:
-        emit("ldub;");
+        emitln("ldub;");
         break;
     }
 }
@@ -1667,13 +1639,42 @@ void load_addr(ExecNode *e)
 {
     if (e->attr.var.duration == DURATION_STATIC) {
         if (e->attr.var.linkage == LINKAGE_NONE) /* static local */
-            emit("ldi @%s_%s;", curr_func, e->attr.str); /* use the mangled name */
+            emitln("ldi @%s_%s;", curr_func_name, e->attr.str); /* use the mangled name */
         else /* external */
-            emit("ldi %s;", e->attr.str);
+            emitln("ldi %s;", e->attr.str);
     } else { /* parameter or local */
         int offset;
 
         offset = location_get_offset(e->attr.str);
-        emit("ldbp %u; #(%d)", offset, offset);
+        emitln("ldbp %u; #(%d)", offset, offset);
     }
+}
+
+unsigned new_string_literal(char *s)
+{
+    /* TOIMPROVE: search into the pool before add a new string */
+
+    string_literal_pool[str_lit_count] = s;
+
+    return str_lit_count++;
+}
+
+void emit_string_literals(void)
+{
+    unsigned n;
+    unsigned char *c;
+
+    if (str_lit_count == 0)
+        return;
+
+    emitln(".data");
+    for (n = 0; n < str_lit_count; n++) {
+        emitln("@S%u:", n);
+        c = (unsigned char *)string_literal_pool[n];
+        do
+            emitln(".byte %u", *c);
+        while (*c++ != '\0');
+    }
+    string_write(output_buffer, output_file);
+    string_clear(output_buffer);
 }

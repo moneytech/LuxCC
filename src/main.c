@@ -147,8 +147,8 @@ int main(int argc, char *argv[])
         FILE *fp;
 
         fp = (output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb");
-        // vm_cgen(fp);
-        x86_cgen(fp);
+        vm_cgen(fp);
+        // x86_cgen(fp);
         if (output_file_arg != NULL)
             fclose(fp);
     } else {

@@ -8,5 +8,6 @@ Arena *arena_new(unsigned size);
 void *arena_alloc(Arena *a, unsigned n);
 void arena_reset(Arena *a);
 void arena_destroy(Arena *a);
+void arena_set_nom_siz(Arena *a, unsigned size);
 
 #endif

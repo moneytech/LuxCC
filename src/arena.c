@@ -4,8 +4,8 @@
 #include <stdlib.h>
 #include "util.h"
 
-#define MEMINCR     10
 #define MULTIPLE    4
+#define DEFAULT_NAS 10*1024
 
 typedef struct Block Block;
 struct Block {
@@ -17,6 +17,7 @@ struct Block {
 struct Arena {
     Block *first;
     Block *last;
+    unsigned nas; /* nominal arena size */
 };
 
 static void *allocate(Arena *a, unsigned n);
@@ -28,12 +29,13 @@ Arena *arena_new(unsigned size)
     unsigned n;
 
     a = malloc(sizeof(Arena));
-    n = sizeof(Block)+size;
+    n = round_up(sizeof(Block)+size, MULTIPLE);
     a->first = malloc(n);
     a->first->limit = (char *)a->first+n;
     a->first->avail = (char *)a->first+sizeof(Block);
     a->first->next = NULL;
     a->last = a->first;
+    a->nas = DEFAULT_NAS;
 
     return a;
 }
@@ -62,7 +64,7 @@ void *allocate(Arena *a, unsigned n)
         } else { /* allocate a new block */
             unsigned m;
 
-            m = round_up(n, MULTIPLE)+MEMINCR*1024+sizeof(Block);
+            m = round_up(n, MULTIPLE)+a->nas+sizeof(Block);
             if ((ap->next=malloc(m)) == NULL)
                 return NULL;
             ap = ap->next;
@@ -92,4 +94,9 @@ void arena_destroy(Arena *a)
         free(q);
     }
     free(a);
+}
+
+void arena_set_nom_siz(Arena *a, unsigned size)
+{
+    a->nas = size;
 }
