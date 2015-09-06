@@ -128,9 +128,9 @@ int main(int argc, char *argv[])
      * Here begins the processing of the file.
      */
     if (target_machine_arg == TARGET_X86)
-        install_macro(SIMPLE, "__x86_32__", &dummy_node, NULL);
+        install_macro(SIMPLE_MACRO, "__x86_32__", &dummy_node, NULL);
     else if (target_machine_arg == TARGET_VM)
-        install_macro(SIMPLE, "__LuxVM__", &dummy_node, NULL);
+        install_macro(SIMPLE_MACRO, "__LuxVM__", &dummy_node, NULL);
 
     pre = preprocess(argv[optind]);
     if (option_flags & OPT_PREPROCESS_ONLY) {

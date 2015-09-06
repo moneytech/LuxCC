@@ -24,8 +24,8 @@ struct PreTokenNode {
     PreTokenNode *next;
 };
 typedef enum {
-    SIMPLE,
-    PARAMETERIZED
+    SIMPLE_MACRO,
+    PARAMETERIZED_MACRO
 } MacroKind;
 
 PreTokenNode *preprocess(char *source_file);

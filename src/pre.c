@@ -894,7 +894,7 @@ bottom:
 
 void simple_define(void)
 {
-    install_macro(SIMPLE, get_lexeme(1), curr_tok->next, NULL);
+    install_macro(SIMPLE_MACRO, get_lexeme(1), curr_tok->next, NULL);
 }
 
 void parameterized_define(void) // TODO: check for duplicate parameter names
@@ -924,7 +924,7 @@ void parameterized_define(void) // TODO: check for duplicate parameter names
             ERROR("expecting parameter name");
         }
     }
-    install_macro(PARAMETERIZED, get_lexeme(1), rep->next, curr_tok->next->next);
+    install_macro(PARAMETERIZED_MACRO, get_lexeme(1), rep->next, curr_tok->next->next);
 }
 
 /*
@@ -993,7 +993,7 @@ void preprocessing_token(int skip)
             match(lookahead(1));
         } else if ((m=lookup(get_lexeme(1))) != NULL) {
             DEBUG_PRINTF("found macro `%s'\n", get_lexeme(1));
-            if (m->kind == SIMPLE)
+            if (m->kind == SIMPLE_MACRO)
                 expand_simple_macro(m);
             else
                 expand_parameterized_macro(m);

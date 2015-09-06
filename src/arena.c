@@ -1,4 +1,3 @@
-/* based on: http://www.cs.rice.edu/~javaplt/312/2007/Readings/fastalloc.pdf */
 #include "arena.h"
 #include <stdio.h>
 #include <stdlib.h>

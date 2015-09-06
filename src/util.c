@@ -15,22 +15,16 @@ unsigned long hash2(unsigned long k)
 }
 
 /*
- * Round up `num' to the nearest multiple of `multiple'.
- * Negative numbers are rounded away from zero.
+ * Round up `num' to the nearest multiple of `mul'.
+ * Negative numbers are rounded toward negative infinity.
  */
-int round_up(int num, int multiple)
+int round_up(int num, int mul)
 {
-    int remainder;
+    int rem;
 
-    if (multiple == 0)
+    if (mul==0 || (rem=num%mul)==0)
         return num;
-    remainder = num%multiple;
-    if (remainder == 0)
-        return num;
-    if (num < 0)
-        return num-multiple-remainder;
-    else
-        return num+multiple-remainder;
+    return (num < 0) ? num-mul-rem : num+mul-rem;
 }
 
 int ilog2(unsigned val)

@@ -1228,8 +1228,6 @@ TypeExp *typedef_name(void)
     return n;
 }
 
-static ExecNode *new_op_node(Token op);
-
 /*
  * initializer = assignment_expression |
  *               "{" initializer_list [ "," ] "}"

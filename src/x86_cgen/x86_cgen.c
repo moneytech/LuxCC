@@ -290,13 +290,13 @@ void compute_liveness_and_next_use(unsigned fn)
                 liveness_and_next_use[i] |= 0x01;\
                 bset_delete(operand_liveness, tar_nid);\
             } else {\
-                liveness_and_next_use[i] &= ~0x01;\
+                /*liveness_and_next_use[i] &= ~0x01;*/\
             }\
             if (bset_member(operand_next_use, tar_nid)) {\
                 liveness_and_next_use[i] |= 0x08;\
                 bset_delete(operand_next_use, tar_nid);\
             } else {\
-                liveness_and_next_use[i] &= ~0x08;\
+                /*liveness_and_next_use[i] &= ~0x08;*/\
             }\
         } while (0)
 #define update_arg1()\
@@ -307,13 +307,13 @@ void compute_liveness_and_next_use(unsigned fn)
             if (bset_member(operand_liveness, arg1_nid)) {\
                 liveness_and_next_use[i] |= 0x02;\
             } else {\
-                liveness_and_next_use[i] &= ~0x02;\
+                /*liveness_and_next_use[i] &= ~0x02;*/\
                 bset_insert(operand_liveness, arg1_nid);\
             }\
             if (bset_member(operand_next_use, arg1_nid)) {\
                 liveness_and_next_use[i] |= 0x10;\
             } else {\
-                liveness_and_next_use[i] &= ~0x10;\
+                /*liveness_and_next_use[i] &= ~0x10;*/\
                 bset_insert(operand_next_use, arg1_nid);\
             }\
         } while (0)
@@ -325,13 +325,13 @@ void compute_liveness_and_next_use(unsigned fn)
             if (bset_member(operand_liveness, arg2_nid)) {\
                 liveness_and_next_use[i] |= 0x04;\
             } else {\
-                liveness_and_next_use[i] &= ~0x04;\
+                /*liveness_and_next_use[i] &= ~0x04;*/\
                 bset_insert(operand_liveness, arg2_nid);\
             }\
             if (bset_member(operand_next_use, arg2_nid)) {\
                 liveness_and_next_use[i] |= 0x20;\
             } else {\
-                liveness_and_next_use[i] &= ~0x20;\
+                /*liveness_and_next_use[i] &= ~0x20;*/\
                 bset_insert(operand_next_use, arg2_nid);\
             }\
         } while (0)
