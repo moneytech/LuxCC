@@ -64,6 +64,7 @@ void *allocate(Arena *a, unsigned n)
             unsigned m;
 
             m = round_up(n, MULTIPLE)+a->nas+sizeof(Block);
+            // m = (ap->limit-(char *)ap-sizeof(Block))*2 + round_up(n, MULTIPLE) + sizeof(Block);
             if ((ap->next=malloc(m)) == NULL)
                 return NULL;
             ap = ap->next;

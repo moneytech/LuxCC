@@ -316,9 +316,9 @@ void live_init_block(unsigned b, int exit_bb)
         case OpRem: case OpSHL: case OpSHR: case OpAnd:
         case OpOr: case OpXor: case OpEQ: case OpNEQ:
         case OpLT: case OpLET: case OpGT: case OpGET:
-            if (nonconst_addr(arg1))
+            if (!const_addr(arg1))
                 add_UEVar(arg1);
-            if (nonconst_addr(arg2))
+            if (!const_addr(arg2))
                 add_UEVar(arg2);
             add_VarKill(tar);
             // add_VarDefPoint(tar);
@@ -330,7 +330,7 @@ void live_init_block(unsigned b, int exit_bb)
                 bset_insert(modified_static_objects, address_nid(tar));
         case OpNeg: case OpCmpl: case OpNot: case OpCh:
         case OpUCh: case OpSh: case OpUSh:
-            if (nonconst_addr(arg1))
+            if (!const_addr(arg1))
                 add_UEVar(arg1);
             add_VarKill(tar);
             // add_VarDefPoint(tar);
@@ -340,7 +340,7 @@ void live_init_block(unsigned b, int exit_bb)
         case OpRet:
         case OpSwitch:
         case OpCBr:
-            if (nonconst_addr(arg1))
+            if (!const_addr(arg1))
                 add_UEVar(arg1);
             continue;
 
@@ -371,7 +371,7 @@ void live_init_block(unsigned b, int exit_bb)
              * For safety, underestimate ambiguous indirect
              * assignments (assume no variables are modified).
              */
-            if (nonconst_addr(arg2))
+            if (!const_addr(arg2))
                 add_UEVar(arg2);
             add_UEVar(arg1);
             continue;
@@ -383,7 +383,7 @@ void live_init_block(unsigned b, int exit_bb)
             bset_diff(live_tmp, VarKill);
             bset_union(UEVar, live_tmp);
 
-            if (instruction(i).op==OpIndCall && nonconst_addr(arg1))
+            if (instruction(i).op==OpIndCall && !const_addr(arg1))
                 add_UEVar(arg1);
             if (tar) {
                 add_VarKill(tar);

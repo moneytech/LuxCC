@@ -341,16 +341,16 @@ void compute_liveness_and_next_use(unsigned fn)
             case OpOr: case OpXor: case OpEQ: case OpNEQ:
             case OpLT: case OpLET: case OpGT: case OpGET:
                 update_tar();
-                if (nonconst_addr(arg1))
+                if (!const_addr(arg1))
                     update_arg1();
-                if (nonconst_addr(arg2))
+                if (!const_addr(arg2))
                     update_arg2();
                 continue;
 
             case OpNeg: case OpCmpl: case OpNot: case OpCh:
             case OpUCh: case OpSh: case OpUSh: case OpAsn:
                 update_tar();
-                if (nonconst_addr(arg1))
+                if (!const_addr(arg1))
                     update_arg1();
                 continue;
 
@@ -358,7 +358,7 @@ void compute_liveness_and_next_use(unsigned fn)
             case OpRet:
             case OpSwitch:
             case OpCBr:
-                if (nonconst_addr(arg1))
+                if (!const_addr(arg1))
                     update_arg1();
                 continue;
 
@@ -374,7 +374,7 @@ void compute_liveness_and_next_use(unsigned fn)
 
             case OpIndAsn:
                 update_arg1();
-                if (nonconst_addr(arg2))
+                if (!const_addr(arg2))
                     update_arg2();
                 continue;
 
@@ -382,7 +382,7 @@ void compute_liveness_and_next_use(unsigned fn)
             case OpIndCall:
                 if (tar)
                     update_tar();
-                if (instruction(i).op==OpIndCall && nonconst_addr(arg1))
+                if (instruction(i).op==OpIndCall && !const_addr(arg1))
                     update_arg1();
                 bset_union(operand_liveness, cg_node(fn).modified_static_objects);
                 bset_union(operand_liveness, address_taken_variables);
@@ -437,11 +437,11 @@ void print_liveness_and_next_use(unsigned fn)
             case OpOr: case OpXor: case OpEQ: case OpNEQ:
             case OpLT: case OpLET: case OpGT: case OpGET:
                 print_tar();
-                if (nonconst_addr(arg1)) {
+                if (!const_addr(arg1)) {
                     printf(" | ");
                     print_arg1();
                 }
-                if (nonconst_addr(arg2)) {
+                if (!const_addr(arg2)) {
                     printf(" | ");
                     print_arg2();
                 }
@@ -450,7 +450,7 @@ void print_liveness_and_next_use(unsigned fn)
             case OpNeg: case OpCmpl: case OpNot: case OpCh:
             case OpUCh: case OpSh: case OpUSh: case OpAsn:
                 print_tar();
-                if (nonconst_addr(arg1)) {
+                if (!const_addr(arg1)) {
                     printf(" | ");
                     print_arg1();
                 }
@@ -460,7 +460,7 @@ void print_liveness_and_next_use(unsigned fn)
             case OpRet:
             case OpSwitch:
             case OpCBr:
-                if (nonconst_addr(arg1)) {
+                if (!const_addr(arg1)) {
                     print_arg1();
                 }
                 break;
@@ -477,7 +477,7 @@ void print_liveness_and_next_use(unsigned fn)
 
             case OpIndAsn:
                 print_arg1();
-                if (nonconst_addr(arg2)) {
+                if (!const_addr(arg2)) {
                     printf(" | ");
                     print_arg2();
                 }
@@ -487,7 +487,7 @@ void print_liveness_and_next_use(unsigned fn)
             case OpIndCall:
                 if (tar)
                     print_tar();
-                if (nonconst_addr(arg1)) {
+                if (!const_addr(arg1)) {
                     printf(" | ");
                     print_arg1();
                 }
@@ -595,7 +595,7 @@ X86_Reg get_reg(int i)
     unsigned arg1;
 
     arg1 = instruction(i).arg1;
-    if (nonconst_addr(arg1) && addr_reg(arg1)!=-1 && !arg1_liveness(i))
+    if (!const_addr(arg1) && addr_reg(arg1)!=-1 && !arg1_liveness(i))
         return addr_reg(arg1);
 
     /* find an empty register */
