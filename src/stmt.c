@@ -67,8 +67,8 @@ void alloc_stmt_buffers(void)
     int i;
 
     for (i = 0; i < MAX_SWITCH_NEST; i++)
-        switch_arena[i] = arena_new(sizeof(SwitchLabel)*8);
-    label_names_arena = arena_new(sizeof(LabelName)*16);
+        switch_arena[i] = arena_new(sizeof(SwitchLabel)*8, FALSE);
+    label_names_arena = arena_new(sizeof(LabelName)*16, FALSE);
 }
 
 // =============================================================================

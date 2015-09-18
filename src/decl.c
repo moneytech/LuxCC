@@ -83,10 +83,10 @@ void alloc_decl_buffers(void)
     int i;
 
     for (i = 0; i < MAX_NEST; i++) {
-        oids_arena[i] = arena_new(sizeof(Symbol)*64);
-        tags_arena[i] = arena_new(sizeof(TypeTag)*32);
+        oids_arena[i] = arena_new(sizeof(Symbol)*64, FALSE);
+        tags_arena[i] = arena_new(sizeof(TypeTag)*32, FALSE);
     }
-    decl_arena = arena_new(1024);
+    decl_arena = arena_new(1024, FALSE);
 }
 
 ExternId *new_extern_id_node(void)

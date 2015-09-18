@@ -9,30 +9,14 @@
 #include "error.h"
 #include "arena.h"
 
-#define SRC_FILE    curr_source_file
-#define SRC_LINE    curr_line
-#define SRC_COLUMN  src_column
-
-#define ERROR(...) emit_error(TRUE, SRC_FILE, SRC_LINE, SRC_COLUMN, __VA_ARGS__)
-
+#define SRC_FILE            curr_source_file
+#define SRC_LINE            curr_line
+#define SRC_COLUMN          src_column
+#define ERROR(...)          emit_error(TRUE, SRC_FILE, SRC_LINE, SRC_COLUMN, __VA_ARGS__)
 #define MACRO_TABLE_SIZE    4093
 #define HASH_VAL(s)         (hash(s)%MACRO_TABLE_SIZE)
-
 // #define STD_INCLUDE_PATH "/usr/local/lib/luxcc/include/"
-#define STD_INCLUDE_PATH "include/";
-
-typedef struct Macro Macro;
-struct Macro {
-    char *name;
-    MacroKind kind;
-    PreTokenNode *rep, *params;
-    int enabled;
-    Macro *next;
-};
-
-static Macro *macro_table[MACRO_TABLE_SIZE];
-static Macro *lookup(char *s);
-static void uninstall_macro(char *name);
+#define STD_INCLUDE_PATH    "include/";
 
 /* get_token()'s possible states */
 typedef enum {
@@ -47,16 +31,95 @@ typedef enum {
     STATE_INLINECOMMENT,
     /*STATE_INCMD*/
 } State;
+typedef enum {
+    FIXED_LIST,
+    VAR_LIST
+} ParaListKind;
+typedef struct Macro Macro;
 
+unsigned number_of_pre_tokens;
+
+static struct Macro {
+    char *name;
+    MacroKind kind;
+    PreTokenNode *rep, *params;
+    int enabled;
+    Macro *next;
+} *macro_table[MACRO_TABLE_SIZE];
 static char *buf, *curr, *curr_source_file;
 static char token_string[MAX_LOG_LINE_LEN+1];
 static PreTokenNode *curr_tok;
 static int curr_line, src_column;
-unsigned number_of_pre_tokens;
-static Arena *pre_arena;
+static PreTokenNode *penultimate_node; /* used by #include's code */
+static Arena *pre_str_arena;
+Arena *pre_node_arena;
 
-static
-char *dup_lexeme(const char *s)
+static void reenable_macro(char *name)
+{
+    Macro *m;
+
+    for(m = macro_table[HASH_VAL(name)]; m != NULL; m = m->next) {
+        if(equal(name, m->name)) {
+            m->enabled = TRUE;
+            break;
+        }
+    }
+}
+
+static Macro *lookup(char *name)
+{
+	Macro *np;
+
+	for(np = macro_table[HASH_VAL(name)]; np != NULL; np = np->next)
+		if(np->enabled && equal(name, np->name))
+			return np;
+	return NULL;
+}
+
+void install_macro(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params)
+{
+    Macro *np;
+    unsigned h;
+
+    h = HASH_VAL(name);
+	for(np = macro_table[h]; np != NULL; np = np->next)
+		if(np->enabled && equal(name, np->name))
+			break;
+
+    if (np == NULL) { /* not found */
+        np = malloc(sizeof(Macro));
+        np->kind = kind;
+        np->name = name;
+        np->rep = rep;
+        np->enabled = TRUE;
+        np->params = params;
+        np->next = macro_table[h];
+        macro_table[h] = np;
+    } else {
+        ERROR("macro `%s' redefined", name);
+    }
+}
+
+static void uninstall_macro(char *name)
+{
+    unsigned h;
+	Macro *np, *prev;
+
+    h = HASH_VAL(name);
+	for(np=macro_table[h], prev=NULL;
+        np!=NULL && not_equal(name, np->name);
+        prev=np, np=np->next);
+
+	if (np == NULL)
+        return; /* not found */
+    if (prev == NULL)
+        macro_table[h] = np->next;
+    else
+        prev->next = np->next;
+    free(np);
+}
+
+static char *dup_lexeme(const char *s)
 {
     char *t;
     unsigned len;
@@ -64,17 +127,16 @@ char *dup_lexeme(const char *s)
     if (!s)
         return NULL;
     len = strlen(s);
-    t = arena_alloc(pre_arena, len+1);
+    t = arena_alloc(pre_str_arena, len+1);
     memcpy(t, s, len+1);
     return t;
 }
 
-static
-PreTokenNode *new_node(PreToken token, char *lexeme)
+static PreTokenNode *new_node(PreToken token, char *lexeme)
 {
     PreTokenNode *temp;
 
-    temp = arena_alloc(pre_arena, sizeof(PreTokenNode));
+    temp = arena_alloc(pre_node_arena, sizeof(PreTokenNode));
     temp->token = token;
     temp->lexeme = dup_lexeme(lexeme);
     temp->next = NULL;
@@ -83,71 +145,14 @@ PreTokenNode *new_node(PreToken token, char *lexeme)
     temp->src_column = src_column;
     temp->src_file = curr_source_file;
     ++number_of_pre_tokens;
-
     return temp;
-}
-
-static
-PreToken lookahead(int i)
-{
-    PreTokenNode *p;
-
-    p = curr_tok;
-    while (/*p!=NULL && */--i)
-        p = p->next;
-    return p->token;
-}
-
-static
-char *get_lexeme(int i)
-{
-    PreTokenNode *p;
-
-    p = curr_tok;
-    while (/*p!=NULL && */--i)
-        p = p->next;
-    return p->lexeme;
-}
-
-static PreToken get_token(void);
-
-static PreTokenNode *penultimate_node; /* used by #include's code */
-
-/*
- * Tokenize the buffer `buf' and return
- * the resulting chain of tokens.
- */
-static
-PreTokenNode *tokenize(void)
-{
-    PreToken tok;
-    PreTokenNode *n, *p;
-
-    curr_line = 1; /* initialize line counter */
-    tok = get_token();
-    n = p = penultimate_node = new_node(tok, token_string);
-    p->next_char = *curr;
-
-    while (tok != PRE_TOK_EOF) {
-        tok = get_token();
-        p->next = new_node(tok, token_string);
-        p->next->next_char = *curr;
-        penultimate_node = p;
-        p = p->next;
-    }
-
-    /* the file buffer is not needed anymore */
-    free(buf);
-
-    return n;
 }
 
 /*
  * Load the file located at `file_path' into the global buffer `buf',
  * and perform end-of-line replacement (CRLF ==> LF) and line splicing.
  */
-static
-void init(char *file_path)
+static void init(char *file_path)
 {
     FILE *fp;
     int buf_size;
@@ -159,7 +164,7 @@ void init(char *file_path)
     fseek(fp, 0, SEEK_END);
     buf_size = ftell(fp); /* number of chars of the file */
     ++buf_size; /* make room for '\0' */
-    ++buf_size; /* so tokenize() doesn't read off limits when doing '*curr' */
+    ++buf_size; /* so tokenize() doesn't read off limits when doing '... = *curr' */
     rewind(fp);
     curr = buf = malloc(buf_size);
 
@@ -195,26 +200,27 @@ void init(char *file_path)
      * the name of the file from where it was obtained. This is
      * used for diagnostic messages.
      */
-    curr_source_file = dup_lexeme(file_path); //strdup(file_path);
+    curr_source_file = dup_lexeme(file_path);
 }
 
-static void preprocessing_file(void);
-
-/*
- * Preprocess the source file and any file
- * included through #include, and return a
- * sequence of preprocessing tokens.
- */
-PreTokenNode *preprocess(char *source_file)
+static PreToken lookahead(int i)
 {
-    PreTokenNode *token_list;
+    PreTokenNode *p;
 
-    pre_arena = arena_new(2048);
-    init(source_file);
-    token_list = curr_tok = tokenize();
-    preprocessing_file();
+    p = curr_tok;
+    while (/*p!=NULL && */--i)
+        p = p->next;
+    return p->token;
+}
 
-    return token_list;
+static char *get_lexeme(int i)
+{
+    PreTokenNode *p;
+
+    p = curr_tok;
+    while (/*p!=NULL && */--i)
+        p = p->next;
+    return p->lexeme;
 }
 
 /*
@@ -222,7 +228,7 @@ PreTokenNode *preprocess(char *source_file)
  * Start to read at `curr'.
  * The lexeme is left into `token_string[]'.
  */
-PreToken get_token(void)
+static PreToken get_token(void)
 {
     State state;
     PreToken token;
@@ -504,6 +510,34 @@ PreToken get_token(void)
     return token;
 }
 
+/*
+ * Tokenize the buffer `buf' and return
+ * the resulting chain of tokens.
+ */
+static PreTokenNode *tokenize(void)
+{
+    PreToken tok;
+    PreTokenNode *n, *p;
+
+    curr_line = 1; /* initialize line counter */
+    tok = get_token();
+    n = p = penultimate_node = new_node(tok, token_string);
+    p->next_char = *curr;
+
+    while (tok != PRE_TOK_EOF) {
+        tok = get_token();
+        p->next = new_node(tok, token_string);
+        p->next->next_char = *curr;
+        penultimate_node = p;
+        p = p->next;
+    }
+
+    /* the file buffer is not needed anymore */
+    free(buf);
+
+    return n;
+}
+
 #undef SRC_FILE
 #undef SRC_LINE
 #undef SRC_COLUMN
@@ -512,13 +546,13 @@ PreToken get_token(void)
 #define SRC_COLUMN  curr_tok->src_column
 
 static char *pre_token_table[] = {
-    "EOF", "punctuator", "preprocessor number",
-    "identifier", "character constant",
-    "string literal", "new line", "other"
+    "EOF", "punctuator",
+    "preprocessor number", "identifier",
+    "character constant", "string literal",
+    "new line", "other"
 };
 
-static
-void match(PreToken x)
+static void match(PreToken x)
 {
     if (curr_tok->token == x)
         curr_tok = curr_tok->next;
@@ -526,8 +560,8 @@ void match(PreToken x)
         ERROR("expecting: `%s'; found: `%s'", pre_token_table[x], curr_tok->lexeme);
 }
 
-static
-void match2(PreToken x) /* same as match but mark the token as deleted */
+/* same as match but mark the token as deleted */
+static void match2(PreToken x)
 {
     if (curr_tok->token == x) {
         curr_tok->deleted = TRUE;
@@ -535,6 +569,21 @@ void match2(PreToken x) /* same as match but mark the token as deleted */
     } else {
         ERROR("expecting: `%s'; found: `%s'", pre_token_table[x], curr_tok->lexeme);
     }
+}
+
+static int is_group_part(void)
+{
+    /*
+     * group_part cannot begin with neither EOF
+     * nor #elif nor #else nor #endif.
+     */
+    if (lookahead(1) == PRE_TOK_EOF
+    || (equal(get_lexeme(1), "#")
+    && (equal(get_lexeme(2), "elif")
+    ||  equal(get_lexeme(2), "else")
+    ||  equal(get_lexeme(2), "endif"))))
+        return FALSE;
+    return TRUE;
 }
 
 /* recursive parser functions */
@@ -550,27 +599,10 @@ static void control_line(int skip);
 static void pp_tokens(int skip);
 static void preprocessing_token(int skip);
 
-
-int is_group_part(void)
-{
-    /*
-     * group_part cannot begin with neither EOF
-     * nor #elif nor #else nor #endif.
-     */
-    if (lookahead(1) == PRE_TOK_EOF
-    || (equal(get_lexeme(1), "#")
-    && (equal(get_lexeme(2), "elif")
-    ||  equal(get_lexeme(2), "else")
-    ||  equal(get_lexeme(2), "endif"))))
-        return FALSE;
-
-    return TRUE;
-}
-
 /*
  * preprocessing_file = [ group ] end_of_file
  */
-void preprocessing_file(void)
+static void preprocessing_file(void)
 {
     if (lookahead(1) != PRE_TOK_EOF)
         group(FALSE);
@@ -755,8 +787,8 @@ void endif_line(void)
     match2(PRE_TOK_NL);
 }
 
-void simple_define(void);
-void parameterized_define(void);
+static void simple_define(void);
+static void parameterized_define(void);
 
 /*
  * control_line = "#" "include" pp_tokens new_line |
@@ -849,15 +881,7 @@ void control_line(int skip)
          * result right after the #include directive.
          */
         tokenized_file = tokenize();
-        /*
-         * `penultimate_node' is set by tokenize()
-         * as the node previous to the EOF token
-         * just to allow the operations that follow.
-         */
-        /* delete EOF token */
-        /*free(penultimate_node->next->lexeme);
-        free(penultimate_node->next);*/
-        /* insert */
+        /* skip included file's EOF token */
         penultimate_node->next = curr_tok->next;
         curr_tok->next = tokenized_file;
     } else if (equal(get_lexeme(1), "define")) {
@@ -897,8 +921,12 @@ void simple_define(void)
     install_macro(SIMPLE_MACRO, get_lexeme(1), curr_tok->next, NULL);
 }
 
-void parameterized_define(void) // TODO: check for duplicate parameter names
+void parameterized_define(void)
 {
+    /*
+     * TODO: check for duplicate parameter names.
+     */
+
     PreTokenNode *rep;
 
     /*
@@ -937,9 +965,8 @@ void pp_tokens(int skip)
         preprocessing_token(skip);
 }
 
-void expand_simple_macro(Macro *m);
-void expand_parameterized_macro(Macro *m);
-void reenable_macro(char *name);
+static void expand_simple_macro(Macro *m);
+static void expand_parameterized_macro(Macro *m);
 
 /*
  * preprocessing_token = header_name
@@ -971,25 +998,19 @@ void preprocessing_token(int skip)
             unsigned n;
 
             n = strlen(curr_tok->src_file);
-            /*free(curr_tok->lexeme);*/
-            // curr_tok->lexeme = malloc(n+2+1); /* +2 for "", +1 for '\0' */
-            curr_tok->lexeme = arena_alloc(pre_arena, n+2+1);
+            curr_tok->lexeme = arena_alloc(pre_str_arena, n+2+1); /* +2 for "", +1 for '\0' */
             curr_tok->lexeme[0] = '\"';
             strcpy(curr_tok->lexeme+1, curr_tok->src_file);
             curr_tok->lexeme[n+1] = '\"';
             curr_tok->lexeme[n+2] = '\0';
             curr_tok->token = PRE_TOK_STRLIT;
-
             match(lookahead(1));
         } else if (equal(curr_tok->lexeme, "__LINE__")) {
             char n[11];
 
-            /*free(curr_tok->lexeme);*/
             sprintf(n, "%d", curr_tok->src_line);
-            // curr_tok->lexeme = strdup(n);
             curr_tok->lexeme = dup_lexeme(n);
             curr_tok->token = PRE_TOK_NUM;
-
             match(lookahead(1));
         } else if ((m=lookup(get_lexeme(1))) != NULL) {
             DEBUG_PRINTF("found macro `%s'\n", get_lexeme(1));
@@ -1009,19 +1030,15 @@ void preprocessing_token(int skip)
     }
 }
 
-static
-void copy_node_info(PreTokenNode *dest, PreTokenNode *src)
+static void copy_node_info(PreTokenNode *dest, PreTokenNode *src)
 {
     dest->src_file = src->src_file;
     dest->src_line = src->src_line;
     dest->src_column = src->src_column;
 }
 
-/*
- * Duplicate a replacement list.
- */
-static
-PreTokenNode *dup_rep_list(PreTokenNode *r)
+/* duplicate a replacement list */
+static PreTokenNode *dup_rep_list(PreTokenNode *r)
 {
     PreTokenNode *new_rep_list, *temp;
 
@@ -1039,13 +1056,10 @@ PreTokenNode *dup_rep_list(PreTokenNode *r)
         temp = temp->next;
         r = r->next;
     }
-
     return new_rep_list;
 }
 
-/*
- * Expand an object-like macro.
- */
+/* expand an object-like macro */
 void expand_simple_macro(Macro *m)
 {
     PreTokenNode *r, *old_next;
@@ -1066,17 +1080,12 @@ empty_rep_list:
     match2(lookahead(1));
 }
 
-typedef enum {
-    FIXED_LIST,
-    VAR_LIST
-} ParaListKind;
-
 /*
  * Support function for parameterized macro calls.
  * Make a copy of the token string that conform an argument.
  * `kind' modifies the main loop stop condition.
  */
-PreTokenNode *copy_arg(PreTokenNode **a, ParaListKind kind)
+static PreTokenNode *copy_arg(PreTokenNode **a, ParaListKind kind)
 {
     int pn; /* parenthesis nesting level counter */
     PreTokenNode *copy, *temp;
@@ -1098,7 +1107,6 @@ PreTokenNode *copy_arg(PreTokenNode **a, ParaListKind kind)
         temp = temp->next;
         *a = (*a)->next;
     }
-
     return copy;
 }
 
@@ -1106,7 +1114,7 @@ PreTokenNode *copy_arg(PreTokenNode **a, ParaListKind kind)
  * Second support function. Make a copy of an
  * argument created previously with copy_arg().
  */
-PreTokenNode *copy_arg2(PreTokenNode *a, PreTokenNode **last)
+static PreTokenNode *copy_arg2(PreTokenNode *a, PreTokenNode **last)
 {
     PreTokenNode *copy;
 
@@ -1118,7 +1126,6 @@ PreTokenNode *copy_arg2(PreTokenNode *a, PreTokenNode **last)
         *last = (*last)->next;
         a = a->next;
     }
-
     return copy;
 }
 
@@ -1209,7 +1216,8 @@ void expand_parameterized_macro(Macro *m)
     /*
      * Replace every occurrence of a formal parameter
      * for a copy of the actual argument token sequence
-     * associated with it (build the 'expansion' of the macro).
+     * associated with it (that is, build the 'expansion'
+     * of the macro).
      */
     prev=NULL, p=r;
     while (p != NULL) {
@@ -1307,67 +1315,19 @@ void expand_parameterized_macro(Macro *m)
     match2(lookahead(1)); /* ) */
 }
 
-void reenable_macro(char *name)
+/*
+ * Preprocess the source file and any file
+ * included through #include, and return a
+ * sequence of preprocessing tokens.
+ */
+PreTokenNode *preprocess(char *source_file)
 {
-    Macro *m;
+    PreTokenNode *token_list;
 
-    for(m = macro_table[HASH_VAL(name)]; m != NULL; m = m->next) {
-        if(equal(name, m->name)) {
-            m->enabled = TRUE;
-            break;
-        }
-    }
-}
-
-Macro *lookup(char *name)
-{
-	Macro *np;
-
-	for(np = macro_table[HASH_VAL(name)]; np != NULL; np = np->next)
-		if(np->enabled && equal(name, np->name))
-			return np;
-	return NULL;
-}
-
-void install_macro(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params)
-{
-    Macro *np;
-    unsigned h;
-
-    h = HASH_VAL(name);
-	for(np = macro_table[h]; np != NULL; np = np->next)
-		if(np->enabled && equal(name, np->name))
-			break;
-
-    if (np == NULL) { /* not found */
-        np = malloc(sizeof(Macro));
-        np->kind = kind;
-        np->name = name;
-        np->rep = rep;
-        np->enabled = TRUE;
-        np->params = params;
-        np->next = macro_table[h];
-        macro_table[h] = np;
-    } else {
-        ERROR("macro `%s' redefined", name);
-    }
-}
-
-void uninstall_macro(char *name)
-{
-    unsigned h;
-	Macro *np, *prev;
-
-    h = HASH_VAL(name);
-	for(np=macro_table[h], prev=NULL;
-        np!=NULL && not_equal(name, np->name);
-        prev=np, np=np->next);
-
-	if (np == NULL)
-        return; /* not found */
-    if (prev == NULL)
-        macro_table[h] = np->next;
-    else
-        prev->next = np->next;
-    free(np);
+    pre_node_arena = arena_new(sizeof(PreTokenNode)*128, FALSE);
+    pre_str_arena = arena_new(1024, FALSE);
+    init(source_file);
+    token_list = curr_tok = tokenize();
+    preprocessing_file();
+    return token_list;
 }

@@ -1770,7 +1770,7 @@ jump_table:
 
     /* build jump table */
     jmp_tab = calloc(interval_size, sizeof(char *));
-    lab_arena = arena_new(interval_size*16);
+    lab_arena = arena_new(interval_size*16, FALSE);
     sprintf(def_lab, ".L%ld", def_val);
     for (;; i++) {
         char *s;

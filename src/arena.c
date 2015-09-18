@@ -17,24 +17,30 @@ struct Arena {
     Block *first;
     Block *last;
     unsigned nas; /* nominal arena size */
+    int zero;
 };
 
 static void *allocate(Arena *a, unsigned n);
 
 /* create a new `size' bytes sized arena */
-Arena *arena_new(unsigned size)
+Arena *arena_new(unsigned size, int zero)
 {
     Arena *a;
     unsigned n;
 
     a = malloc(sizeof(Arena));
     n = round_up(sizeof(Block)+size, MULTIPLE);
-    a->first = malloc(n);
+    if (zero) {
+        a->first = calloc(1, n);
+    } else {
+        a->first = malloc(n);
+        a->first->next = NULL;
+    }
     a->first->limit = (char *)a->first+n;
     a->first->avail = (char *)a->first+sizeof(Block);
-    a->first->next = NULL;
     a->last = a->first;
     a->nas = DEFAULT_NAS;
+    a->zero = zero;
 
     return a;
 }
@@ -64,10 +70,13 @@ void *allocate(Arena *a, unsigned n)
             unsigned m;
 
             m = round_up(n, MULTIPLE)+a->nas+sizeof(Block);
-            // m = (ap->limit-(char *)ap-sizeof(Block))*2 + round_up(n, MULTIPLE) + sizeof(Block);
-            if ((ap->next=malloc(m)) == NULL)
+            /*m = (ap->limit-(char *)ap-sizeof(Block))*2 + round_up(n, MULTIPLE) + sizeof(Block);*/
+            if (a->zero)
+                ap->next = calloc(1, m);
+            else
+                ap->next = malloc(m);
+            if ((ap=ap->next) == NULL)
                 return NULL;
-            ap = ap->next;
             ap->limit = (char *)ap+m;
             ap->avail = (char *)ap+sizeof(Block);
             ap->next = NULL;

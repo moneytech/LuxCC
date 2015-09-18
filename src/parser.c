@@ -120,8 +120,9 @@ TypeExp *new_type_exp_node(void)
 {
     TypeExp *n;
 
-    n = arena_alloc(parser_arena, sizeof(TypeExp));
-    memset(n, 0, sizeof(TypeExp));
+    // n = arena_alloc(parser_arena, sizeof(TypeExp));
+    // memset(n, 0, sizeof(TypeExp));
+    n = calloc(1, sizeof(TypeExp));
     n->info = curr_tok;
     ++number_of_ast_nodes;
     return n;
@@ -131,7 +132,8 @@ Declaration *new_declaration_node(void)
 {
     Declaration *n;
 
-    n = arena_alloc(parser_arena, sizeof(Declaration));
+    // n = arena_alloc(parser_arena, sizeof(Declaration));
+    n = calloc(1, sizeof(Declaration));
     ++number_of_ast_nodes;
     return n;
 }
@@ -140,7 +142,8 @@ DeclList *new_decl_list_node(void)
 {
     DeclList *n;
 
-    n = arena_alloc(parser_arena, sizeof(DeclList));
+    // n = arena_alloc(parser_arena, sizeof(DeclList));
+    n = calloc(1, sizeof(DeclList));
     ++number_of_ast_nodes;
     return n;
 }
@@ -149,8 +152,9 @@ ExecNode *new_exec_node(void)
 {
     ExecNode *n;
 
-    n = arena_alloc(parser_arena, sizeof(ExecNode));
-    memset(n, 0, sizeof(ExecNode));
+    // n = arena_alloc(parser_arena, sizeof(ExecNode));
+    // memset(n, 0, sizeof(ExecNode));
+    n = calloc(1, sizeof(ExecNode));
     n->info = curr_tok;
     ++number_of_ast_nodes;
     return n;
@@ -290,7 +294,7 @@ ExternDecl *parser(TokenNode *tokens)
     curr_tok = tokens;
     alloc_decl_buffers();
     alloc_stmt_buffers();
-    parser_arena = arena_new(4096);
+    parser_arena = arena_new(4096, TRUE);
     return translation_unit();
 }
 

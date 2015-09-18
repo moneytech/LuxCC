@@ -244,6 +244,7 @@ unsigned new_address(AddrKind kind)
         ic_addresses_max *= AGROW;
         ic_addresses = new_p;
     }
+    memset(&ic_addresses[ic_addresses_counter], 0, sizeof(Address));
     ic_addresses[ic_addresses_counter].kind = kind;
 
     return ic_addresses_counter++;
@@ -331,8 +332,8 @@ void ic_init(void)
     nid_max = 128;
     nid_counter = 0;
 
-    id_table_arena = arena_new(256);
-    temp_names_arena = arena_new(256);
+    id_table_arena = arena_new(256, FALSE);
+    temp_names_arena = arena_new(256, FALSE);
 
     /* FALSE/TRUE addresses */
     true_addr = new_address(IConstKind);
@@ -1795,7 +1796,7 @@ void ic_zero(unsigned id, unsigned offset, unsigned nb)
     }
     emit_i(OpArg, &int_ty, 0, a1, 0);
     /* do the call */
-    emit_i(OpCall, &int_ty, new_temp_addr(), memset_addr, 0);
+    emit_i(OpCall, &int_ty, new_temp_addr(), memset_addr, 3);
 }
 
 void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned offset)
@@ -1842,7 +1843,7 @@ void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned 
                 a1 = a3;
             }
             emit_i(OpArg, &int_ty, 0, a1, 0);
-            emit_i(OpCall, &int_ty, new_temp_addr(), memcpy_addr, 0);
+            emit_i(OpCall, &int_ty, new_temp_addr(), memcpy_addr, 3);
             if (nfill > 0)
                 ic_zero(id, offset+n, nfill);
         } else {

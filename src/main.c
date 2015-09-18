@@ -140,7 +140,8 @@ int main(int argc, char *argv[])
             if (!p->deleted || p->token==PRE_TOK_NL)
                 printf("%s ", p->lexeme);
         }
-        exit(EXIT_SUCCESS);
+        // exit(EXIT_SUCCESS);
+        goto done;
     }
 
     tok = lexer(pre);
@@ -173,13 +174,13 @@ int main(int argc, char *argv[])
     } else {
         return 1;
     }
-
+done:
     if (option_flags & OPT_SHOW_STATS) {
         extern unsigned number_of_pre_tokens;
         extern unsigned number_of_c_tokens;
         extern unsigned number_of_ast_nodes;
 
-        printf("=> '%u' preprocessing tokens were created (aprox)\n", number_of_pre_tokens);
+        printf("\n=> '%u' preprocessing tokens were created (aprox)\n", number_of_pre_tokens);
         printf("=> '%u' C tokens were created (aprox)\n", number_of_c_tokens);
         printf("=> '%u' AST nodes were created (aprox)\n", number_of_ast_nodes);
     }

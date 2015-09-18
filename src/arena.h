@@ -4,7 +4,7 @@
 /* growable memory arena */
 typedef struct Arena Arena;
 
-Arena *arena_new(unsigned size);
+Arena *arena_new(unsigned size, int zero);
 void *arena_alloc(Arena *a, unsigned n);
 void arena_reset(Arena *a);
 void arena_destroy(Arena *a);

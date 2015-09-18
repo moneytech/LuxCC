@@ -95,7 +95,7 @@ Arena *local_arena;
 
 void init_local_table(void)
 {
-    local_arena = arena_new(32768);
+    local_arena = arena_new(32768, FALSE);
 }
 
 void *new_local_symbol(void)

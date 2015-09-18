@@ -296,6 +296,8 @@ TokenNode *new_token(Token token, PreTokenNode *ptok)
     return temp;
 }
 
+extern Arena *pre_node_arena;
+
 /*
  * Take a sequence of preprocessing tokens and convert it in a sequence
  * of C tokens (roughly translation phases 5, 6, and part of 7 of the standard).
@@ -304,7 +306,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
 {
     TokenNode *first, *tok;
 
-    lexer_arena = arena_new(number_of_pre_tokens*sizeof(TokenNode)+1024);
+    lexer_arena = arena_new(number_of_pre_tokens*sizeof(TokenNode)+1024, FALSE);
 
     pre_tok = pre_token_list;
     first = tok = malloc(sizeof(TokenNode)); /* dummy node, it's removed before return */
@@ -419,6 +421,7 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
     }
     tok = first->next;
     free(first); /* delete dummy node */
+    arena_destroy(pre_node_arena);
 
     return tok;
 }

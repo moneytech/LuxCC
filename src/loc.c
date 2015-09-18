@@ -25,7 +25,7 @@ void location_init(void)
     int i;
 
     for (i = 0; i < MAX_NEST; i++)
-        location_arena[i] = arena_new(128);
+        location_arena[i] = arena_new(128, FALSE);
 }
 
 static
