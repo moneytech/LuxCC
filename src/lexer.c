@@ -8,13 +8,13 @@
 #include "error.h"
 #include "arena.h"
 
-static int get_esc_seq_val(char **c);
-static void check_integer_constant(char *ic);
+extern unsigned stat_number_of_pre_tokens;
+extern unsigned stat_number_of_c_tokens;
+extern Arena *pre_node_arena;
 
 static PreTokenNode *pre_tok; /* declared global so ERROR can access it */
-unsigned number_of_c_tokens;
-extern unsigned number_of_pre_tokens;
-static Arena *lexer_arena;
+Arena *lexer_node_arena;
+static Arena *lexer_str_arena;
 
 #define ERROR(...) emit_error(TRUE, pre_tok->src_file, pre_tok->src_line, pre_tok->src_column, __VA_ARGS__)
 
@@ -254,184 +254,12 @@ static int cmp_punct(const void *p1, const void *p2)
    return strcmp(x1->str, x2->str);
 }
 
-/*
- * Convert escape sequences.
- */
-static void convert_string(char *s)
-{
-    unsigned slen;
-    char *src, *dest;
-
-    /* remove "" */
-    slen = strlen(s);
-    memmove(s, s+1, slen-1);
-    s[slen-2] = '\0';
-
-    src = dest = s;
-    while (*src != '\0') {
-        if (*src == '\\') {
-            ++src; /* skip \ */
-            *dest++ = (char)get_esc_seq_val(&src);
-        } else {
-            *dest++ = *src++;
-        }
-    }
-    *dest = *src; /* copy '\0' */
-}
-
-static
-TokenNode *new_token(Token token, PreTokenNode *ptok)
-{
-    TokenNode *temp;
-
-    temp = arena_alloc(lexer_arena, sizeof(TokenNode));
-    temp->token = token;
-    temp->lexeme = ptok->lexeme;
-    temp->src_line = ptok->src_line;
-    temp->src_column = ptok->src_column;
-    temp->src_file = ptok->src_file;
-    temp->next = NULL;
-    ++number_of_c_tokens;
-
-    return temp;
-}
-
-extern Arena *pre_node_arena;
-
-/*
- * Take a sequence of preprocessing tokens and convert it in a sequence
- * of C tokens (roughly translation phases 5, 6, and part of 7 of the standard).
- */
-TokenNode *lexer(PreTokenNode *pre_token_list)
-{
-    TokenNode *first, *tok;
-
-    lexer_arena = arena_new(number_of_pre_tokens*sizeof(TokenNode)+1024, FALSE);
-
-    pre_tok = pre_token_list;
-    first = tok = malloc(sizeof(TokenNode)); /* dummy node, it's removed before return */
-    while (pre_tok != NULL) {
-        if (pre_tok->deleted) {
-            pre_tok = pre_tok->next;
-            continue;
-        }
-
-        switch (pre_tok->token) {
-        case PRE_TOK_EOF:
-            tok->next = new_token(TOK_EOF, pre_tok);
-            break;
-        case PRE_TOK_PUNCTUATOR: {
-            struct Punctuator key, *res;
-
-            key.str = pre_tok->lexeme;
-            res = bsearch(&key, punctuators_table, NELEMS(punctuators_table), sizeof(punctuators_table[0]), cmp_punct);
-            assert(res != NULL);
-            tok->next = new_token(res->tok, pre_tok);
-            break;
-        }
-        case PRE_TOK_NUM:
-            check_integer_constant(pre_tok->lexeme);
-            tok->next = new_token(TOK_ICONST, pre_tok);
-            break;
-        case PRE_TOK_ID:
-            tok->next = new_token(TOK_ID, pre_tok);
-            tok->next->token = lookup_id(pre_tok->lexeme);
-            break;
-        case PRE_TOK_CHACON: {
-            char buf[16], *p;
-
-            /*
-             * If the character constant has more than
-             * one character, set its value to the value
-             * of the rightmost character.
-             */
-            p = pre_tok->lexeme;
-            while (*p != '\0') {
-                if (*p == '\\') {
-                    ++p; /* skip \ */
-                    sprintf(buf, "%d", get_esc_seq_val(&p));
-                } else {
-                    sprintf(buf, "%d", *p);
-                    ++p;
-                }
-            }
-            tok->next = new_token(TOK_ICONST, pre_tok);
-            tok->next->lexeme = arena_alloc(lexer_arena, strlen(buf)+1); /* replace prev lexeme */
-            strcpy(tok->next->lexeme, buf);
-        }
-            break;
-        case PRE_TOK_STRLIT: {
-            PreTokenNode *p;
-
-            tok->next = new_token(TOK_STRLIT, pre_tok);
-
-            /*
-             * Concatenate any adjacent strings.
-             */
-            p = pre_tok->next;
-            while (p!=NULL && p->deleted)
-                p = p->next;
-            if (p!=NULL && p->token==PRE_TOK_STRLIT) {
-                int new_len;
-
-                /* get length of concatenated strings */
-                new_len = 0, p = pre_tok;
-                while (p!=NULL && (p->deleted || p->token==PRE_TOK_STRLIT)) {
-                    if (p->token == PRE_TOK_STRLIT) {
-                        convert_string(p->lexeme);
-                        new_len += strlen(p->lexeme);
-                    }
-                    p = p->next;
-                }
-                ++new_len; /* make room for '\0' */
-
-                /* allocate all at one time */
-                tok->next->lexeme = arena_alloc(lexer_arena, new_len);
-                tok->next->lexeme[0] = '\0';
-
-                /* copy the strings to the buffer (pre_tok is
-                   left pointing to the last string concatenated) */
-                new_len = 0, p = pre_tok;
-                while (p!=NULL && (p->deleted || p->token==PRE_TOK_STRLIT)) {
-                    if (p->token == PRE_TOK_STRLIT)
-                        strcat(tok->next->lexeme, p->lexeme);
-                    pre_tok = p;
-                    p = p->next;
-                }
-            } else { /* no adjacent string */
-                convert_string(tok->next->lexeme);
-            }
-            break;
-        }
-        case PRE_TOK_NL:
-            /* new-line token not deleted during preprocessing */
-            assert(0);
-            break;
-        case PRE_TOK_OTHER:
-            /*
-             * Ignore `other' tokens (`, $, etc).
-             */
-            fprintf(stderr, "stray `%s' found; ignoring...\n", pre_tok->lexeme);
-            pre_tok = pre_tok->next;
-            continue;
-            break;
-        }
-        pre_tok = pre_tok->next;
-        tok = tok->next;
-    }
-    tok = first->next;
-    free(first); /* delete dummy node */
-    arena_destroy(pre_node_arena);
-
-    return tok;
-}
-
 static int isodigit(int c)
 {
     return (c!='8')&&(c!='9')&&(isdigit(c));
 }
 
-int get_esc_seq_val(char **c)
+static int get_esc_seq_val(char **c)
 {
     switch (*(*c)++) {
     case 'n':
@@ -489,10 +317,31 @@ int get_esc_seq_val(char **c)
     }
 }
 
-/*
- * Check the validity of the integer constant `ic'.
- */
-void check_integer_constant(char *ic)
+/* convert escape sequences */
+static void convert_string(char *s)
+{
+    unsigned slen;
+    char *src, *dest;
+
+    /* remove "" */
+    slen = strlen(s);
+    memmove(s, s+1, slen-1);
+    s[slen-2] = '\0';
+
+    src = dest = s;
+    while (*src != '\0') {
+        if (*src == '\\') {
+            ++src; /* skip \ */
+            *dest++ = (char)get_esc_seq_val(&src);
+        } else {
+            *dest++ = *src++;
+        }
+    }
+    *dest = *src; /* copy '\0' */
+}
+
+/* check the validity of the integer constant `ic' */
+static void check_integer_constant(char *ic)
 {
     enum {
         START,
@@ -602,4 +451,148 @@ void check_integer_constant(char *ic)
         } /* switch (state) */
         c++;
     } /* while (TRUE) */
+}
+
+static TokenNode *new_token(Token token, PreTokenNode *ptok)
+{
+    TokenNode *temp;
+
+    temp = arena_alloc(lexer_node_arena, sizeof(TokenNode));
+    temp->token = token;
+    temp->lexeme = ptok->lexeme;
+    temp->src_line = ptok->src_line;
+    temp->src_column = ptok->src_column;
+    temp->src_file = ptok->src_file;
+    temp->next = NULL;
+    ++stat_number_of_c_tokens;
+    return temp;
+}
+
+/*
+ * Take a sequence of preprocessing tokens and convert it in a sequence
+ * of C tokens (roughly translation phases 5, 6, and part of 7 of the
+ * standard).
+ */
+TokenNode *lexer(PreTokenNode *pre_token_list)
+{
+    TokenNode *first, *tok;
+
+    lexer_node_arena = arena_new(stat_number_of_pre_tokens*sizeof(TokenNode), FALSE);
+    lexer_str_arena = arena_new(1024, FALSE);
+
+    pre_tok = pre_token_list;
+    first = tok = malloc(sizeof(TokenNode)); /* dummy node, it's removed before return */
+    while (pre_tok != NULL) {
+        if (pre_tok->deleted) {
+            pre_tok = pre_tok->next;
+            continue;
+        }
+
+        switch (pre_tok->token) {
+        case PRE_TOK_EOF:
+            tok->next = new_token(TOK_EOF, pre_tok);
+            break;
+        case PRE_TOK_PUNCTUATOR: {
+            struct Punctuator key, *res;
+
+            key.str = pre_tok->lexeme;
+            res = bsearch(&key, punctuators_table, NELEMS(punctuators_table), sizeof(punctuators_table[0]), cmp_punct);
+            assert(res != NULL);
+            tok->next = new_token(res->tok, pre_tok);
+            break;
+        }
+        case PRE_TOK_NUM:
+            check_integer_constant(pre_tok->lexeme);
+            tok->next = new_token(TOK_ICONST, pre_tok);
+            break;
+        case PRE_TOK_ID:
+            tok->next = new_token(TOK_ID, pre_tok);
+            tok->next->token = lookup_id(pre_tok->lexeme);
+            break;
+        case PRE_TOK_CHACON: {
+            char buf[16], *p;
+
+            /*
+             * If the character constant has more than
+             * one character, set its value to the value
+             * of the rightmost character.
+             */
+            p = pre_tok->lexeme;
+            while (*p != '\0') {
+                if (*p == '\\') {
+                    ++p; /* skip \ */
+                    sprintf(buf, "%d", get_esc_seq_val(&p));
+                } else {
+                    sprintf(buf, "%d", *p);
+                    ++p;
+                }
+            }
+            tok->next = new_token(TOK_ICONST, pre_tok);
+            tok->next->lexeme = arena_alloc(lexer_str_arena, strlen(buf)+1); /* replace prev lexeme */
+            strcpy(tok->next->lexeme, buf);
+        }
+            break;
+        case PRE_TOK_STRLIT: {
+            PreTokenNode *p;
+
+            tok->next = new_token(TOK_STRLIT, pre_tok);
+
+            /*
+             * Concatenate any adjacent strings.
+             */
+            p = pre_tok->next;
+            while (p!=NULL && p->deleted)
+                p = p->next;
+            if (p!=NULL && p->token==PRE_TOK_STRLIT) {
+                int new_len;
+
+                /* get length of concatenated strings */
+                new_len = 0, p = pre_tok;
+                while (p!=NULL && (p->deleted || p->token==PRE_TOK_STRLIT)) {
+                    if (p->token == PRE_TOK_STRLIT) {
+                        convert_string(p->lexeme);
+                        new_len += strlen(p->lexeme);
+                    }
+                    p = p->next;
+                }
+                ++new_len; /* make room for '\0' */
+
+                /* allocate all at one time */
+                tok->next->lexeme = arena_alloc(lexer_str_arena, new_len);
+                tok->next->lexeme[0] = '\0';
+
+                /* copy the strings to the buffer (pre_tok is
+                   left pointing to the last string concatenated) */
+                new_len = 0, p = pre_tok;
+                while (p!=NULL && (p->deleted || p->token==PRE_TOK_STRLIT)) {
+                    if (p->token == PRE_TOK_STRLIT)
+                        strcat(tok->next->lexeme, p->lexeme);
+                    pre_tok = p;
+                    p = p->next;
+                }
+            } else { /* no adjacent string */
+                convert_string(tok->next->lexeme);
+            }
+            break;
+        }
+        case PRE_TOK_NL:
+            /* new-line token not deleted during preprocessing */
+            assert(0);
+            break;
+        case PRE_TOK_OTHER:
+            /*
+             * Ignore `other' tokens (`, $, etc).
+             */
+            fprintf(stderr, "stray `%s' found; ignoring...\n", pre_tok->lexeme);
+            pre_tok = pre_tok->next;
+            continue;
+        }
+        pre_tok = pre_tok->next;
+        tok = tok->next;
+    }
+    tok = first->next;
+    free(first); /* delete dummy node */
+    arena_destroy(pre_node_arena);
+
+    return tok;
 }

@@ -9,6 +9,8 @@
 #include "error.h"
 #include "arena.h"
 
+extern unsigned stat_number_of_pre_tokens;
+
 #define SRC_FILE            curr_source_file
 #define SRC_LINE            curr_line
 #define SRC_COLUMN          src_column
@@ -60,7 +62,6 @@ static int curr_line, src_column;
 static PreTokenNode *penultimate_node; /* used by #include's code */
 static Arena *pre_str_arena;
 Arena *pre_node_arena;
-unsigned number_of_pre_tokens;
 
 static char *dup_lexeme(const char *s)
 {
@@ -87,7 +88,7 @@ static PreTokenNode *new_node(PreToken token, char *lexeme)
     temp->src_line = curr_line;
     temp->src_column = src_column;
     temp->src_file = curr_source_file;
-    ++number_of_pre_tokens;
+    ++stat_number_of_pre_tokens;
     return temp;
 }
 
@@ -595,28 +596,6 @@ static PreTokenNode *tokenize(void)
 #define SRC_LINE    curr_tok->src_line
 #define SRC_COLUMN  curr_tok->src_column
 
-static void reenable_macro(char *name)
-{
-    Macro *m;
-
-    for(m = macro_table[HASH_VAL(name)]; m != NULL; m = m->next) {
-        if(equal(name, m->name)) {
-            m->enabled = TRUE;
-            break;
-        }
-    }
-}
-
-static Macro *lookup(char *name)
-{
-	Macro *np;
-
-	for(np = macro_table[HASH_VAL(name)]; np != NULL; np = np->next)
-		if(np->enabled && equal(name, np->name))
-			return np;
-	return NULL;
-}
-
 void install_macro(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params)
 {
     Macro *np;
@@ -658,6 +637,28 @@ static void uninstall_macro(char *name)
     else
         prev->next = np->next;
     free(np);
+}
+
+static Macro *lookup(char *name)
+{
+	Macro *np;
+
+	for(np = macro_table[HASH_VAL(name)]; np != NULL; np = np->next)
+		if(np->enabled && equal(name, np->name))
+			return np;
+	return NULL;
+}
+
+static void reenable_macro(char *name)
+{
+    Macro *m;
+
+    for(m = macro_table[HASH_VAL(name)]; m != NULL; m = m->next) {
+        if(equal(name, m->name)) {
+            m->enabled = TRUE;
+            break;
+        }
+    }
 }
 
 static char *pre_token_table[] = {

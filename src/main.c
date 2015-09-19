@@ -11,6 +11,9 @@ unsigned warning_count, error_count;
 int disable_warnings;
 int colored_diagnostics = 1;
 
+unsigned stat_number_of_pre_tokens;
+unsigned stat_number_of_c_tokens;
+unsigned stat_number_of_ast_nodes;
 
 static void usage(FILE *f, char *program_name)
 {
@@ -188,13 +191,9 @@ int main(int argc, char *argv[])
     }
 done:
     if (option_flags & OPT_SHOW_STATS) {
-        extern unsigned number_of_pre_tokens;
-        extern unsigned number_of_c_tokens;
-        extern unsigned number_of_ast_nodes;
-
-        printf("\n=> '%u' preprocessing tokens were created (aprox)\n", number_of_pre_tokens);
-        printf("=> '%u' C tokens were created (aprox)\n", number_of_c_tokens);
-        printf("=> '%u' AST nodes were created (aprox)\n", number_of_ast_nodes);
+        printf("\n=> '%u' preprocessing tokens were created (aprox)\n", stat_number_of_pre_tokens);
+        printf("=> '%u' C tokens were created (aprox)\n", stat_number_of_c_tokens);
+        printf("=> '%u' AST nodes were created (aprox)\n", stat_number_of_ast_nodes);
     }
     // printf("%d warning and %d error generated\n", warning_count, error_count);
 
