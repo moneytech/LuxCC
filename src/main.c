@@ -14,22 +14,26 @@ int colored_diagnostics = 1;
 
 static void usage(FILE *f, char *program_name)
 {
-    fprintf(f, "USAGE: %s [-Edaqhs] [-o <path>] [-t <target>] <file>\n", program_name);
+    fprintf(f, "USAGE: %s [OPTIONS...] <file>\n", program_name);
 }
 
 static void print_options(void)
 {
-    printf("\nOPTIONS:\n"
-           "  -E, --preprocess          Preprocess only\n"
-           "  -d, --dump-tokens         Show tokenized file\n"
-           "  -a, --analyze             Perform static analysis only\n"
-           "  -q, --quiet               Disable all warnings\n"
-           "  -o, --output-file         Write ouput to specified file\n"
-           "  -s, --show-stats          Show compilation stats\n"
-           "  -b, --boring              Print uncolored diagnostics\n"
-           "  -t, --target              Specify target machine\n"
-           "  -h, --help                Print this help\n"
-           );
+    printf(
+    "\nOPTIONS:\n"
+    "  Short option name     Long option name        Description\n"
+    "  -E,                   --preprocess            Preprocess only\n"
+    "  -d,                   --dump-token            Show tokenized file\n"
+    "  -a,                   --analyze               Perform static analysis only\n"
+    "  -q,                   --quiet                 Disable all warnings\n"
+    "  -o<file>,             --output-file<file>     Write output to <file>\n"
+    "  -s,                   --show-stats            Show compilation stats\n"
+    "  -b,                   --boring                Print uncolored diagnostics\n"
+    "  -t<target>,           --target<mach>          Generate target code for machine <mach>\n"
+    "  -I<dir>,              --angle-include<dir>    Add <dir> to the list of directories searched for #include <...>\n"
+    "  -i<dir>,              --quote-include<dir>    Add <dir> to the list of directories searched for #include \"...\"\n"
+    "  -h,                   --help                  Print this help\n"
+    );
 }
 
 #define TARGET_X86      1
@@ -58,23 +62,25 @@ int main(int argc, char *argv[])
     };
 
     struct option compiler_options[] = {
-        {"preprocess",      no_argument,        NULL, 'E'},
-        {"dump-tokens",     no_argument,        NULL, 'd'},
-        {"analyze",         no_argument,        NULL, 'a'},
-        {"quiet",           no_argument,        NULL, 'q'},
-        {"output-file",     required_argument,  NULL, 'o'},
-        {"help",            no_argument,        NULL, 'h'},
-        {"show-stats",      no_argument,        NULL, 's'},
-        {"boring",          no_argument,        NULL, 'b'},
-        {"target",          required_argument,  NULL, 't'},
-        {NULL,              0,                  NULL,  0}
+        { "preprocess",      no_argument,        NULL, 'E' },
+        { "dump-tokens",     no_argument,        NULL, 'd' },
+        { "analyze",         no_argument,        NULL, 'a' },
+        { "quiet",           no_argument,        NULL, 'q' },
+        { "output-file",     required_argument,  NULL, 'o' },
+        { "help",            no_argument,        NULL, 'h' },
+        { "show-stats",      no_argument,        NULL, 's' },
+        { "boring",          no_argument,        NULL, 'b' },
+        { "target",          required_argument,  NULL, 't' },
+        { "angle-include",   required_argument,  NULL, 'I' },
+        { "quote-include",   required_argument,  NULL, 'i' },
+        { NULL,              0,                  NULL,  0 }
     };
 
     option_flags = 0;
     for (;;) {
         option_index = 0;
 
-        c = getopt_long(argc, argv, "Edaqo:hsbt:", compiler_options, &option_index);
+        c = getopt_long(argc, argv, "Edaqo:hsbt:I:i:", compiler_options, &option_index);
         if (c == -1)
             break; /* no more options */
 
@@ -105,6 +111,12 @@ int main(int argc, char *argv[])
                     target_machine_arg = TARGET_X86;
                 else if (strcmp(optarg, "vm") == 0)
                     target_machine_arg = TARGET_VM;
+                break;
+            case 'I':
+                add_angle_dir(optarg);
+                break;
+            case 'i':
+                add_quote_dir(optarg);
                 break;
             case 'h':
                 usage(stdout, argv[0]);

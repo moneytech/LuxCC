@@ -15,8 +15,6 @@
 #define ERROR(...)          emit_error(TRUE, SRC_FILE, SRC_LINE, SRC_COLUMN, __VA_ARGS__)
 #define MACRO_TABLE_SIZE    4093
 #define HASH_VAL(s)         (hash(s)%MACRO_TABLE_SIZE)
-// #define STD_INCLUDE_PATH "/usr/local/lib/luxcc/include/"
-#define STD_INCLUDE_PATH    "include/";
 
 /* get_token()'s possible states */
 typedef enum {
@@ -37,7 +35,15 @@ typedef enum {
 } ParaListKind;
 typedef struct Macro Macro;
 
-unsigned number_of_pre_tokens;
+static char *default_angle_dirs[] = {
+    "include/",
+    "/usr/local/lib/luxcc/include/",
+};
+static int ndefault_angle_dirs = NELEMS(default_angle_dirs);
+static char *angle_dirs[64];
+static int nangle_dirs;
+static char *quote_dirs[64];
+static int nquote_dirs;
 
 static struct Macro {
     char *name;
@@ -46,6 +52,7 @@ static struct Macro {
     int enabled;
     Macro *next;
 } *macro_table[MACRO_TABLE_SIZE];
+
 static char *buf, *curr, *curr_source_file;
 static char token_string[MAX_LOG_LINE_LEN+1];
 static PreTokenNode *curr_tok;
@@ -53,71 +60,7 @@ static int curr_line, src_column;
 static PreTokenNode *penultimate_node; /* used by #include's code */
 static Arena *pre_str_arena;
 Arena *pre_node_arena;
-
-static void reenable_macro(char *name)
-{
-    Macro *m;
-
-    for(m = macro_table[HASH_VAL(name)]; m != NULL; m = m->next) {
-        if(equal(name, m->name)) {
-            m->enabled = TRUE;
-            break;
-        }
-    }
-}
-
-static Macro *lookup(char *name)
-{
-	Macro *np;
-
-	for(np = macro_table[HASH_VAL(name)]; np != NULL; np = np->next)
-		if(np->enabled && equal(name, np->name))
-			return np;
-	return NULL;
-}
-
-void install_macro(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params)
-{
-    Macro *np;
-    unsigned h;
-
-    h = HASH_VAL(name);
-	for(np = macro_table[h]; np != NULL; np = np->next)
-		if(np->enabled && equal(name, np->name))
-			break;
-
-    if (np == NULL) { /* not found */
-        np = malloc(sizeof(Macro));
-        np->kind = kind;
-        np->name = name;
-        np->rep = rep;
-        np->enabled = TRUE;
-        np->params = params;
-        np->next = macro_table[h];
-        macro_table[h] = np;
-    } else {
-        ERROR("macro `%s' redefined", name);
-    }
-}
-
-static void uninstall_macro(char *name)
-{
-    unsigned h;
-	Macro *np, *prev;
-
-    h = HASH_VAL(name);
-	for(np=macro_table[h], prev=NULL;
-        np!=NULL && not_equal(name, np->name);
-        prev=np, np=np->next);
-
-	if (np == NULL)
-        return; /* not found */
-    if (prev == NULL)
-        macro_table[h] = np->next;
-    else
-        prev->next = np->next;
-    free(np);
-}
+unsigned number_of_pre_tokens;
 
 static char *dup_lexeme(const char *s)
 {
@@ -201,6 +144,113 @@ static void init(char *file_path)
      * used for diagnostic messages.
      */
     curr_source_file = dup_lexeme(file_path);
+}
+
+static char *dupdir(char *dir)
+{
+    int n;
+    char *p;
+
+    n = strlen(dir);
+    if (dir[n-1] != '/') {
+        p = malloc(n+2);
+        strcpy(p, dir);
+        strcat(p, "/");
+    } else {
+        p = malloc(n+1);
+        strcpy(p, dir);
+    }
+    return p;
+}
+
+void add_angle_dir(char *dir)
+{
+    angle_dirs[nangle_dirs++] = dupdir(dir);
+}
+
+void add_quote_dir(char *dir)
+{
+    quote_dirs[nquote_dirs++] = dupdir(dir);
+}
+
+static char *search_angle(char *inc_arg)
+{
+    int i;
+    char *path;
+
+    /*
+     * 1) Search in the directories specified
+     * through '-I' options.
+     */
+    path = malloc(256);
+    for (i = 0; i < nangle_dirs; i++) {
+        strcpy(path, angle_dirs[i]);
+        strcat(path, inc_arg);
+        if (file_exist(path))
+            return path;
+    }
+
+    /*
+     * 2) Search in the default directories.
+     */
+    for (i = 0; i < ndefault_angle_dirs; i++) {
+        strcpy(path, default_angle_dirs[i]);
+        strcat(path, inc_arg);
+        if (file_exist(path))
+            return path;
+    }
+
+    /* not found */
+    free(path);
+    return NULL;
+}
+
+static char *search_quote(char *inc_arg)
+{
+    int i;
+    char *p, *path;
+
+    /*
+     * 1) Search in the same directory as the file
+     * that contains the #include directive.
+     */
+    p = strrchr(curr_source_file, '/');
+    if (p == NULL) {
+        /* the file being processed is in the compiler's working directory */
+        path = strdup(inc_arg);
+    } else {
+        int n;
+
+        /* Construct the path. For example if the file being processed
+           is src/foo.c and the argument of #include is "foo.h", the
+           resulting path is src/foo.h. */
+        n = p-curr_source_file+1;
+        path = malloc(n+strlen(inc_arg)+1);
+        strncpy(path, curr_source_file, n);
+        path[n] = '\0';
+        strcat(path, inc_arg);
+    }
+    if (file_exist(path))
+        return path;
+    else
+        free(path);
+
+    /*
+     * 2) Search in the directories specified
+     * through '-i' options.
+     */
+    path = malloc(256);
+    for (i = 0; i < nquote_dirs; i++) {
+        strcpy(path, quote_dirs[i]);
+        strcat(path, inc_arg);
+        if (file_exist(path))
+            return path;
+    }
+
+    /*
+     * 3) Search in the same places as for "<...>".
+     */
+    return search_angle(inc_arg);
 }
 
 static PreToken lookahead(int i)
@@ -545,6 +595,71 @@ static PreTokenNode *tokenize(void)
 #define SRC_LINE    curr_tok->src_line
 #define SRC_COLUMN  curr_tok->src_column
 
+static void reenable_macro(char *name)
+{
+    Macro *m;
+
+    for(m = macro_table[HASH_VAL(name)]; m != NULL; m = m->next) {
+        if(equal(name, m->name)) {
+            m->enabled = TRUE;
+            break;
+        }
+    }
+}
+
+static Macro *lookup(char *name)
+{
+	Macro *np;
+
+	for(np = macro_table[HASH_VAL(name)]; np != NULL; np = np->next)
+		if(np->enabled && equal(name, np->name))
+			return np;
+	return NULL;
+}
+
+void install_macro(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params)
+{
+    Macro *np;
+    unsigned h;
+
+    h = HASH_VAL(name);
+	for(np = macro_table[h]; np != NULL; np = np->next)
+		if(np->enabled && equal(name, np->name))
+			break;
+
+    if (np == NULL) { /* not found */
+        np = malloc(sizeof(Macro));
+        np->kind = kind;
+        np->name = name;
+        np->rep = rep;
+        np->enabled = TRUE;
+        np->params = params;
+        np->next = macro_table[h];
+        macro_table[h] = np;
+    } else {
+        ERROR("macro `%s' redefined", name);
+    }
+}
+
+static void uninstall_macro(char *name)
+{
+    unsigned h;
+	Macro *np, *prev;
+
+    h = HASH_VAL(name);
+	for(np=macro_table[h], prev=NULL;
+        np!=NULL && not_equal(name, np->name);
+        prev=np, np=np->next);
+
+	if (np == NULL)
+        return; /* not found */
+    if (prev == NULL)
+        macro_table[h] = np->next;
+    else
+        prev->next = np->next;
+    free(np);
+}
+
 static char *pre_token_table[] = {
     "EOF", "punctuator",
     "preprocessor number", "identifier",
@@ -812,6 +927,7 @@ void control_line(int skip)
      * Identify and interpret directive.
      */
     if (equal(get_lexeme(1), "include")) {
+        char inc_arg[256], *path;
         PreTokenNode *tokenized_file;
 
         match2(PRE_TOK_ID);
@@ -821,55 +937,29 @@ void control_line(int skip)
          *      #include <file.h>
          */
         if (lookahead(1) == PRE_TOK_STRLIT) {
-            char *p;
-            unsigned slen;
-            /*
-             * Search for the file in the same directory as
-             * the file that contains the #include directive.
-             */
-            curr_source_file = curr_tok->src_file;
-
-            /* remove "" */
-            slen = strlen(curr_tok->lexeme);
-            memmove(curr_tok->lexeme, curr_tok->lexeme+1, slen-1);
-            curr_tok->lexeme[slen-2] = '\0';
-
-            /*
-             * Open the file.
-             */
-            p = strrchr(curr_source_file, '/');
-            if (p == NULL) {
-                /* the file being processed is in the compiler's working directory */
-                init(get_lexeme(1));
-            } else {
-                /* Construct the path. For example if the file being processed
-                   is src/foo.c and the argument of #include is "foo.h", the
-                   resulting path is src/foo.h. */
-                int n;
-                char *path;
-
-                n = p-curr_source_file+1;
-                path = malloc(n+strlen(get_lexeme(1))+1);
-                strncpy(path, curr_source_file, n);
-                path[n] = '\0';
-                strcat(path, get_lexeme(1));
-                init(path);
-                free(path);
-            }
+            curr_source_file = curr_tok->src_file; /* search_quote() uses curr_source_file */
+            strcpy(inc_arg, curr_tok->lexeme+1);
+            inc_arg[strlen(inc_arg)-1] = '\0';
+            if ((path=search_quote(inc_arg)) == NULL)
+                ERROR("include: cannot find file `%s'", inc_arg);
+            init(path);
+            free(path);
             match2(lookahead(1)); /* filename */
         } else if (equal(get_lexeme(1), "<")) {
-            char path[128] = STD_INCLUDE_PATH;
-
             match2(PRE_TOK_PUNCTUATOR);
             if (equal(get_lexeme(1), ">"))
                 ERROR("include: empty `<>'");
+            inc_arg[0] = '\0';
             do {
                 if (lookahead(1) == PRE_TOK_NL)
                     ERROR("include: missing closing `>'");
-                strcat(path, get_lexeme(1));
+                strcat(inc_arg, get_lexeme(1));
                 match2(lookahead(1));
             } while (not_equal(get_lexeme(1), ">"));
+            if ((path=search_angle(inc_arg)) == NULL)
+                ERROR("include: cannot find file `%s'", inc_arg);
             init(path);
+            free(path);
             match2(PRE_TOK_PUNCTUATOR); /* > */
         } else {
             ERROR("include: \"file.h\" or <file.h> expected");

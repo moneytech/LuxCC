@@ -30,5 +30,7 @@ typedef enum {
 
 PreTokenNode *preprocess(char *source_file);
 void install_macro(MacroKind kind, char *name, PreTokenNode *rep, PreTokenNode *params);
+void add_angle_dir(char *dir);
+void add_quote_dir(char *dir);
 
 #endif

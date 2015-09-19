@@ -1,4 +1,13 @@
 #include "util.h"
+#include <unistd.h>
+#include <sys/stat.h>
+
+int file_exist(char *file_path)
+{
+    struct stat st;
+
+    return (stat(file_path, &st) == 0);
+}
 
 unsigned hash(char *s)
 {

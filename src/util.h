@@ -22,5 +22,6 @@ unsigned hash(char *s);
 int round_up(int num, int mul);
 #define is_po2(x) (x!=0 && (x & (x-1))==0)
 int ilog2(unsigned val);
+int file_exist(char *file_path);
 
 #endif
