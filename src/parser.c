@@ -400,11 +400,22 @@ TypeExp *init_declarator_list(TypeExp *decl_specs, TypeExp *first_declarator)
 {
     TypeExp *n, *temp;
 
-    n = temp = init_declarator(decl_specs, first_declarator);
-    while (lookahead(1) == TOK_COMMA) {
-        match(TOK_COMMA);
-        temp->sibling = init_declarator(decl_specs, NULL);
-        temp = temp->sibling;
+    if (get_type_spec(decl_specs)->op != TOK_TYPEDEFNAME) {
+        n = temp = init_declarator(decl_specs, first_declarator);
+        while (lookahead(1) == TOK_COMMA) {
+            match(TOK_COMMA);
+            temp->sibling = init_declarator(decl_specs, NULL);
+            temp = temp->sibling;
+        }
+    } else {
+        TypeExp *unmod_ds = dup_decl_specs(decl_specs);
+
+        n = temp = init_declarator(decl_specs, first_declarator);
+        while (lookahead(1) == TOK_COMMA) {
+            match(TOK_COMMA);
+            temp->sibling = init_declarator(dup_decl_specs(unmod_ds), NULL);
+            temp = temp->sibling;
+        }
     }
     return n;
 }
@@ -619,11 +630,9 @@ TypeExp *specifier_qualifier_list(int type_spec_seen)
     TypeExp *n;
 
     if (in_first_type_specifier())
-        n = type_specifier() , type_spec_seen = TRUE;
-    else if (in_first_type_qualifier())
+        n = type_specifier(), type_spec_seen = TRUE;
+    else /*if (in_first_type_qualifier())*/
         n = type_qualifier();
-    else
-        assert(0);
     if (in_first_specifier_qualifier_list() && (lookahead(1)!=TOK_ID || !type_spec_seen))
         n->child = specifier_qualifier_list(type_spec_seen);
     return n;
@@ -636,11 +645,22 @@ TypeExp *struct_declarator_list(TypeExp *sql)
 {
     TypeExp *n, *temp;
 
-    n = temp = struct_declarator(sql);
-    while (lookahead(1) == TOK_COMMA) {
-        match(TOK_COMMA);
-        temp->sibling = struct_declarator(sql);
-        temp = temp->sibling;
+    if (get_type_spec(sql)->op != TOK_TYPEDEFNAME) {
+        n = temp = struct_declarator(sql);
+        while (lookahead(1) == TOK_COMMA) {
+            match(TOK_COMMA);
+            temp->sibling = struct_declarator(sql);
+            temp = temp->sibling;
+        }
+    } else {
+        TypeExp *unmod_sql = dup_decl_specs(sql);
+
+        n = temp = struct_declarator(sql);
+        while (lookahead(1) == TOK_COMMA) {
+            match(TOK_COMMA);
+            temp->sibling = struct_declarator(dup_decl_specs(unmod_sql));
+            temp = temp->sibling;
+        }
     }
     return n;
 }
@@ -653,17 +673,8 @@ TypeExp *struct_declarator(TypeExp *sql)
 {
     TypeExp *n;
 
-    /*if (lookahead(1) == TOK_COLON) {
-        match(TOK_COLON);
-        constant_expression();
-    } else {*/
-        n = concrete_declarator();
-        analyze_struct_declarator(sql, n);
-        /*if (lookahead(1) == TOK_COLON) {
-            match(TOK_COLON);
-            constant_expression();
-        }
-    }*/
+    n = concrete_declarator();
+    analyze_struct_declarator(sql, n);
     return n;
 }
 
@@ -888,8 +899,7 @@ TypeExp *direct_declarator(DeclaratorCategory dc)
 
 /*
  * direct_declarator_postfix = "[" [ constant_expression ] "]" |
- *                             "(" parameter_type_list ")" |
- *                             "(" [ identifier_list ] ")"
+ *                             "(" parameter_type_list ")"
  */
 TypeExp *direct_declarator_postfix(void)
 {
@@ -903,18 +913,11 @@ TypeExp *direct_declarator_postfix(void)
         if (lookahead(1) != TOK_RBRACKET)
             n->attr.e = constant_expression();
         match(TOK_RBRACKET);
-    } else if (lookahead(1) == TOK_LPAREN) {
+    } else /*if (lookahead(1) == TOK_LPAREN)*/ {
         n->op = TOK_FUNCTION;
         match(TOK_LPAREN);
-        /*if (lookahead(1) != TOK_RPAREN) {
-            if (lookahead(1) == TOK_ID)
-                identifier_list(); // old-style declarator
-            else // parameter_type_list or error*/
-                n->attr.dl = parameter_type_list();
-        /*}*/
+        n->attr.dl = parameter_type_list();
         match(TOK_RPAREN);
-    } else {
-        assert(0);
     }
     return n;
 }
@@ -1878,7 +1881,7 @@ ExecNode *primary_expression(void)
         n->attr.str = get_lexeme(1);
         match(TOK_ID);
 
-        if ((s=lookup(n->attr.str, TRUE)) != NULL) {
+        if ((s=lookup_symbol(n->attr.str, TRUE)) != NULL) {
             TypeExp *scs;
 
             if ((scs=get_sto_class_spec(s->decl_specs))==NULL || scs->op!=TOK_TYPEDEF) {
@@ -1957,8 +1960,8 @@ ExecNode *argument_expression_list(void)
 ExternDecl *parser(TokenNode *tokens)
 {
     curr_tok = tokens;
-    alloc_decl_buffers();
-    alloc_stmt_buffers();
+    decl_init();
+    stmt_init();
     parser_node_arena = arena_new(4096, TRUE);
     parser_str_arena = arena_new(1024, FALSE);
     return translation_unit();

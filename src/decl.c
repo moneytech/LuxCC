@@ -13,6 +13,7 @@
 
 extern unsigned error_count;
 extern int colored_diagnostics;
+char *current_function_name; /* used to implement __func__ */
 
 #define ERROR(tok, ...) emit_error(FALSE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
 
@@ -39,7 +40,11 @@ extern int colored_diagnostics;
 
 static ExternId *external_declarations[HASH_SIZE];
 
-/* return a linked list of all the external declarations */
+/*
+ * Linearizes the external symbol table.
+ * Don't call functions that consult the symbol
+ * table after this function is called.
+ */
 ExternId *get_extern_symtab(void)
 {
     int i;
@@ -52,11 +57,9 @@ ExternId *get_extern_symtab(void)
             break;
         }
     }
-
     for (i = i+1; i < HASH_SIZE; i++)
         if (external_declarations[i] != NULL)
             for (last->next = external_declarations[i]; last->next != NULL; last = last->next);
-
     return first;
 }
 
@@ -70,15 +73,14 @@ static Symbol *ordinary_identifiers[MAX_NEST][HASH_SIZE];
 static TypeTag *tags[MAX_NEST][HASH_SIZE];
 
 static int nesting_level = OUTERMOST_LEVEL;
-static int delayed_delete = FALSE;
+static int delayed_delete;
 static int scope_id;
 
-/* memory arenas used to maintain identifier and tag scopes */
 static Arena *oids_arena[MAX_NEST];
 static Arena *tags_arena[MAX_NEST];
-static Arena *decl_arena;
+static Arena *decl_node_arena;
 
-void alloc_decl_buffers(void)
+void decl_init(void)
 {
     int i;
 
@@ -86,12 +88,12 @@ void alloc_decl_buffers(void)
         oids_arena[i] = arena_new(sizeof(Symbol)*64, FALSE);
         tags_arena[i] = arena_new(sizeof(TypeTag)*32, FALSE);
     }
-    decl_arena = arena_new(1024, FALSE);
+    decl_node_arena = arena_new(2048, FALSE);
 }
 
 ExternId *new_extern_id_node(void)
 {
-    return arena_alloc(decl_arena, sizeof(ExternId));
+    return arena_alloc(decl_node_arena, sizeof(ExternId));
 }
 
 static int is_sto_class_spec(Token t)
@@ -108,9 +110,6 @@ static int is_sto_class_spec(Token t)
     }
 }
 
-/*
- * Return TRUE if `t' is a type specifier.
- */
 static int is_type_spec(Token t)
 {
     switch (t) {
@@ -147,7 +146,7 @@ static int is_type_qualifier(Token t)
 
 int is_struct_union_enum(Token t)
 {
-    return (t==TOK_STRUCT||t==TOK_UNION||t==TOK_ENUM);
+    return (t==TOK_STRUCT || t==TOK_UNION || t==TOK_ENUM);
 }
 
 TypeExp *get_sto_class_spec(TypeExp *d)
@@ -157,7 +156,6 @@ TypeExp *get_sto_class_spec(TypeExp *d)
             break;
         d = d->child;
     }
-
     return d;
 }
 
@@ -168,9 +166,7 @@ TypeExp *get_type_spec(TypeExp *d)
             break;
         d = d->child;
     }
-
     assert(d != NULL); /* a type specifier is required */
-
     return d;
 }
 
@@ -181,7 +177,6 @@ TypeExp *get_type_qual(TypeExp *d)
             break;
         d = d->child;
     }
-
     return d;
 }
 
@@ -229,7 +224,6 @@ int get_curr_scope_id(void)
     return scope_id;
 }
 
-
 TypeTag *lookup_tag(char *id, int all)
 {
     int n;
@@ -255,7 +249,6 @@ TypeTag *lookup_tag(char *id, int all)
     }
 }
 
-/* Note: the parser already take care of redefinitions */
 void install_tag(TypeExp *ty)
 {
     unsigned h;
@@ -273,8 +266,7 @@ void install_tag(TypeExp *ty)
     tags[nesting_level][h] = np;
 }
 
-
-Symbol *lookup(char *id, int all)
+Symbol *lookup_symbol(char *id, int all)
 {
     int n;
     Symbol *np;
@@ -299,8 +291,7 @@ Symbol *lookup(char *id, int all)
     }
 }
 
-static
-void install(TypeExp *decl_specs, TypeExp *declarator, int is_param)
+static void install_symbol(TypeExp *decl_specs, TypeExp *declarator, int is_param)
 {
     Symbol *np;
     unsigned h;
@@ -381,12 +372,10 @@ void install(TypeExp *decl_specs, TypeExp *declarator, int is_param)
                 ERROR_R(declarator, "redeclaration of `%s' with no linkage", declarator->str);
             else /* if (prev_scs == TOK_EXTERN) */
                 /* e.g. extern int x; ==> int x; */
-                ERROR_R(declarator, "declaration of `%s' with no linkage follows extern declaration",
-                declarator->str);
+                ERROR_R(declarator, "declaration of `%s' with no linkage follows extern declaration", declarator->str);
         } else if (!prev_scs || prev_scs!=TOK_EXTERN) {
             /* e.g. int x; ==> extern int x; */
-            ERROR_R(declarator, "extern declaration of `%s' follows declaration with no linkage",
-            declarator->str);
+            ERROR_R(declarator, "extern declaration of `%s' follows declaration with no linkage", declarator->str);
         }
     }
     return;
@@ -403,7 +392,6 @@ redecl_as_diff_kind:
     ERROR_R(declarator, "`%s' redeclared as different kind of symbol", declarator->str);
 }
 
-
 ExternId *lookup_external_id(char *id)
 {
     ExternId *np;
@@ -414,8 +402,7 @@ ExternId *lookup_external_id(char *id)
     return NULL; /* not found */
 }
 
-static
-void install_external_id(TypeExp *decl_specs, TypeExp *declarator, ExtIdStatus status)
+static void install_external_id(TypeExp *decl_specs, TypeExp *declarator, ExtIdStatus status)
 {
     ExternId *np;
     unsigned h;
@@ -480,7 +467,6 @@ void set_attributes(ExecNode *e, Symbol *sym)
 
     e->attr.var.is_param = (char)sym->is_param;
 }
-
 
 void analyze_decl_specs(TypeExp *d)
 {
@@ -685,7 +671,7 @@ int is_typedef_name(char *id)
 {
     Symbol *np;
 
-    if ((np=lookup(id, TRUE)) != NULL) {
+    if ((np=lookup_symbol(id, TRUE)) != NULL) {
         TypeExp *scs;
 
         if ((scs=get_sto_class_spec(np->decl_specs))!=NULL && scs->op==TOK_TYPEDEF)
@@ -728,7 +714,7 @@ void analyze_enumerator(TypeExp *e)
 
     e->attr.e->attr.val = en_val;
 error:
-    install(&enum_ds, e, FALSE);
+    install_symbol(&enum_ds, e, FALSE);
 }
 
 int compare_decl_specs(TypeExp *ds1, TypeExp *ds2, int qualified)
@@ -821,8 +807,8 @@ int are_compatible(TypeExp *ds1, TypeExp *dct1,
         }
         if (p1 != p2)
             return FALSE;
-        break;
     }
+        break;
     }
 
     return are_compatible(ds1, dct1->child, ds2, dct2->child, TRUE, compose);
@@ -834,19 +820,12 @@ int is_complete(char *tag)
 
     if (tag[0] == '<') /* <anonymous> struct/union/enum */
         return TRUE;
-
     tp = lookup_tag(tag, TRUE);
-    if (tp != NULL) {
-        if (tp->type->op == TOK_ENUM)
-            return tp->type->attr.el!=NULL;
-        else
-            return tp->type->attr.dl!=NULL;
-    } else {
-        assert(0);
-    }
+    assert(tp != NULL);
+    return (tp->type->op == TOK_ENUM) ? tp->type->attr.el!=NULL : tp->type->attr.dl!=NULL;
 }
 
-/*
+#if 0
 int is_incomplete(TypeExp *decl_specs, TypeExp *declarator)
 {
     if (declarator->child == NULL) {
@@ -859,10 +838,9 @@ int is_incomplete(TypeExp *decl_specs, TypeExp *declarator)
         return TRUE;
     }
 }
-*/
+#endif
 
-static
-int examine_declarator(TypeExp *decl_specs, TypeExp *declarator)
+static int is_good_declarator(TypeExp *decl_specs, TypeExp *declarator)
 {
     if (declarator == NULL)
         return TRUE;
@@ -885,8 +863,7 @@ int examine_declarator(TypeExp *decl_specs, TypeExp *declarator)
             TypeExp *ts;
 
             ts = get_type_spec(decl_specs);
-            if (is_struct_union_enum(ts->op) && !is_complete(ts->str)
-            || ts->op==TOK_VOID)
+            if (ts->op==TOK_VOID || is_struct_union_enum(ts->op)&&!is_complete(ts->str))
                 ERROR_RF(declarator, "array has incomplete element type");
         }
         if (declarator->attr.e != NULL) {
@@ -947,16 +924,15 @@ int examine_declarator(TypeExp *decl_specs, TypeExp *declarator)
             }
             p = p->next;
         }
+    }
         break;
     }
-    }
-    return examine_declarator(decl_specs, declarator->child);
+    return is_good_declarator(decl_specs, declarator->child);
 }
 
 static TokenNode *typedef_name_info;
 
-static
-DeclList *new_param_decl(TypeExp *decl_specs, TypeExp *declarator)
+static DeclList *new_param_decl(TypeExp *decl_specs, TypeExp *declarator)
 {
     DeclList *n;
 
@@ -965,7 +941,6 @@ DeclList *new_param_decl(TypeExp *decl_specs, TypeExp *declarator)
     n->decl->decl_specs = decl_specs;
     n->decl->idl = declarator;
     n->next = NULL;
-
     return n;
 }
 
@@ -991,12 +966,22 @@ TypeExp *dup_declarator(TypeExp *d)
         }
     }
     n->child = dup_declarator(d->child);
-
     return n;
 }
 
-static
-void replace_typedef_name(Declaration *decl)
+TypeExp *dup_decl_specs(TypeExp *ds)
+{
+    TypeExp *n;
+
+    if (ds == NULL)
+        return NULL;
+    n = new_type_exp_node();
+    *n = *ds;
+    n->child = dup_decl_specs(ds->child);
+    return n;
+}
+
+static void replace_typedef_name(Declaration *decl)
 {
     Symbol *s;
     TypeExp *temp, *tq, *ts, *decl_specs, *declarator;
@@ -1010,7 +995,7 @@ void replace_typedef_name(Declaration *decl)
     /*
      * Type specifiers
      */
-    s = lookup(ts->str, TRUE);
+    s = lookup_symbol(ts->str, TRUE);
     /* new created nodes will have the same file/line/column information as the typedef name node */
     typedef_name_info = ts->info;
     /* replace the typedef name node for the type specifier node of the typedef name */
@@ -1116,14 +1101,14 @@ nothing:
 
 int analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym)
 {
-    int good;
+    int good_dctr;
     Declaration d;
 
     d.decl_specs = decl_specs;
     d.idl = declarator;
     replace_typedef_name(&d);
 
-    good = examine_declarator(decl_specs, declarator);
+    good_dctr = is_good_declarator(decl_specs, declarator);
     if (inst_sym) {
         /*
          * If an identifier has an invalid type, install it into the symbol
@@ -1139,20 +1124,19 @@ int analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym)
          * in the expression `x * 2', no error will be reported about 'invalid operands to *'.
          * Other functions in this module act in a similar way.
          */
-        if (good)
-            install(decl_specs, declarator, FALSE);
+        if (good_dctr)
+            install_symbol(decl_specs, declarator, FALSE);
         else
-            install(get_type_node(TOK_ERROR), declarator, FALSE);
+            install_symbol(get_type_node(TOK_ERROR), declarator, FALSE);
     }
-
-    return good;
+    return good_dctr;
 }
 
 void analyze_type_name(Declaration *tn)
 {
     analyze_decl_specs(tn->decl_specs);
     replace_typedef_name(tn);
-    if (!examine_declarator(tn->decl_specs, tn->idl)) { /* the type is faulty */
+    if (!is_good_declarator(tn->decl_specs, tn->idl)) { /* the type is faulty */
         TypeExp *err_ty;
 
         err_ty = new_type_exp_node();
@@ -1174,10 +1158,10 @@ void analyze_parameter_declaration(Declaration *d)
 
     replace_typedef_name(d);
     if (d->idl != NULL) {
-        int good;
+        int good_dctr;
         TypeExp *p;
 
-        good = examine_declarator(d->decl_specs, d->idl);
+        good_dctr = is_good_declarator(d->decl_specs, d->idl);
 
         /*
          * Perform adjustment on array and function parameters.
@@ -1186,24 +1170,23 @@ void analyze_parameter_declaration(Declaration *d)
             p = d->idl->child;
             if (p==NULL && get_type_spec(d->decl_specs)->op==TOK_VOID) {
                 ERROR(d->idl, "parameter has void type");
-                good = FALSE;
+                good_dctr = FALSE;
             }
-            if (good)
-                install(d->decl_specs, d->idl, TRUE);
+            if (good_dctr)
+                install_symbol(d->decl_specs, d->idl, TRUE);
             else
-                install(get_type_node(TOK_ERROR), d->idl, TRUE);
+                install_symbol(get_type_node(TOK_ERROR), d->idl, TRUE);
         } else {
             p = d->idl;
         }
-        /* if the type is faulty don't do nothing */
-        if (!good)
+        /* if the type is faulty, do nothing */
+        if (!good_dctr)
             return;
         if (p != NULL) {
             if (p->op == TOK_SUBSCRIPT) {
                 /* 6.7.5.3#7 */
                 p->op = TOK_STAR;
                 if (p->attr.e != NULL) {
-                    /*free_expression_tree(p->attr.e);*/
                     p->attr.e = NULL;
                 }
             } else if (p->op == TOK_FUNCTION) {
@@ -1220,18 +1203,11 @@ void analyze_parameter_declaration(Declaration *d)
     }
 }
 
-/*
- * Variable used to implement __func__.
- * Modified only by analyze_function_definition().
- * Used only by primary_expression().
- */
-char *current_function_name;
-
 void analyze_function_definition(Declaration *f)
 {
-    int good;
     DeclList *p;
     TypeExp *spec;
+    int good_dctr;
 
     /*
      * 6.9.1#2
@@ -1248,18 +1224,17 @@ void analyze_function_definition(Declaration *f)
     current_function_name = f->idl->str;
 
     assert(nesting_level == OUTERMOST_LEVEL+1);
-
     /* temporally switch to file scope */
     nesting_level=OUTERMOST_LEVEL, delayed_delete=FALSE;
 
-    good = analyze_declarator(f->decl_specs, f->idl, TRUE);
-    if (good)
+    good_dctr = analyze_declarator(f->decl_specs, f->idl, TRUE);
+    if (good_dctr)
         analyze_init_declarator(f->decl_specs, f->idl, TRUE);
 
     /* switch back */
     nesting_level = OUTERMOST_LEVEL+1;
 
-    if (!good)
+    if (!good_dctr)
         return;
 
     /*
@@ -1274,10 +1249,8 @@ void analyze_function_definition(Declaration *f)
     if (f->idl->child->child == NULL) {
         /* the return type is not a derived declarator type */
         spec = get_type_spec(f->decl_specs);
-        if (is_struct_union_enum(spec->op) && !is_complete(spec->str)) {
+        if (is_struct_union_enum(spec->op) && !is_complete(spec->str))
             ERROR(spec, "return type is an incomplete type");
-            good = FALSE;
-        }
     }
 
     /*
@@ -1312,8 +1285,7 @@ no_params:
     set_return_type(f->decl_specs, f->idl->child->child);
 }
 
-static
-void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds, TypeExp *dct)
+static void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds, TypeExp *dct)
 {
     char *ty1, *ty2;
     Declaration d1, d2;
@@ -1431,7 +1403,7 @@ static int analyze_static_initializer(ExecNode *e, int is_addr)
          * if the identifier denotes an array or function designator.
          */
         if (!is_addr
-        && (e->type.idl==NULL||e->type.idl->op!=TOK_FUNCTION&&e->type.idl->op!=TOK_SUBSCRIPT))
+        && (e->type.idl==NULL || e->type.idl->op!=TOK_FUNCTION&&e->type.idl->op!=TOK_SUBSCRIPT))
             break;
         /*
          * Moreover, the identifier must have static storage
@@ -1447,14 +1419,11 @@ static int analyze_static_initializer(ExecNode *e, int is_addr)
         }
         return TRUE;
     }
-
-    emit_error(FALSE, e->info->src_file, e->info->src_line, e->info->src_column,
-    "invalid initializer for static object");
+    emit_error(FALSE, e->info->src_file, e->info->src_line, e->info->src_column, "invalid initializer for static object");
     return FALSE;
 }
 
-static
-void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
+static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
 {
     /*
      * Note: Currently only fully bracketed initialization is handled.
@@ -1811,7 +1780,7 @@ void new_struct_member(TypeExp *decl_specs, TypeExp *declarator)
         if (equal(declarator->str, p->id))
             FATAL_ERROR(declarator, "duplicate member `%s'", declarator->str);
 
-    n = arena_alloc(decl_arena, sizeof(StructMember));
+    n = arena_alloc(decl_node_arena, sizeof(StructMember));
     /* set tag and type */
     n->id = declarator->str;
     n->type.decl_specs = decl_specs;
@@ -1853,7 +1822,7 @@ void push_struct_descriptor(TypeExp *ty)
             FATAL_ERROR(ty, "nested redefinition of `%s %s'", tok2lex(ty->op), tag);
 
     /* push new descriptor */
-    n = arena_alloc(decl_arena, sizeof(StructDescriptor));
+    n = arena_alloc(decl_node_arena, sizeof(StructDescriptor));
     n->tag = tag;
     n->size = n->alignment = 0;
     n->members = NULL;

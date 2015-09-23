@@ -741,24 +741,6 @@ void analyze_assignment_expression(ExecNode *e)
     e->type = e->child[0]->type;
 }
 
-/* analyze_conditional_expression()'s helper function */
-static
-TypeExp *dup_decl_specs_list(TypeExp *ds)
-{
-    TypeExp *new_list, *temp;
-
-    new_list = temp = new_type_exp_node();
-    *new_list = *ds;
-    ds = ds->child;
-    while (ds != NULL) {
-        temp->child = new_type_exp_node();
-        *temp->child = *ds;
-        temp=temp->child, ds=ds->child;
-    }
-
-    return new_list;
-}
-
 void analyze_conditional_expression(ExecNode *e)
 {
     /*
@@ -908,7 +890,7 @@ void analyze_conditional_expression(ExecNode *e)
                         if (tq1->op==tq2->op || tq1->op==TOK_CONST_VOLATILE) {
                             e->type = e->child[iv]->type;
                         } else {
-                            e->type.decl_specs = dup_decl_specs_list(e->child[iv]->type.decl_specs);
+                            e->type.decl_specs = dup_decl_specs(e->child[iv]->type.decl_specs);
                             get_type_qual(e->type.decl_specs)->op = TOK_CONST_VOLATILE;
                             e->type.idl = e->child[iv]->type.idl;
                         }
@@ -938,7 +920,7 @@ void analyze_conditional_expression(ExecNode *e)
                         } else if (tq2->op == TOK_CONST_VOLATILE) {
                             e->type = e->child[2]->type;
                         } else {
-                            e->type.decl_specs = dup_decl_specs_list(e->child[1]->type.decl_specs);
+                            e->type.decl_specs = dup_decl_specs(e->child[1]->type.decl_specs);
                             get_type_qual(e->type.decl_specs)->op = TOK_CONST_VOLATILE;
                             e->type.idl = e->child[1]->type.idl;
                         }
@@ -2241,22 +2223,3 @@ long eval_const_expr(ExecNode *e, int is_addr)
     FATAL_ERROR(e, "invalid constant expression");
 }
 #endif
-
-void free_expression_tree(ExecNode *e)
-{
-    if (e == NULL)
-        return;
-
-    /*
-     * TODO: free operator nodes.
-     */
-    switch (e->kind.exp) {
-    case OpExp:
-        break;
-    case IConstExp:
-    case StrLitExp:
-    case IdExp:
-        free(e);
-        break;
-    }
-}

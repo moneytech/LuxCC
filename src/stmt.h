@@ -3,6 +3,7 @@
 
 #include "parser.h"
 
+void stmt_init(void);
 void analyze_labeled_statement(ExecNode *s, int in_switch);
 void analyze_selection_statement(ExecNode *s);
 void analyze_iteration_statement(ExecNode *s);
@@ -12,6 +13,5 @@ void empty_label_table(void);
 void resolve_gotos(void);
 void increase_switch_nesting_level(void);
 int decrease_switch_nesting_level(void);
-void alloc_stmt_buffers(void);
 
 #endif

@@ -62,7 +62,7 @@ void set_return_type(TypeExp *ds, TypeExp *dct)
     ret_ty.idl = dct;
 }
 
-void alloc_stmt_buffers(void)
+void stmt_init(void)
 {
     int i;
 
