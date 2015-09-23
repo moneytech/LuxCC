@@ -317,7 +317,7 @@ static int get_esc_seq_val(char **c)
     }
 }
 
-/* convert escape sequences */
+/* convert escape sequences embedded in a string literal */
 static void convert_string(char *s)
 {
     unsigned slen;
@@ -340,7 +340,7 @@ static void convert_string(char *s)
     *dest = *src; /* copy '\0' */
 }
 
-/* check the validity of the integer constant `ic' */
+/* check the validity of an integer constant */
 static void check_integer_constant(char *ic)
 {
     enum {
