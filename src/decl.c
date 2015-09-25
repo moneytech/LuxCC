@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <setjmp.h>
 #include "util.h"
 #include "expr.h"
 #include "stmt.h"
@@ -75,6 +76,7 @@ static TypeTag *tags[MAX_NEST][HASH_SIZE];
 static int nesting_level = OUTERMOST_LEVEL;
 static int delayed_delete;
 static int scope_id;
+static jmp_buf env;
 
 static Arena *oids_arena[MAX_NEST];
 static Arena *tags_arena[MAX_NEST];
@@ -1318,7 +1320,6 @@ static void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, Type
         fprintf(stderr, "=> now redeclared with type      `%s'\n", ty2);
     }
     free(ty1), free(ty2);
-
     ++error_count;
 }
 
@@ -1403,7 +1404,7 @@ static int analyze_static_initializer(ExecNode *e, int is_addr)
          * if the identifier denotes an array or function designator.
          */
         if (!is_addr
-        && (e->type.idl==NULL || e->type.idl->op!=TOK_FUNCTION&&e->type.idl->op!=TOK_SUBSCRIPT))
+        && (e->type.idl==NULL||e->type.idl->op!=TOK_FUNCTION&&e->type.idl->op!=TOK_SUBSCRIPT))
             break;
         /*
          * Moreover, the identifier must have static storage
@@ -1419,7 +1420,9 @@ static int analyze_static_initializer(ExecNode *e, int is_addr)
         }
         return TRUE;
     }
-    emit_error(FALSE, e->info->src_file, e->info->src_line, e->info->src_column, "invalid initializer for static object");
+
+    emit_error(FALSE, e->info->src_file, e->info->src_line, e->info->src_column,
+    "invalid initializer for static object");
     return FALSE;
 }
 
