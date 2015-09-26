@@ -230,7 +230,7 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
             return;
         if (!is_integer(ty))
             ERROR_R(s->child[0], "case label expression has non-integer type");
-        s->child[0]->attr.val = eval_int_const_expr(s->child[0]);
+        s->child[0]->attr.val = eval_const_expr(s->child[0], FALSE, TRUE);
 
         if (!install_switch_label(s->child[0]->attr.val, FALSE))
             ERROR(s, "duplicate case value `%ld'", s->child[0]->attr.val);

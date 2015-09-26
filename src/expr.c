@@ -1904,293 +1904,431 @@ unsigned compute_sizeof(Declaration *ty)
     return size;
 }
 
-long eval_int_const_expr(ExecNode *e)
+/*
+ * Try to evaluate e as a constant expression.
+ * is_addr indicates if e is &'s operand.
+ * is_iconst indicates if e is an integer constant expression.
+ *
+ * A few notes:
+ *  - Addresses always evaluate to true.
+ *  - Addresses plus/minus an integer constant have unknown value.
+ *  - Any attempt to use an unknown value is an error.
+ *    e.g.   int a[5];
+ *           int b = a+1 && 1; // error! assign 1 or 0?
+ *    on the other hand, the following is OK
+ *           int b = a+1 && 0; // always 0
+ */
+long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
 {
-    /*
-        Integer constant expression
+    long resL, resR;
 
-    An integer constant expression shall have integer type and shall only have operands
-    that are
-        _ integer constants,
-        _ enumeration constants,
-        _ character constants,
-        _ sizeof expressions whose results are integer constants,
-        _ and floating constants that are the immediate operands of casts.
-    Cast operators in an integer constant expression shall only convert arithmetic types
-    to integer types, except as part of an operand to the sizeof operator.
-
-    An integer constant expression is used to specify
-        _ the size of a bit-field member of a structure,
-        _ the value of an enumeration constant,
-        _ the size of an array,
-        _ or the value of a case constant.
-    */
     switch (e->kind.exp) {
     case OpExp:
+#define KIND(n)  (n->kind.exp)
+#define VALUE(n) (n->attr.val)
         switch (e->attr.op) {
+        case TOK_SUBSCRIPT: {
+            int pi, ii;
+            long indx, ptr;
+
+            if (is_iconst || !is_addr)
+                break;
+            if (is_integer(get_type_category(&e->child[0]->type)))
+                pi = 1, ii = 0;
+            else
+                pi = 0, ii = 1;
+            indx = eval_const_expr(e->child[ii], FALSE, is_iconst);
+            if (KIND(e->child[ii]) != IConstExp)
+                break;
+            ptr  = eval_const_expr(e->child[pi], is_addr, is_iconst);
+            if (KIND(e->child[pi]) == IConstExp) {
+                Declaration ty;
+
+                KIND(e) = IConstExp;
+                ty = e->child[pi]->type;
+                ty.idl = ty.idl->child;
+                return (VALUE(e) = ptr+indx*compute_sizeof(&ty));
+            } else {
+                /* []'s operand has to be a real array (and not a pointer) */
+                if (e->child[pi]->type.idl==NULL || e->child[pi]->type.idl->op!=TOK_SUBSCRIPT)
+                    break;
+                return ptr;
+            }
+        }
+        case TOK_DOT:
+        case TOK_ARROW:
+            if (is_iconst)
+                break;
+            resL = eval_const_expr(e->child[0], (e->attr.op==TOK_DOT)?is_addr:FALSE, is_iconst);
+            if (KIND(e->child[0]) == IConstExp) {
+                KIND(e) = IConstExp;
+                if (get_type_category(&e->child[0]->type) != TOK_UNION) {
+                    StructMember *m;
+
+                    m = get_member_descriptor(get_type_spec(e->child[0]->type.decl_specs), e->child[1]->attr.str);
+                    return (VALUE(e) = resL+m->offset);
+                } else {
+                    return (VALUE(e) = resL);
+                }
+            } else {
+                return resL;
+            }
         case TOK_SIZEOF:
             if (e->child[1] != NULL)
-                return compute_sizeof((Declaration *)e->child[1]);
+                resL = (long)compute_sizeof((Declaration *)e->child[1]);
             else
-                return compute_sizeof(&e->child[0]->type);
-        case TOK_UNARY_PLUS:
-            return +eval_int_const_expr(e->child[0]);
-        case TOK_UNARY_MINUS:
-            return -eval_int_const_expr(e->child[0]);
-        case TOK_COMPLEMENT:
-            return ~eval_int_const_expr(e->child[0]);
-        case TOK_NEGATION:
-            return !eval_int_const_expr(e->child[0]);
+                resL = (long)compute_sizeof(&e->child[0]->type);
+            KIND(e) = IConstExp;
+            return (VALUE(e) = resL);
+        case TOK_ADDRESS_OF:
+            if (is_iconst)
+                break;
+            resL = eval_const_expr(e->child[0], TRUE, is_iconst);
+            if (KIND(e->child[0]) == IConstExp) {
+                KIND(e) = IConstExp;
+                return (VALUE(e) = resL);
+            } else {
+                return resL;
+            }
+        case TOK_INDIRECTION:
+            if (is_iconst)
+                break;
+            resL = eval_const_expr(e->child[0], FALSE, is_iconst);
+            if (KIND(e->child[0]) == IConstExp) {
+                KIND(e) = IConstExp;
+                return (VALUE(e) = resL);
+            } else {
+                return resL;
+            }
 
+#define evalL()     eval_const_expr(e->child[0], FALSE, is_iconst)
+#define evalR()     eval_const_expr(e->child[1], FALSE, is_iconst)
+        case TOK_UNARY_PLUS:
+            resL = evalL();
+            if (KIND(e->child[0]) != IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            return (VALUE(e) = +resL);
+        case TOK_UNARY_MINUS:
+            resL = evalL();
+            if (KIND(e->child[0]) != IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            return (VALUE(e) = -resL);
+        case TOK_COMPLEMENT:
+            resL = evalL();
+            if (KIND(e->child[0]) != IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            return (VALUE(e) = ~resL);
+        case TOK_NEGATION:
+            resL = evalL();
+            if (KIND(e->child[0]) != IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            return (VALUE(e) = !resL);
         case TOK_CAST: {
             Token dest_ty;
 
             dest_ty = get_type_category((Declaration *)e->child[1]);
-            if (!is_integer(dest_ty))
+            if (is_iconst && !is_integer(dest_ty))
                 break;
-            switch (dest_ty) {
-            case TOK_SHORT:
-                return (short)eval_int_const_expr(e->child[0]);
-            case TOK_UNSIGNED_SHORT:
-                return (unsigned short)eval_int_const_expr(e->child[0]);
-            case TOK_CHAR:
-            case TOK_SIGNED_CHAR:
-                return (char)eval_int_const_expr(e->child[0]);
-            case TOK_UNSIGNED_CHAR:
-                return (unsigned char)eval_int_const_expr(e->child[0]);
+            resL = evalL();
+            if (KIND(e->child[0]) == IConstExp) {
+                KIND(e) = IConstExp;
+                switch (dest_ty) {
+                case TOK_SHORT:
+                    return (VALUE(e) = (short)resL);
+                case TOK_UNSIGNED_SHORT:
+                    return (VALUE(e) = (unsigned short)resL);
+                case TOK_CHAR:
+                case TOK_SIGNED_CHAR:
+                    return (VALUE(e) = (char)resL);
+                case TOK_UNSIGNED_CHAR:
+                    return (VALUE(e) = (unsigned char)resL);
+                default: /* no conversion */
+                    return (VALUE(e) = resL);
+                }
+            } else {
+                switch (dest_ty) {
+                case TOK_SHORT: case TOK_UNSIGNED_SHORT:
+                case TOK_CHAR: case TOK_SIGNED_CHAR: case TOK_UNSIGNED_CHAR:
+                    goto err; /* trying to truncate an address */
+                }
+                return resL;
+            err:
+                break;
             }
-            return eval_int_const_expr(e->child[0]); /* no conversion */
         }
 
-#define L eval_int_const_expr(e->child[0])
-#define R eval_int_const_expr(e->child[1])
         case TOK_MUL:
-            return L * R;
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            return (VALUE(e) = resL*resR);
         case TOK_DIV:
-            return L / R;
-        case TOK_REM:
-            return L % R;
-        case TOK_PLUS:
-            return L + R;
-        case TOK_MINUS:
-            return L - R;
-        case TOK_LSHIFT:
-            return L << R;
-        case TOK_RSHIFT:
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
             if (is_unsigned_int(get_type_category(&e->type)))
-                return (unsigned)L >> R;
+                return (VALUE(e) = (unsigned long)resL/(unsigned long)resR);
             else
-                return L >> R;
-        case TOK_LT:
-            return L < R;
-        case TOK_GT:
-            return L > R;
-        case TOK_LET:
-            return L <= R;
-        case TOK_GET:
-            return L >= R;
-        case TOK_EQ:
-            return L == R;
-        case TOK_NEQ:
-            return L != R;
-        case TOK_BW_AND:
-            return L & R;
-        case TOK_BW_XOR:
-            return L ^ R;
-        case TOK_BW_OR:
-            return L | R;
-        case TOK_AND:
-            return L && R;
-        case TOK_OR:
-            return L || R;
-        case TOK_CONDITIONAL:
-            if (eval_int_const_expr(e->child[0]))
-                return eval_int_const_expr(e->child[1]);
-            else
-                return eval_int_const_expr(e->child[2]);
-        }
-#undef L
-#undef R
-        break;
-    case IConstExp:
-        return e->attr.val;
-    case StrLitExp:
-        break;
-    case IdExp:
-        break;
-    }
-
-    FATAL_ERROR(e, "invalid integer constant expression");
-
-    return 0; /* unreachable */
-}
-
-#if 0
-long eval_const_expr(ExecNode *e, int is_addr)
-{
-    /*
-     * This function is a work in progress. It handles
-     * basic stuff just fine, but may not work properly
-     * with expressions involving pointers and so on.
-     */
-
-    switch (e->kind.exp) {
-    case OpExp:
-        switch (e->attr.op) {
-        /*
-         * Allow expressions like
-         *  &arr[5]; // if 'arr' has static storage duration
-         * and
-         *  &s.x; and &s.x[5]; // if 's' has static storage duration
-         */
-        case TOK_SUBSCRIPT:
-            /* []'s operand has to be a real array (and not a pointer) */
-            if (e->child[0]->type.idl==NULL || e->child[0]->type.idl->op!=TOK_SUBSCRIPT)
-                break;
-        case TOK_DOT:
-            if (!is_addr)
-                break;
-            return eval_const_expr(e->child[0], is_addr);
-
-        case TOK_SIZEOF:
-            if (e->child[1] != NULL)
-                return compute_sizeof((Declaration *)e->child[1]);
-            else
-                return compute_sizeof(&e->child[0]->type);
-        case TOK_ADDRESS_OF:
-            return eval_const_expr(e->child[0], TRUE);
-        case TOK_ARROW:
-        case TOK_INDIRECTION:
-            break;
-        case TOK_UNARY_PLUS:
-            return +eval_const_expr(e->child[0], FALSE);
-        case TOK_UNARY_MINUS:
-            return -eval_const_expr(e->child[0], FALSE);
-        case TOK_COMPLEMENT:
-            return ~eval_const_expr(e->child[0], FALSE);
-        case TOK_NEGATION:
-            return !eval_const_expr(e->child[0], FALSE);
-
-        case TOK_CAST: {
-            Token ty;
-
-            ty = get_type_category((Declaration *)e->child[1]);
-            switch (ty) {
-            case TOK_SHORT:
-                return (short)eval_const_expr(e->child[0], FALSE);
-            case TOK_UNSIGNED_SHORT:
-                return (unsigned short)eval_const_expr(e->child[0], FALSE);
-            case TOK_CHAR:
-            case TOK_SIGNED_CHAR:
-                return (char)eval_const_expr(e->child[0], FALSE);
-            case TOK_UNSIGNED_CHAR:
-                return (unsigned char)eval_const_expr(e->child[0], FALSE);
-            }
-            return eval_const_expr(e->child[0], FALSE);
-        }
-
-#define L eval_const_expr(e->child[0], FALSE)
-#define R eval_const_expr(e->child[1], FALSE)
-        case TOK_MUL:
-            return L * R;
-        case TOK_DIV:
-            return L / R;
+                return (VALUE(e) = resL/resR);
         case TOK_REM:
-            return L % R;
-        case TOK_PLUS: {
-            int ptr_child;
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            if (is_unsigned_int(get_type_category(&e->type)))
+                return (VALUE(e) = (unsigned long)resL%(unsigned long)resR);
+            else
+                return (VALUE(e) = resL%resR);
+        case TOK_PLUS:
+            if (is_integer(get_type_category(&e->type))) {
+                resL = evalL(), resR = evalR();
+                if (KIND(e->child[0])==IConstExp && KIND(e->child[1])==IConstExp) {
+                    KIND(e) = IConstExp;
+                    return (VALUE(e) = resL+resR);
+                } else {
+                    return 0xABCD; /* doesn't matter */
+                }
+            } else {
+                int pi, ii;
 
-            ptr_child = -1;
-            if (is_pointer(get_type_category(&e->child[0]->type)))
-                ptr_child = 0;
-            else if (is_pointer(get_type_category(&e->child[1]->type)))
-                ptr_child = 1;
-
-            if (ptr_child != -1) {
-                /*
-                 * One of the operands has pointer type.
-                 * Escalate the non-pointer operand before add.
-                 * For example:
-                 *  (int *)0 + 1 == 0 + 1*sizeof(int)
-                 */
-                Declaration pointed_to_ty;
-
-                pointed_to_ty.decl_specs = e->child[ptr_child]->type.decl_specs;
-                pointed_to_ty.idl = e->child[ptr_child]->type.idl->child;
-                if (ptr_child == 0)
-                    return L + R*compute_sizeof(&pointed_to_ty);
+                if (is_iconst)
+                    break;
+                if (is_integer(get_type_category(&e->child[0]->type)))
+                    pi = 1, ii = 0;
                 else
-                    return L*compute_sizeof(&pointed_to_ty) + R;
-            } else {
-                return L + R;
-            }
-        }
-        case TOK_MINUS:
-            if (is_pointer(get_type_category(&e->child[0]->type))) {
-                Declaration pointed_to_ty;
+                    pi = 0, ii = 1;
+                resL = evalL(), resR = evalR();
+                if (KIND(e->child[ii]) != IConstExp)
+                    break;
+                if (KIND(e->child[pi])==IConstExp && KIND(e->child[ii])==IConstExp) {
+                    Declaration ty;
 
-                pointed_to_ty.decl_specs = e->child[0]->type.decl_specs;
-                pointed_to_ty.idl = e->child[0]->type.idl->child;
-                if (is_pointer(get_type_category(&e->child[1]->type)))
-                    /*
-                     * pointer - pointer.
-                     * Make the subtraction and divide the result by sizeof(pointed_to_type).
-                     * For example:
-                     *  (int *)12 - (int *)1 == (12-1)/sizeof(int)
-                     */
-                    return (L-R)/compute_sizeof(&pointed_to_ty);
-                else /* if (is_integer(get_type_category(&e->child[1]->type))) */
-                    /*
-                     * pointer - integer.
-                     * Escalate the non-pointer operand before subtract.
-                     * For example:
-                     *  (int *)12 - 1 == 12 - 1*sizeof(int)
-                     */
-                    return L - R*compute_sizeof(&pointed_to_ty);
+                    KIND(e) = IConstExp;
+                    ty = e->child[pi]->type;
+                    ty.idl = ty.idl->child;
+                    if (pi == 0)
+                        return (VALUE(e) = resL + resR*compute_sizeof(&ty));
+                    else
+                        return (VALUE(e) = resL*compute_sizeof(&ty) + resR);
+                } else {
+                    return 0xABCD; /* doesn't matter */
+                }
+            }
+        case TOK_MINUS:
+            if (is_integer(get_type_category(&e->child[0]->type))) { /* int-int */
+                resL = evalL(), resR = evalR();
+                if (KIND(e->child[1]) != IConstExp)
+                    break;
+                if (KIND(e->child[0]) == IConstExp) {
+                    KIND(e) = IConstExp;
+                    return (VALUE(e) = resL-resR);
+                } else {
+                    return 0xABCD; /* doesn't matter */
+                }
             } else {
-                return L - R;
+                if (is_iconst)
+                    break;
+                resL = evalL(), resR = evalR();
+                if (KIND(e->child[1]) != IConstExp)
+                    break;
+                if (KIND(e->child[0]) == IConstExp) {
+                    Declaration ty;
+
+                    KIND(e) = IConstExp;
+                    ty = e->child[0]->type;
+                    ty.idl = ty.idl->child;
+                    if (is_integer(get_type_category(&e->child[1]->type))) /* ptr-int */
+                        return (VALUE(e) = resL - resR*compute_sizeof(&ty));
+                    else /* ptr-ptr */
+                        return (VALUE(e) = (resL-resR)/compute_sizeof(&ty));
+                } else {
+                    return 0xABCD; /* doesn't matter */
+                }
             }
         case TOK_LSHIFT:
-            return L << R;
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            return (VALUE(e) = resL<<resR);
         case TOK_RSHIFT:
-            if (is_signed_int(get_type_spec(e->child[0]->type.decl_specs)->op))
-                return L >> R;
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            if (is_unsigned_int(get_type_category(&e->type)))
+                return (VALUE(e) = (unsigned long)resL>>resR);
             else
-                return (unsigned)L >> R;
+                return (VALUE(e) = resL>>resR);
         case TOK_LT:
-            return L < R;
-        case TOK_GT:
-            return L > R;
-        case TOK_LET:
-            return L <= R;
-        case TOK_GET:
-            return L >= R;
-        case TOK_EQ:
-            return L == R;
-        case TOK_NEQ:
-            return L != R;
-        case TOK_BW_AND:
-            return L & R;
-        case TOK_BW_XOR:
-            return L ^ R;
-        case TOK_BW_OR:
-            return L | R;
-        case TOK_AND:
-            return L && R;
-        case TOK_OR:
-            return L || R;
-        case TOK_CONDITIONAL:
-            if (eval_const_expr(e->child[0], FALSE))
-                return eval_const_expr(e->child[1], FALSE);
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            if (is_unsigned_int(get_type_category(&e->type)))
+                return (VALUE(e) = (unsigned long)resL<(unsigned long)resR);
             else
-                return eval_const_expr(e->child[2], FALSE);
+                return (VALUE(e) = resL<resR);
+        case TOK_GT:
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            if (is_unsigned_int(get_type_category(&e->type)))
+                return (VALUE(e) = (unsigned long)resL>(unsigned long)resR);
+            else
+                return (VALUE(e) = resL>resR);
+        case TOK_LET:
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            if (is_unsigned_int(get_type_category(&e->type)))
+                return (VALUE(e) = (unsigned long)resL<=(unsigned long)resR);
+            else
+                return (VALUE(e) = resL<=resR);
+        case TOK_GET:
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            if (is_unsigned_int(get_type_category(&e->type)))
+                return (VALUE(e) = (unsigned long)resL>=(unsigned long)resR);
+            else
+                return (VALUE(e) = resL>=resR);
+        case TOK_EQ:
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            return (VALUE(e) = resL==resR);
+        case TOK_NEQ:
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            return (VALUE(e) = resL!=resR);
+        case TOK_BW_AND:
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            return (VALUE(e) = resL&resR);
+        case TOK_BW_XOR:
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            return (VALUE(e) = resL^resR);
+        case TOK_BW_OR:
+            resL = evalL(), resR = evalR();
+            if (KIND(e->child[0])!=IConstExp || KIND(e->child[1])!=IConstExp)
+                break;
+            KIND(e) = IConstExp;
+            return (VALUE(e) = resL|resR);
+        case TOK_AND:
+            /*
+             * x && y: OK.
+             * ? && x: x must be an integer constant equal to 0.
+             * x && ?: x must be an integer constant equal to 0.
+             * ? && ?: invalid.
+             */
+            resL = evalL();
+            if (KIND(e->child[0])!=IConstExp && KIND(e->child[0])==OpExp) {
+                resR = evalR();
+                if ((KIND(e->child[1])!=IConstExp && KIND(e->child[1])==OpExp) || resR)
+                    break;
+                KIND(e) = IConstExp;
+                return (VALUE(e) = FALSE);
+            } else {
+                if (!resL) {
+                    KIND(e) = IConstExp;
+                    return (VALUE(e) = FALSE);
+                }
+                resR = evalR();
+                if (KIND(e->child[0])!=IConstExp && KIND(e->child[0])==OpExp)
+                    break;
+                KIND(e) = IConstExp;
+                return (VALUE(e) = !!resR);
+            }
+        case TOK_OR:
+            /*
+             * x || y: OK
+             * ? || x: x must be an integer constant distinct to 0.
+             * x || ?: x must be an integer constant distinct to 0.
+             * ? || ?: invalid.
+             */
+            resL = evalL();
+            if (KIND(e->child[0])!=IConstExp && KIND(e->child[0])==OpExp) {
+                resR = evalR();
+                if ((KIND(e->child[1])!=IConstExp && KIND(e->child[1])==OpExp) || !resR)
+                    break;
+                KIND(e) = IConstExp;
+                return (VALUE(e) = TRUE);
+            } else {
+                if (resL) {
+                    KIND(e) = IConstExp;
+                    return (VALUE(e) = TRUE);
+                }
+                resR = evalR();
+                if (KIND(e->child[0])!=IConstExp && KIND(e->child[0])==OpExp)
+                    break;
+                KIND(e) = IConstExp;
+                return (VALUE(e) = !!resR);
+            }
+        case TOK_CONDITIONAL: {
+            long cond;
+
+            cond = eval_const_expr(e->child[0], FALSE, is_iconst);
+            if (KIND(e->child[0]) == IConstExp)
+                ;
+            else if (KIND(e->child[0]) == OpExp)
+                break;
+            else
+                VALUE(e) = cond;
+            if (cond) {
+                resL = eval_const_expr(e->child[1], FALSE, is_iconst);
+                if (KIND(e->child[1]) == IConstExp) {
+                    KIND(e) = IConstExp;
+                    return (VALUE(e) = resL);
+                } else {
+                    return resL;
+                }
+            } else {
+                resR = eval_const_expr(e->child[2], FALSE, is_iconst);
+                if (KIND(e->child[2]) == IConstExp) {
+                    KIND(e) = IConstExp;
+                    return (VALUE(e) = resR);
+                } else {
+                    return resR;
+                }
+            }
+        }
+#undef evalL
+#undef evalR
+#undef VALUE
+#undef KIND
         }
         break;
+
     case IConstExp:
         return e->attr.val;
+
     case StrLitExp:
-        return 0; /* OK */
-    case IdExp: {
+        if (is_iconst)
+            break;
+        return TRUE;
+
+    case IdExp:
+        if (is_iconst)
+            break;
+
         /*
          * An identifier can only appears in a constant expression
          * if its address is being computed or the address of one
@@ -2199,9 +2337,8 @@ long eval_const_expr(ExecNode *e, int is_addr)
          * if the identifier denotes an array or function designator.
          */
         if (!is_addr
-        && (e->type.idl==NULL||e->type.idl->op!=TOK_FUNCTION&&e->type.idl->op!=TOK_SUBSCRIPT))
+        && (e->type.idl==NULL || e->type.idl->op!=TOK_FUNCTION&&e->type.idl->op!=TOK_SUBSCRIPT))
             break;
-
         /*
          * Moreover, the identifier must have static storage
          * duration (it was declared at file scope or has one
@@ -2214,12 +2351,10 @@ long eval_const_expr(ExecNode *e, int is_addr)
             if (scs==NULL || scs->op!=TOK_STATIC&&scs->op!=TOK_EXTERN)
                 break;
         }
-
-        return 0; /* OK */
+        return TRUE;
     }
-    }
-
-    // ERROR_R(e, "invalid constant expression");
-    FATAL_ERROR(e, "invalid constant expression");
+    emit_error(FALSE, e->info->src_file, e->info->src_line, e->info->src_column,
+    "invalid constant expression");
+    // longjmp(env, 1);
+    assert(0);
 }
-#endif

@@ -148,7 +148,7 @@ static void x86_store(X86_Reg r, unsigned a);
 static void x86_compare_against_constant(unsigned a, long c);
 static void x86_function_definition(TypeExp *decl_specs, TypeExp *header);
 
-static int x86_static_expr(ExecNode *e);
+static void x86_static_expr(ExecNode *e);
 static void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e);
 static void x86_allocate_static_objects(void);
 
@@ -1957,86 +1957,98 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
 }
 
 /*
- * Try to generate a NASM compatible expression.
- * Return 0 on success, -1 otherwise.
- * Note: it's possible for this to spit out total nonsense that will fail at assemble-time.
- * It has been tested for trivial cases only.
+ * Emit an expression valid for the assembler to evaluate.
  */
-int x86_static_expr(ExecNode *e)
+void x86_static_expr(ExecNode *e)
 {
     switch (e->kind.exp) {
     case OpExp:
         switch (e->attr.op) {
-        case TOK_SIZEOF:
-            if (e->child[1] != NULL)
-                emit_decl("%u", compute_sizeof((Declaration *)e->child[1]));
-            else
-                emit_decl("%u", compute_sizeof(&e->child[0]->type));
-            break;
-#define R x86_static_expr(e->child[0]);
-        case TOK_UNARY_PLUS:    emit_decl("+"); return R;
-        case TOK_UNARY_MINUS:   emit_decl("-"); return R;
-        case TOK_COMPLEMENT:    emit_decl("~"); return R;
-        case TOK_NEGATION:      emit_decl("!"); return R;
-        case TOK_ADDRESS_OF:    return R;
-        case TOK_CAST:          return R; /* TOFIX */
-#undef R
+        case TOK_SUBSCRIPT: {
+            int pi, ii;
 
-#define L x86_static_expr(e->child[0])
-#define R x86_static_expr(e->child[1])
-        case TOK_MUL:       if (L) return -1; emit_decl("*");  return R;
-        case TOK_DIV:       if (L) return -1; emit_decl("/");  return R;
-        case TOK_REM:       if (L) return -1; emit_decl("%");  return R;
-        case TOK_LSHIFT:    if (L) return -1; emit_decl("<<"); return R;
-        case TOK_RSHIFT:    if (L) return -1; emit_decl(">>"); return R; /* NASM's right shift is always unsigned */
-        case TOK_BW_AND:    if (L) return -1; emit_decl("&");  return R;
-        case TOK_BW_XOR:    if (L) return -1; emit_decl("^");  return R;
-        case TOK_BW_OR:     if (L) return -1; emit_decl("|");  return R;
-        case TOK_PLUS:
-            if (is_integer(get_type_category(&e->type))) {
-                if (L) return -1; emit_decl("+"); return R;
-            } else {
-                int pi;
+            if (is_integer(get_type_category(&e->child[0]->type)))
+                pi = 1, ii = 0;
+            else
+                pi = 0, ii = 1;
+            x86_static_expr(e->child[pi]);
+            if (e->child[ii]->attr.val != 0) {
                 Declaration ty;
 
-                pi = 0;
-                if (is_integer(get_type_category(&e->child[0]->type)))
-                    pi = 1;
                 ty = e->child[pi]->type;
                 ty.idl = ty.idl->child;
-                if (pi == 0) {
-                    if (L) return -1; emit_decl("+("); if (R) return -1;
-                    emit_decl("*%u)", compute_sizeof(&ty));
-                } else {
-                    if (R) return -1; emit_decl("+("); if (L) return -1;
-                    emit_decl("*%u)", compute_sizeof(&ty));
+                emit_decl("+%u*", compute_sizeof(&ty));
+                x86_static_expr(e->child[ii]);
+            }
+        }
+            break;
+        case TOK_DOT:
+        case TOK_ARROW:
+            if (get_type_category(&e->child[0]->type) != TOK_UNION) {
+                StructMember *m;
+
+                m = get_member_descriptor(get_type_spec(e->child[0]->type.decl_specs), e->child[1]->attr.str);
+                x86_static_expr(e->child[0]);
+                if (m->offset)
+                    emit_decl("+%u", m->offset);
+            } else {
+                x86_static_expr(e->child[0]);
+            }
+            break;
+        case TOK_ADDRESS_OF:
+        case TOK_INDIRECTION:
+        case TOK_CAST:
+            x86_static_expr(e->child[0]);
+            break;
+
+        case TOK_PLUS:
+            if (is_integer(get_type_category(&e->type))) {
+                x86_static_expr(e->child[0]);
+                emit_decl("+");
+                x86_static_expr(e->child[1]);
+            } else {
+                int pi, ii;
+
+                if (is_integer(get_type_category(&e->child[0]->type)))
+                    pi = 1, ii = 0;
+                else
+                    pi = 0, ii = 1;
+                x86_static_expr(e->child[pi]);
+                if (e->child[ii]->attr.val != 0) {
+                    Declaration ty;
+
+                    ty = e->child[pi]->type;
+                    ty.idl = ty.idl->child;
+                    emit_decl("+%u*", compute_sizeof(&ty));
+                    x86_static_expr(e->child[ii]);
                 }
             }
             break;
         case TOK_MINUS:
             if (is_integer(get_type_category(&e->child[0]->type))) { /* int-int */
-                if (L) return -1; emit_decl("-"); return R;
-            } else {
-                Declaration ty;
+                x86_static_expr(e->child[0]);
+                emit_decl("-");
+                x86_static_expr(e->child[1]);
+            } else { /* ptr-int */
+                x86_static_expr(e->child[0]);
+                if (e->child[1]->attr.val != 0) {
+                    Declaration ty;
 
-                ty = e->child[0]->type;
-                ty.idl = ty.idl->child;
-                if (is_integer(get_type_category(&e->child[1]->type))) { /* ptr-int */
-                    if (L) return -1; emit_decl("-"); emit_decl("("); if (R) return -1;
-                    emit_decl("*%u)", compute_sizeof(&ty));
-                } else { /* ptr-ptr */
-                    /* Note: for this to work both operands must reside in the same segment! */
-                    emit_decl("(");
-                    if (L) return -1; emit_decl("-"); if (R) return -1;
-                    emit_decl(")/%u", compute_sizeof(&ty));
+                    ty = e->child[0]->type;
+                    ty.idl = ty.idl->child;
+                    emit_decl("-%u*", compute_sizeof(&ty));
+                    x86_static_expr(e->child[1]);
                 }
             }
             break;
-#undef L
-#undef R
-
+        case TOK_CONDITIONAL:
+            if (e->child[0]->attr.val)
+                x86_static_expr(e->child[1]);
+            else
+                x86_static_expr(e->child[2]);
+            break;
         default:
-            return -1;
+            assert(0);
         }
         break;
     case IConstExp:
@@ -2051,7 +2063,6 @@ int x86_static_expr(ExecNode *e)
         emit_decl("%s", e->attr.str);
         break;
     }
-    return 0; /* OK */
 }
 
 void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
@@ -2150,7 +2161,6 @@ void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
         /*
          * Scalar.
          */
-        unsigned p;
         Declaration dest_ty;
 scalar:
         dest_ty.decl_specs = ds;
@@ -2171,13 +2181,7 @@ scalar:
             emit_decl("dd ");
             break;
         }
-        p = string_get_pos(asm_decls);
-        if (x86_static_expr(e) == -1) {
-            string_set_pos(asm_decls, p);
-            emit_decl("0");
-            emit_warning(e->info->src_file, e->info->src_line, e->info->src_column,
-            "initializer form not supported, defaulting to zero");
-        }
+        x86_static_expr(e);
         emit_decl("\n");
     }
 }

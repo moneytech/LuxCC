@@ -4,7 +4,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <setjmp.h>
 #include "util.h"
 #include "expr.h"
 #include "stmt.h"
@@ -76,7 +75,6 @@ static TypeTag *tags[MAX_NEST][HASH_SIZE];
 static int nesting_level = OUTERMOST_LEVEL;
 static int delayed_delete;
 static int scope_id;
-static jmp_buf env;
 
 static Arena *oids_arena[MAX_NEST];
 static Arena *tags_arena[MAX_NEST];
@@ -706,7 +704,7 @@ void analyze_enumerator(TypeExp *e)
             ERROR(e, "enumerator value is not an integer constant");
             goto error;
         }
-        en_val = eval_int_const_expr(e->attr.e);
+        en_val = eval_const_expr(e->attr.e, FALSE, TRUE);
     } else {
         e->attr.e = new_exec_node();
         if (en_val+1 < en_val)
@@ -881,7 +879,7 @@ static int is_good_declarator(TypeExp *decl_specs, TypeExp *declarator)
             if (!is_integer(get_type_category(&declarator->attr.e->type)))
                 ERROR_RF(declarator, "size of array has non-integer type");
 
-            size = eval_int_const_expr(declarator->attr.e);
+            size = eval_const_expr(declarator->attr.e, FALSE, TRUE);
             if (size <= 0)
                 ERROR_RF(declarator, "size of array not greater than zero");
 
@@ -1324,114 +1322,10 @@ static void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, Type
 }
 
 /*
- * See if the expression `e' is adequate to initialize
- * an object with static storage duration.
- * Return TRUE if OK, FALSE otherwise.
- * Note: this function is incomplete.
+ * Note: Currently only fully bracketed initialization is handled.
  */
-static int analyze_static_initializer(ExecNode *e, int is_addr)
+static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_const_expr)
 {
-    switch (e->kind.exp) {
-    case OpExp:
-        switch (e->attr.op) {
-        /*
-         * Allow expressions like
-         *  &arr[5]; // if 'arr' has static storage duration
-         * and
-         *  &s.x; and &s.x[5]; // if 's' has static storage duration
-         */
-        case TOK_SUBSCRIPT:
-            /* []'s operand has to be a real array (and not a pointer) */
-            if (e->child[0]->type.idl==NULL || e->child[0]->type.idl->op!=TOK_SUBSCRIPT)
-                break;
-        case TOK_DOT:
-            if (!is_addr)
-                break;
-            return analyze_static_initializer(e->child[0], is_addr);
-
-        case TOK_SIZEOF:
-            return TRUE;
-        case TOK_ADDRESS_OF:
-            return analyze_static_initializer(e->child[0], TRUE);
-        case TOK_ARROW:
-        case TOK_INDIRECTION:
-            break;
-        case TOK_UNARY_PLUS:
-        case TOK_UNARY_MINUS:
-        case TOK_COMPLEMENT:
-        case TOK_NEGATION:
-        case TOK_CAST:
-            return analyze_static_initializer(e->child[0], FALSE);
-
-#define C0() analyze_static_initializer(e->child[0], FALSE)
-#define C1() analyze_static_initializer(e->child[1], FALSE)
-#define C2() analyze_static_initializer(e->child[2], FALSE)
-        case TOK_MUL:
-        case TOK_DIV:
-        case TOK_REM:
-        case TOK_PLUS:
-        case TOK_MINUS:
-        case TOK_LSHIFT:
-        case TOK_RSHIFT:
-        case TOK_LT:
-        case TOK_GT:
-        case TOK_LET:
-        case TOK_GET:
-        case TOK_EQ:
-        case TOK_NEQ:
-        case TOK_BW_AND:
-        case TOK_BW_XOR:
-        case TOK_BW_OR:
-        case TOK_AND: /* TOFIX: short-circuit the analysis */
-        case TOK_OR:  /* TOFIX: short-circuit the analysis */
-            return C0() && C1();
-        case TOK_CONDITIONAL: /* TOFIX: only analyze C1 or C2 */
-            return C0() && C1() && C2();
-#undef C0
-#undef C1
-#undef C2
-        }
-        break;
-    case IConstExp:
-    case StrLitExp:
-        return TRUE;
-    case IdExp:
-        /*
-         * An identifier can only appears in a constant expression
-         * if its address is being computed or the address of one
-         * of its elements (arrays) or members (unions/structs) is.
-         * being computed. The address can be computed implicitly
-         * if the identifier denotes an array or function designator.
-         */
-        if (!is_addr
-        && (e->type.idl==NULL||e->type.idl->op!=TOK_FUNCTION&&e->type.idl->op!=TOK_SUBSCRIPT))
-            break;
-        /*
-         * Moreover, the identifier must have static storage
-         * duration (it was declared at file scope or has one
-         * of the storage class specifiers extern or static).
-         */
-        if (!is_external_id(e->attr.str)) {
-            TypeExp *scs;
-
-            scs = get_sto_class_spec(e->type.decl_specs);
-            if (scs==NULL || scs->op!=TOK_STATIC&&scs->op!=TOK_EXTERN)
-                break;
-        }
-        return TRUE;
-    }
-
-    emit_error(FALSE, e->info->src_file, e->info->src_line, e->info->src_column,
-    "invalid initializer for static object");
-    return FALSE;
-}
-
-static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int const_expr)
-{
-    /*
-     * Note: Currently only fully bracketed initialization is handled.
-     */
-
     TypeExp *ts;
 
     if (dct != NULL) {
@@ -1475,7 +1369,7 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int cons
                 /* array with specified bounds */
                 i = dct->attr.e->attr.val;
                 for (; e!=NULL && i!=0; e=e->sibling, --i)
-                    analyze_initializer(ds, dct->child, e, const_expr);
+                    analyze_initializer(ds, dct->child, e, is_const_expr);
 
                 if (e != NULL)
                     ERROR_R(e, "excess elements in array initializer");
@@ -1483,7 +1377,7 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int cons
                 /* array with unspecified bounds */
                 i = 0;
                 for (; e != NULL; e = e->sibling, ++i)
-                    analyze_initializer(ds, dct->child, e, const_expr);
+                    analyze_initializer(ds, dct->child, e, is_const_expr);
 
                 /* complete the array type */
                 dct->attr.e = new_exec_node();
@@ -1517,7 +1411,7 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int cons
         for (; d != NULL; d = d->next) {
             dct = d->decl->idl;
             for (; e!=NULL && dct!=NULL; e=e->sibling, dct=dct->sibling)
-                analyze_initializer(d->decl->decl_specs, dct->child, e, const_expr);
+                analyze_initializer(d->decl->decl_specs, dct->child, e, is_const_expr);
 
             if (e == NULL)
                 break;
@@ -1540,7 +1434,7 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int cons
             // ts = lookup_tag(ts->str, TRUE)->type;
             ts->attr.dl = lookup_tag(ts->str, TRUE)->type->attr.dl;
         /* only the first member of the union can be initialized */
-        analyze_initializer(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e, const_expr);
+        analyze_initializer(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e, is_const_expr);
 
         if (e->sibling != NULL)
             ERROR_R(e->sibling, "excess elements in union initializer");
@@ -1551,11 +1445,13 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int cons
         Declaration dest_ty;
 scalar:
 
-        if (e->attr.op == TOK_INIT_LIST)
+        if (e->kind.exp==OpExp && e->attr.op==TOK_INIT_LIST)
             ERROR_R(e, "braces around scalar initializer");
 
-        if (const_expr && !analyze_static_initializer(e, FALSE))
-            return;
+        // if (is_const_expr && !analyze_static_initializer(e, FALSE))
+            // return;
+        if (is_const_expr)
+            eval_const_expr(e, FALSE, FALSE);
 
         if (get_type_category(&e->type) == TOK_ERROR)
             return;

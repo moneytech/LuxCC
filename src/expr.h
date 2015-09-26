@@ -2,6 +2,7 @@
 #define EXPR_H_
 
 #include "parser.h"
+// #include <setjmp.h>
 
 void analyze_primary_expression(ExecNode *e);
 void analyze_postfix_expression(ExecNode *e);
@@ -17,7 +18,7 @@ void analyze_conditional_expression(ExecNode *e);
 void analyze_expression(ExecNode *e);
 
 int can_assign_to(Declaration *dest_ty, ExecNode *e);
-long eval_int_const_expr(ExecNode *e);
+long eval_const_expr(ExecNode *e, int is_addr, int is_iconst);
 Token get_type_category(Declaration *d);
 TypeExp *get_type_node(Token ty);
 int is_unsigned_int(Token ty);

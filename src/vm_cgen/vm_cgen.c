@@ -295,7 +295,7 @@ scalar:
         case TOK_SIGNED_CHAR:
         case TOK_UNSIGNED_CHAR:
             if (is_integer(get_type_category(&e->type)))
-                emitln(".byte %lu", eval_int_const_expr(e));
+                emitln(".byte %lu", eval_const_expr(e, FALSE, TRUE));
             else
                 BAD_INIT(1);
             break;
@@ -304,7 +304,7 @@ scalar:
             // if (align)
             emitln(".align 2");
             if (is_integer(get_type_category(&e->type)))
-                emitln(".word %lu", eval_int_const_expr(e));
+                emitln(".word %lu", eval_const_expr(e, FALSE, TRUE));
             else
                 BAD_INIT(2);
             break;
@@ -326,7 +326,7 @@ scalar:
              * 5) x+1, 1+x, or x-1 // if x has array type
              */
             if (is_integer(get_type_category(&e->type))) {
-                emitln(".dword %lu", eval_int_const_expr(e));
+                emitln(".dword %lu", eval_const_expr(e, FALSE, TRUE));
             } else if (e->kind.exp == StrLitExp) {
                 emitln(".dword @S%u", new_string_literal(e->attr.str));
             } else if (e->kind.exp == IdExp) {
