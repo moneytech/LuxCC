@@ -54,7 +54,7 @@ const char *token_table[] = {
     "BW_OR", "|",
     "AND", "&&",
     "OR", "||",
-    "CONDITIONAL", "?",
+    "CONDITIONAL", "?:",
     "COLON", ":",
     "SEMICOLON", ";",
     "ELLIPSIS", "...",

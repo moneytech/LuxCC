@@ -1931,7 +1931,7 @@ long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
             int pi, ii;
             long indx, ptr;
 
-            if (is_iconst || !is_addr)
+            if (is_iconst)
                 break;
             if (is_integer(get_type_category(&e->child[0]->type)))
                 pi = 1, ii = 0;
@@ -1998,8 +1998,8 @@ long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
                 return resL;
             }
 
-#define evalL()     eval_const_expr(e->child[0], FALSE, is_iconst)
-#define evalR()     eval_const_expr(e->child[1], FALSE, is_iconst)
+#define evalL() eval_const_expr(e->child[0], FALSE, is_iconst)
+#define evalR() eval_const_expr(e->child[1], FALSE, is_iconst)
         case TOK_UNARY_PLUS:
             resL = evalL();
             if (KIND(e->child[0]) != IConstExp)

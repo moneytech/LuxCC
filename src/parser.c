@@ -1954,7 +1954,7 @@ ExecNode *argument_expression_list(void)
     return n;
 }
 
-void print_ast(ExternDecl *n);
+static void print_ast(ExternDecl *n);
 
 /*
  * Main function of the parser.
@@ -1967,4 +1967,366 @@ ExternDecl *parser(TokenNode *tokens)
     parser_node_arena = arena_new(4096, TRUE);
     parser_str_arena = arena_new(1024, FALSE);
     return translation_unit();
+    // print_ast(translation_unit()), exit(0);
+}
+
+/*
+ * AST printer.
+ * Emit a DOT definition of an AST.
+ */
+static int vertex_counter;
+
+static void print_vertex(int vertex, char *label);
+static void print_edge(int src_vertex, int dst_vertex, char *label);
+static void print_TypeExp_node(TypeExp *n);
+static void print_ExecNode_node(ExecNode *n);
+static void print_DeclList(DeclList *n);
+static void print_initializer_list(ExecNode *n);
+static void print_initializer(ExecNode *n);
+static void print_declarator(TypeExp *n);
+static void print_init_declarator(TypeExp *n);
+static void print_init_declarator_list(TypeExp *n);
+static void print_declaration_specifiers(TypeExp *n);
+static void print_Declaration(Declaration *n);
+static void print_function_definition(Declaration *n);
+
+void print_vertex(int vertex, char *label)
+{
+    if (label != NULL)
+        printf("V%d[label=\"%s\"];\n", vertex, label);
+    else
+        printf("V%d;\n", vertex);
+}
+
+void print_edge(int src_vertex, int dst_vertex, char *label)
+{
+    if (label != NULL)
+        printf("V%d -> V%d [label=\" %s\"];\n", src_vertex, dst_vertex, label);
+    else
+        printf("V%d -> V%d;\n", src_vertex, dst_vertex);
+}
+
+void print_TypeExp_node(TypeExp *n)
+{
+    char buf[128];
+
+    switch (n->op) {
+    case TOK_ID:
+        sprintf(buf, "TypeExp\\n(%s)", n->str);
+        break;
+    case TOK_STAR:
+        sprintf(buf, "TypeExp\\n(*)");
+        if (n->attr.el != NULL) {
+            print_vertex(++vertex_counter, buf);
+            print_edge(vertex_counter, vertex_counter+1, "attr.el");
+            print_TypeExp_node(n->attr.el);
+            return;
+        }
+        break;
+    case TOK_SUBSCRIPT:
+        sprintf(buf, "TypeExp\\n([])");
+        if (n->attr.e != NULL) {
+            print_vertex(++vertex_counter, buf);
+            print_edge(vertex_counter, vertex_counter+1, "attr.e");
+            print_ExecNode_node(n->attr.e);
+            return;
+        }
+        break;
+    case TOK_FUNCTION:
+        sprintf(buf, "TypeExp\\n(())");
+        if (n->attr.e != NULL) {
+            print_vertex(++vertex_counter, buf);
+            print_edge(vertex_counter, vertex_counter+1, "attr.dl");
+            print_DeclList(n->attr.dl);
+            return;
+        }
+        break;
+    default:
+        sprintf(buf, "TypeExp\\n(%s)", tok2lex(n->op));
+        break;
+    }
+    print_vertex(++vertex_counter, buf);
+}
+
+void print_ExecNode_node(ExecNode *n)
+{
+    char buf[128];
+    int tmp_vertex;
+
+    if (n->node_kind == StmtNode) {
+        switch (n->kind.stmt) {
+        case IfStmt:
+        case SwitchStmt:
+        case WhileStmt:
+        case DoStmt:
+        case ForStmt:
+        case ExpStmt:
+        case BreakStmt:
+        case ContinueStmt:
+        case ReturnStmt:
+        case CaseStmt:
+        case DefaultStmt: {
+            char *lab;
+
+            tmp_vertex = ++vertex_counter;
+            switch (n->kind.stmt) {
+            case IfStmt:        lab = "ExecNode\\n(if)";        break;
+            case SwitchStmt:    lab = "ExecNode\\n(switch)";    break;
+            case WhileStmt:     lab = "ExecNode\\n(while)";     break;
+            case DoStmt:        lab = "ExecNode\\n(do)";        break;
+            case ForStmt:       lab = "ExecNode\\n(for)";       break;
+            case ExpStmt:       lab = "ExecNode\\n(exp-stmt)";  break;
+            case BreakStmt:     lab = "ExecNode\\n(break)";     break;
+            case ContinueStmt:  lab = "ExecNode\\n(continue)";  break;
+            case ReturnStmt:    lab = "ExecNode\\n(return)";    break;
+            case CaseStmt:      lab = "ExecNode\\n(case)";      break;
+            case DefaultStmt:   lab = "ExecNode\\n(default)";   break;
+            }
+            print_vertex(tmp_vertex, lab);
+            if (n->child[0] != NULL) {
+                print_edge(tmp_vertex, vertex_counter+1, "child[0]");
+                print_ExecNode_node(n->child[0]);
+            }
+            if (n->child[1]!=NULL && n->kind.stmt!=ReturnStmt) {
+                print_edge(tmp_vertex, vertex_counter+1, "child[1]");
+                print_ExecNode_node(n->child[1]);
+            }
+            if (n->child[2] != NULL) {
+                print_edge(tmp_vertex, vertex_counter+1, "child[2]");
+                print_ExecNode_node(n->child[2]);
+            }
+            if (n->child[3] != NULL) {
+                print_edge(tmp_vertex, vertex_counter+1, "child[3]");
+                print_ExecNode_node(n->child[3]);
+            }
+        }
+            return;
+        case CmpndStmt:
+            tmp_vertex = ++vertex_counter;
+            print_vertex(tmp_vertex, "ExecNode\\n({})");
+            if (n->locals != NULL) {
+                print_edge(tmp_vertex, vertex_counter+1, "locals");
+                print_DeclList(n->locals);
+            }
+            if (n->child[0] != NULL) {
+                ExecNode *n2;
+
+                print_edge(tmp_vertex, vertex_counter+1, "child[0]");
+                for (n2 = n->child[0]; n2 != NULL; n2 = n2->sibling) {
+                    int stmt_vertex = vertex_counter+1;
+
+                    print_ExecNode_node(n2);
+                    if (n2->sibling != NULL)
+                        print_edge(stmt_vertex, vertex_counter+1, "sibling");
+                }
+            }
+            return;
+        case LabelStmt:
+            sprintf(buf, "ExecNode\\n(%s:)", n->attr.str);
+            print_vertex(++vertex_counter, buf);
+            print_edge(vertex_counter, vertex_counter+1, "child[0]");
+            print_ExecNode_node(n->child[0]);
+            return;
+        case GotoStmt:
+            sprintf(buf, "ExecNode\\n(goto %s)", n->attr.str);
+            print_vertex(++vertex_counter, buf);
+            return;
+        }
+    } else {
+        switch (n->kind.exp) {
+        case OpExp:
+            switch (n->attr.op) {
+            case TOK_FUNCTION:
+                tmp_vertex = ++vertex_counter;
+                print_vertex(tmp_vertex, "ExecNode\\n(())");
+                print_edge(tmp_vertex, vertex_counter+1, "child[0]");
+                print_ExecNode_node(n->child[0]);
+                if (n->child[1] != NULL) {
+                    ExecNode *n2;
+
+                    print_edge(tmp_vertex, vertex_counter+1, "child[1]");
+                    for (n2 = n->child[1]; n2 != NULL; n2 = n2->sibling) {
+                        int arg_vertex = vertex_counter+1;
+
+                        print_ExecNode_node(n2);
+                        if (n2->sibling != NULL)
+                            print_edge(arg_vertex, vertex_counter+1, "sibling");
+                    }
+                }
+                return;
+            case TOK_POS_INC:
+            case TOK_POS_DEC:
+            case TOK_PRE_INC:
+            case TOK_PRE_DEC:
+            case TOK_ADDRESS_OF:
+            case TOK_INDIRECTION:
+            case TOK_UNARY_PLUS:
+            case TOK_UNARY_MINUS:
+            case TOK_COMPLEMENT:
+            case TOK_NEGATION:
+                sprintf(buf, "ExecNode\\n(%s)", tok2lex(n->attr.op));
+                print_vertex(++vertex_counter, buf);
+                print_edge(vertex_counter, vertex_counter+1, "child[0]");
+                print_ExecNode_node(n->child[0]);
+                return;
+            case TOK_CAST:
+                tmp_vertex = ++vertex_counter;
+                print_vertex(tmp_vertex, "ExecNode\\n(cast)");
+                print_edge(tmp_vertex, vertex_counter+1, "child[0]");
+                print_ExecNode_node(n->child[0]);
+                print_edge(tmp_vertex, vertex_counter+1, "child[1]");
+                print_Declaration((Declaration *)n->child[1]);
+                return;
+            default: /* operator with two/three children */
+                tmp_vertex = ++vertex_counter;
+                sprintf(buf, "ExecNode\\n(%s)", tok2lex(n->attr.op));
+                print_vertex(tmp_vertex, buf);
+                print_edge(tmp_vertex, vertex_counter+1, "child[0]");
+                print_ExecNode_node(n->child[0]);
+                print_edge(tmp_vertex, vertex_counter+1, "child[1]");
+                print_ExecNode_node(n->child[1]);
+                if (n->attr.op == TOK_CONDITIONAL) {
+                    print_edge(tmp_vertex, vertex_counter+1, "child[2]");
+                    print_ExecNode_node(n->child[2]);
+                }
+                return;
+            } /* switch (n->attr.op) */
+        case IConstExp:
+            sprintf(buf, "ExecNode\\n(%lu)", n->attr.uval);
+            print_vertex(++vertex_counter, buf);
+            return;
+        case StrLitExp:
+            print_vertex(++vertex_counter, "ExecNode\\n(string-literal)");
+            return;
+        case IdExp:
+            sprintf(buf, "ExecNode\\n(%s)", n->attr.str);
+            print_vertex(++vertex_counter, buf);
+            return;
+        } /* (n->kind.exp) */
+    }
+}
+
+void print_DeclList(DeclList *n)
+{
+    for (; n != NULL; n = n->next) {
+        int tmp_vertex = ++vertex_counter;
+
+        print_vertex(tmp_vertex, "DeclList");
+        print_edge(tmp_vertex, vertex_counter+1, "decl");
+        print_Declaration(n->decl);
+        if (n->next != NULL)
+            print_edge(tmp_vertex, vertex_counter+1, "next");
+    }
+}
+
+void print_initializer_list(ExecNode *n)
+{
+    for (; n != NULL; n = n->sibling) {
+        int tmp_vertex = vertex_counter+1;
+
+        print_initializer(n);
+        if (n->sibling != NULL)
+            print_edge(tmp_vertex, vertex_counter+1, "sibling");
+    }
+}
+
+void print_initializer(ExecNode *n)
+{
+    if (n->kind.exp==OpExp && n->attr.op==TOK_INIT_LIST) {
+        print_vertex(++vertex_counter, "initializer-list");
+        print_edge(vertex_counter, vertex_counter+1, "child[0]");
+        print_initializer_list(n->child[0]);
+    } else {
+        print_ExecNode_node(n);
+    }
+}
+
+void print_declarator(TypeExp *n)
+{
+    int tmp_vertex = vertex_counter+1;
+
+    print_TypeExp_node(n);
+    if (n->child != NULL) {
+        print_edge(tmp_vertex, vertex_counter+1, "child");
+        print_declarator(n->child);
+    }
+}
+
+void print_init_declarator(TypeExp *n)
+{
+    int tmp_vertex = vertex_counter+1;
+
+    print_declarator(n);
+    if (n->op==TOK_ID && n->attr.e!=NULL) {
+        print_edge(tmp_vertex, vertex_counter+1, "attr.e");
+        print_initializer(n->attr.e);
+    }
+}
+
+void print_init_declarator_list(TypeExp *n)
+{
+    for (; n != NULL; n = n->sibling) {
+        int tmp_vertex = vertex_counter+1;
+
+        print_init_declarator(n);
+        if (n->sibling != NULL)
+            print_edge(tmp_vertex, vertex_counter+1, "sibling");
+    }
+}
+
+void print_declaration_specifiers(TypeExp *n)
+{
+    int tmp_vertex = vertex_counter+1;
+
+    print_TypeExp_node(n);
+    if (n->child != NULL) {
+        print_edge(tmp_vertex, vertex_counter+1, "child");
+        print_declaration_specifiers(n->child);
+    }
+}
+
+void print_Declaration(Declaration *n)
+{
+    int tmp_vertex = ++vertex_counter;
+
+    print_vertex(tmp_vertex, "Declaration");
+    if (n->decl_specs != NULL) {
+        print_edge(tmp_vertex, vertex_counter+1, "decl_specs");
+        print_declaration_specifiers(n->decl_specs);
+    } else {
+        ; /* ellipsis ("...") */
+    }
+    if (n->idl != NULL) {
+        print_edge(tmp_vertex, vertex_counter+1, "idl");
+        print_init_declarator_list(n->idl);
+    }
+}
+
+void print_function_definition(Declaration *n)
+{
+    int tmp_vertex = ++vertex_counter;
+
+    print_vertex(tmp_vertex, "Declaration");
+    print_edge(tmp_vertex, vertex_counter+1, "decl_specs");
+    print_declaration_specifiers(n->decl_specs);
+    print_edge(tmp_vertex, vertex_counter+1, "idl");
+    tmp_vertex = vertex_counter+1;
+    print_declarator(n->idl);
+    print_edge(tmp_vertex, vertex_counter+1, "attr.e");
+    print_ExecNode_node(n->idl->attr.e);
+}
+
+void print_ast(ExternDecl *n)
+{
+    printf("digraph {\n");
+    for (; n != NULL; n = n->sibling) {
+        ++vertex_counter;
+        print_vertex(vertex_counter, "ExternDecl");
+        print_edge(vertex_counter, vertex_counter+1, "d");
+        if (n->kind == FUNCTION_DEFINITION)
+            print_function_definition(n->d);
+        else
+            print_Declaration(n->d);
+    }
+    printf("}\n");
 }
