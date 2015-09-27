@@ -1954,6 +1954,8 @@ ExecNode *argument_expression_list(void)
     return n;
 }
 
+void print_ast(ExternDecl *n);
+
 /*
  * Main function of the parser.
  */

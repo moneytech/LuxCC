@@ -1949,9 +1949,6 @@ long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
                 ty.idl = ty.idl->child;
                 return (VALUE(e) = ptr+indx*compute_sizeof(&ty));
             } else {
-                /* []'s operand has to be a real array (and not a pointer) */
-                if (e->child[pi]->type.idl==NULL || e->child[pi]->type.idl->op!=TOK_SUBSCRIPT)
-                    break;
                 return ptr;
             }
         }
@@ -1959,7 +1956,7 @@ long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
         case TOK_ARROW:
             if (is_iconst)
                 break;
-            resL = eval_const_expr(e->child[0], (e->attr.op==TOK_DOT)?is_addr:FALSE, is_iconst);
+            resL = eval_const_expr(e->child[0], is_addr, is_iconst);
             if (KIND(e->child[0]) == IConstExp) {
                 KIND(e) = IConstExp;
                 if (get_type_category(&e->child[0]->type) != TOK_UNION) {
@@ -1993,7 +1990,7 @@ long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
         case TOK_INDIRECTION:
             if (is_iconst)
                 break;
-            resL = eval_const_expr(e->child[0], FALSE, is_iconst);
+            resL = eval_const_expr(e->child[0], is_addr, is_iconst);
             if (KIND(e->child[0]) == IConstExp) {
                 KIND(e) = IConstExp;
                 return (VALUE(e) = resL);
