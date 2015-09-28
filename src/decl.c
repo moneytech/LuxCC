@@ -1170,7 +1170,7 @@ void analyze_function_definition(Declaration *f)
      * to analyze the function.
      */
     assert(nesting_level == OUTERMOST_LEVEL+1);
-    nesting_level=OUTERMOST_LEVEL, delayed_delete=FALSE;
+    nesting_level = OUTERMOST_LEVEL;
     analyze_declarator(f->decl_specs, f->idl, TRUE);
     analyze_init_declarator(f->decl_specs, f->idl, TRUE);
     nesting_level = OUTERMOST_LEVEL+1;
@@ -1245,7 +1245,8 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
     TypeExp *ts;
 
     if (dct != NULL) {
-        int i;
+        Token ty_spec;
+        int i, is_init_list;
 
         if (dct->op != TOK_SUBSCRIPT)
             goto scalar; /* must be a pointer, functions cannot have initializer */
@@ -1253,18 +1254,16 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
         /*
          * Array.
          */
-        if (e->kind.exp == StrLitExp) {
-            /* see for character array initialized by string literal */
+        is_init_list = e->kind.exp==OpExp && e->attr.op==TOK_INIT_LIST;
+        if ((e->kind.exp==StrLitExp || is_init_list && e->child[0]->kind.exp==StrLitExp)
+        && dct->child==NULL && is_integer(ty_spec=get_type_spec(ds)->op) && get_rank(ty_spec)==1) {
+            /* character array initialized by string literal (or a string literal enclosed in braces) */
             int size;
-            Token ty;
 
-            /* make sure the element type is a character type */
-            ty = get_type_spec(ds)->op;
-            if (dct->child!=NULL || !is_integer(ty) || get_rank(ty)!=1)
-                ERROR(e, "non-char array initialized from string literal");
+            if (is_init_list)
+                e = e->child[0];
 
             size = strlen(e->attr.str);
-
             if (dct->attr.e != NULL) {
                 /* array with specified bounds */
                 if (dct->attr.e->attr.val < size) /* '\0' is only stored when there is room */
@@ -1277,7 +1276,7 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
                 dct->attr.e->attr.val = size+1; /* make room for '\0' */
             }
         } else {
-            if (e->attr.op != TOK_INIT_LIST)
+            if (!is_init_list)
                 ERROR(e, "invalid array initializer");
             e = e->child[0];
 
@@ -1314,7 +1313,7 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
          * or an initializer list
          *  struct A x = { 1, 2 };
          */
-        if (e->attr.op != TOK_INIT_LIST)
+        if (e->kind.exp!=OpExp || e->attr.op!=TOK_INIT_LIST)
             goto scalar;
 
         /* initialized by initializer list */
@@ -1345,7 +1344,7 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
          */
 
         /* the same as for structs */
-        if (e->attr.op != TOK_INIT_LIST)
+        if (e->kind.exp!=OpExp || e->attr.op!=TOK_INIT_LIST)
             goto scalar;
 
         e = e->child[0];

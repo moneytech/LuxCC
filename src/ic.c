@@ -1813,9 +1813,12 @@ void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned 
          * Array.
          */
         nelem = dct->attr.e->attr.uval;
-        if (e->kind.exp == StrLitExp) { /* char array initialized by string literal */
+        if (e->kind.exp==StrLitExp || e->child[0]->kind.exp==StrLitExp) {
+            /* char array initialized by string literal */
             unsigned a1, n, nfill;
 
+            if (e->kind.exp != StrLitExp)
+                e = e->child[0];
             a1 = new_address(IConstKind);
             n = strlen(e->attr.str)+1;
             nfill = 0;
