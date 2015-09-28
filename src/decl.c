@@ -1368,8 +1368,15 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
         Declaration dest_ty;
 
 scalar:
-        if (e->kind.exp==OpExp && e->attr.op==TOK_INIT_LIST)
-            ERROR(e, "braces around scalar initializer"); // TOFIX: see 6.7.8#11
+        if (e->kind.exp==OpExp && e->attr.op==TOK_INIT_LIST) {
+            /*
+             * 6.7.8#11 The initializer for a scalar shall be a single expression,
+             * optionally enclosed in braces. [...]
+             */
+            if (e->child[0]->sibling != NULL)
+                ERROR(e, "excess elements in scalar initializer");
+            e = e->child[0];
+        }
         if (get_type_category(&e->type) == TOK_ERROR)
             return;
         if (is_const_expr)

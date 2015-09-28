@@ -1947,6 +1947,8 @@ void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned 
         unsigned a1;
         Declaration *ty;
 scalar:
+        if (e->kind.exp==OpExp && e->attr.op==TOK_INIT_LIST)
+            e = e->child[0];
         a1 = new_temp_addr();
         emit_i(OpAddrOf, NULL, a1, id, 0);
         if (offset > 0) {
