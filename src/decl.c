@@ -15,7 +15,7 @@ extern unsigned error_count;
 extern int colored_diagnostics;
 char *current_function_name; /* used to implement __func__ */
 
-#define ERROR(tok, ...) emit_error(FALSE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
+#define ERROR(tok, ...) emit_error(TRUE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
 
 #define ERROR_R(tok, ...)\
     do {\
@@ -291,7 +291,7 @@ Symbol *lookup_symbol(char *id, int all)
     }
 }
 
-static void install_symbol(TypeExp *decl_specs, TypeExp *declarator, int is_param)
+static void install_ordinary_id(TypeExp *decl_specs, TypeExp *declarator, int is_param)
 {
     Symbol *np;
     unsigned h;
@@ -714,7 +714,7 @@ void analyze_enumerator(TypeExp *e)
 
     e->attr.e->attr.val = en_val;
 error:
-    install_symbol(&enum_ds, e, FALSE);
+    install_ordinary_id(&enum_ds, e, FALSE);
 }
 
 int compare_decl_specs(TypeExp *ds1, TypeExp *ds2, int qualified)
@@ -1125,9 +1125,9 @@ int analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym)
          * Other functions in this module act in a similar way.
          */
         if (good_dctr)
-            install_symbol(decl_specs, declarator, FALSE);
+            install_ordinary_id(decl_specs, declarator, FALSE);
         else
-            install_symbol(get_type_node(TOK_ERROR), declarator, FALSE);
+            install_ordinary_id(get_type_node(TOK_ERROR), declarator, FALSE);
     }
     return good_dctr;
 }
@@ -1173,9 +1173,9 @@ void analyze_parameter_declaration(Declaration *d)
                 good_dctr = FALSE;
             }
             if (good_dctr)
-                install_symbol(d->decl_specs, d->idl, TRUE);
+                install_ordinary_id(d->decl_specs, d->idl, TRUE);
             else
-                install_symbol(get_type_node(TOK_ERROR), d->idl, TRUE);
+                install_ordinary_id(get_type_node(TOK_ERROR), d->idl, TRUE);
         } else {
             p = d->idl;
         }
@@ -1446,7 +1446,7 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
 scalar:
 
         if (e->kind.exp==OpExp && e->attr.op==TOK_INIT_LIST)
-            ERROR_R(e, "braces around scalar initializer");
+            ERROR_R(e, "braces around scalar initializer"); // TOFIX: see 6.7.8#11
 
         // if (is_const_expr && !analyze_static_initializer(e, FALSE))
             // return;

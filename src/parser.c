@@ -12,14 +12,11 @@
 #include "arena.h"
 
 extern unsigned stat_number_of_ast_nodes;
+extern char *current_function_name;
 static TokenNode *curr_tok;
 static Arena *parser_str_arena;
 /*static */Arena *parser_node_arena;
 
-/*
- * All syntax errors are fatal.
- * No attempt of recovery is made.
- */
 #define ERROR(...) emit_error(TRUE, curr_tok->src_file, curr_tok->src_line, curr_tok->src_column, __VA_ARGS__)
 
 TypeExp *new_type_exp_node(void)
@@ -1854,6 +1851,17 @@ ExecNode *postfix(void)
     return n;
 }
 
+/*static void print_attrs(ExecNode *n)
+{
+    printf("Id Attributes:\n");
+    printf("\tidentifier `%s'\n", n->attr.str);
+    printf("\tscope=%d\n", n->attr.var.scope);
+    printf("\tlinkage=%s\n", (n->attr.var.linkage == LINKAGE_NONE) ? "none"
+    : (n->attr.var.linkage == LINKAGE_EXTERNAL) ? "external" : "internal");
+    printf("\tstorage duration=%s\n", (n->attr.var.duration == DURATION_AUTO) ? "auto" : "static");
+    printf("\tis_param=%d\n", n->attr.var.is_param);
+}*/
+
 /*
  * primary_expression = identifier |
  *                      constant |
@@ -1864,9 +1872,8 @@ ExecNode *primary_expression(void)
 {
     ExecNode *n;
 
-#define NON_FATAL_ERROR(...) emit_error(FALSE, curr_tok->src_file, curr_tok->src_line, curr_tok->src_column, __VA_ARGS__)
-
     switch (lookahead(1)) {
+#define NON_FATAL_ERROR(...) emit_error(FALSE, curr_tok->src_file, curr_tok->src_line, curr_tok->src_column, __VA_ARGS__)
     case TOK_ID: {
         /*
          * 6.5.1.2:
@@ -1886,15 +1893,7 @@ ExecNode *primary_expression(void)
 
             if ((scs=get_sto_class_spec(s->decl_specs))==NULL || scs->op!=TOK_TYPEDEF) {
                 set_attributes(n, s);
-#if 0
-                printf("Id Attributes:\n");
-                printf("\tidentifier `%s'\n", n->attr.str);
-                printf("\tscope=%d\n", n->attr.var.scope);
-                printf("\tlinkage=%s\n", (n->attr.var.linkage == LINKAGE_NONE) ? "none"
-                : (n->attr.var.linkage == LINKAGE_EXTERNAL) ? "external" : "internal");
-                printf("\tstorage duration=%s\n", (n->attr.var.duration == DURATION_AUTO) ? "auto" : "static");
-                printf("\tis_param=%d\n", n->attr.var.is_param);
-#endif
+                /*print_attrs(n);*/
             } else {
                 NON_FATAL_ERROR("expecting primary-expression; found typedef-name `%s'", n->attr.str);
                 n->type.decl_specs = get_type_node(TOK_ERROR);
@@ -1905,6 +1904,7 @@ ExecNode *primary_expression(void)
         }
         break;
     }
+#undef NON_FATAL_ERROR
     case TOK_ICONST:
         n = new_pri_exp_node(IConstExp);
         n->attr.str = get_lexeme(1);
@@ -1915,14 +1915,11 @@ ExecNode *primary_expression(void)
         n->attr.str = get_lexeme(1);
         match(TOK_STRLIT);
         break;
-    case TOK_FUNC_NAME: {
-        extern char *current_function_name;
-
+    case TOK_FUNC_NAME:
         n = new_pri_exp_node(StrLitExp);
         n->attr.str = arena_alloc(parser_str_arena, strlen(current_function_name)+1);
         strcpy(n->attr.str, current_function_name);
         match(TOK_FUNC_NAME);
-    }
         break;
     case TOK_LPAREN:
         match(TOK_LPAREN);
@@ -1933,7 +1930,6 @@ ExecNode *primary_expression(void)
         ERROR("expecting primary-expression; found `%s'", get_lexeme(1));
         break;
     }
-#undef NON_FATAL_ERROR
     analyze_primary_expression(n);
     return n;
 }
@@ -2320,13 +2316,16 @@ void print_ast(ExternDecl *n)
 {
     printf("digraph {\n");
     for (; n != NULL; n = n->sibling) {
-        ++vertex_counter;
-        print_vertex(vertex_counter, "ExternDecl");
-        print_edge(vertex_counter, vertex_counter+1, "d");
+        int tmp_vertex = ++vertex_counter;
+
+        print_vertex(tmp_vertex, "ExternDecl");
+        print_edge(tmp_vertex, vertex_counter+1, "d");
         if (n->kind == FUNCTION_DEFINITION)
             print_function_definition(n->d);
         else
             print_Declaration(n->d);
+        if (n->sibling != NULL)
+            print_edge(tmp_vertex, vertex_counter+1, "sibling");
     }
     printf("}\n");
 }
