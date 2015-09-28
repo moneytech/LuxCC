@@ -12,7 +12,6 @@
 #include "error.h"
 
 extern unsigned error_count;
-extern int colored_diagnostics;
 char *current_function_name; /* used to implement __func__ */
 
 #define ERROR(tok, ...) emit_error(TRUE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)

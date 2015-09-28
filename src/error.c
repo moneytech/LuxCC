@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 extern int disable_warnings;
 extern int colored_diagnostics;
@@ -14,10 +15,10 @@ void emit_error(int fatal, char *file, int line, int column, char *fmt, ...)
     if (fatal)
         fprintf(stderr, "An unrecoverable error occurred\n");
 
-    if (colored_diagnostics)
-        fprintf(stderr, INFO_COLOR "%s:%d:%d: " ERROR_COLOR "error: " RESET_ATTR, file, line, column);
-    else
+    if (!colored_diagnostics || isatty(fileno(stderr)))
         fprintf(stderr, "%s:%d:%d: error: ", file, line, column);
+    else
+        fprintf(stderr, INFO_COLOR "%s:%d:%d: " ERROR_COLOR "error: " RESET_ATTR, file, line, column);
 
 	va_start(args, fmt);
 	vfprintf(stderr, fmt, args);
