@@ -52,7 +52,7 @@ struct TypeTag {
 };
 
 void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_func_def);
-int analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym);
+void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym);
 void analyze_decl_specs(TypeExp *d);
 void analyze_enumerator(TypeExp *e);
 void analyze_parameter_declaration(Declaration *d);
@@ -63,7 +63,7 @@ void analyze_type_name(Declaration *tn);
 void push_scope(void);
 void pop_scope(void);
 void restore_scope(void);
-Symbol *lookup_symbol(char *id, int all);
+Symbol *lookup_ordinary_id(char *id, int all);
 void install_tag(TypeExp *ty);
 TypeTag *lookup_tag(char *id, int all);
 int is_typedef_name(char *id);

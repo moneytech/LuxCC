@@ -424,16 +424,14 @@ TypeExp *init_declarator(TypeExp *decl_specs, TypeExp *first_declarator)
 {
 
     TypeExp *n;
-    int good_dctr;
 
     n = (first_declarator == NULL) ? concrete_declarator() : first_declarator;
-    good_dctr = analyze_declarator(decl_specs, n, TRUE);
+    analyze_declarator(decl_specs, n, TRUE);
     if (lookahead(1) == TOK_ASSIGN) {
         match(TOK_ASSIGN);
         n->attr.e = initializer();
     }
-    if (good_dctr)
-        analyze_init_declarator(decl_specs, n, FALSE);
+    analyze_init_declarator(decl_specs, n, FALSE);
     return n;
 }
 
@@ -1888,7 +1886,7 @@ ExecNode *primary_expression(void)
         n->attr.str = get_lexeme(1);
         match(TOK_ID);
 
-        if ((s=lookup_symbol(n->attr.str, TRUE)) != NULL) {
+        if ((s=lookup_ordinary_id(n->attr.str, TRUE)) != NULL) {
             TypeExp *scs;
 
             if ((scs=get_sto_class_spec(s->decl_specs))==NULL || scs->op!=TOK_TYPEDEF) {

@@ -16,21 +16,7 @@ extern int colored_diagnostics;
 char *current_function_name; /* used to implement __func__ */
 
 #define ERROR(tok, ...) emit_error(TRUE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
-
-#define ERROR_R(tok, ...)\
-    do {\
-        ERROR(tok, __VA_ARGS__);\
-        return;\
-    } while (0)
-
-#define ERROR_RF(tok, ...)\
-    do {\
-        ERROR(tok, __VA_ARGS__);\
-        return FALSE;\
-    } while (0)
-
 #define WARNING(tok, ...) emit_warning((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
-#define FATAL_ERROR(tok, ...) emit_error(TRUE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
 
 #define HASH_SIZE       4093
 #define OUTERMOST_LEVEL 0
@@ -266,7 +252,7 @@ void install_tag(TypeExp *ty)
     tags[nesting_level][h] = np;
 }
 
-Symbol *lookup_symbol(char *id, int all)
+Symbol *lookup_ordinary_id(char *id, int all)
 {
     int n;
     Symbol *np;
@@ -323,11 +309,6 @@ static void install_ordinary_id(TypeExp *decl_specs, TypeExp *declarator, int is
      * Just check for errors.
      * Do not replace the previous declaration.
      */
-
-    if (decl_specs->op == TOK_ERROR)
-        /* the type of the new declaration is faulty */
-        return;
-
     curr_scs = (scs=get_sto_class_spec(decl_specs))!=NULL ? scs->op:0;
     prev_scs = (scs=get_sto_class_spec(np->decl_specs))!=NULL ? scs->op:0;
 
@@ -336,9 +317,9 @@ static void install_ordinary_id(TypeExp *decl_specs, TypeExp *declarator, int is
          * Clash while trying to install an enumeration constant or typedef name.
          */
         if (declarator->op==TOK_ENUM_CONST && np->declarator->op==TOK_ENUM_CONST)
-            ERROR_R(declarator, "redeclaration of enumerator `%s'", declarator->str);
+            ERROR(declarator, "redeclaration of enumerator `%s'", declarator->str);
         else if (curr_scs==TOK_TYPEDEF && prev_scs==TOK_TYPEDEF)
-            ERROR_R(declarator, "redefinition of typedef `%s'", declarator->str);
+            ERROR(declarator, "redefinition of typedef `%s'", declarator->str);
         else
             goto redecl_as_diff_kind;
     } else if (np->declarator->op==TOK_ENUM_CONST || prev_scs==TOK_TYPEDEF) {
@@ -369,13 +350,13 @@ static void install_ordinary_id(TypeExp *decl_specs, TypeExp *declarator, int is
         if (!curr_scs || curr_scs!=TOK_EXTERN) {
             if (!prev_scs || prev_scs!=TOK_EXTERN)
                 /* e.g. int x; ==> int x; */
-                ERROR_R(declarator, "redeclaration of `%s' with no linkage", declarator->str);
+                ERROR(declarator, "redeclaration of `%s' with no linkage", declarator->str);
             else /* if (prev_scs == TOK_EXTERN) */
                 /* e.g. extern int x; ==> int x; */
-                ERROR_R(declarator, "declaration of `%s' with no linkage follows extern declaration", declarator->str);
+                ERROR(declarator, "declaration of `%s' with no linkage follows extern declaration", declarator->str);
         } else if (!prev_scs || prev_scs!=TOK_EXTERN) {
             /* e.g. int x; ==> extern int x; */
-            ERROR_R(declarator, "extern declaration of `%s' follows declaration with no linkage", declarator->str);
+            ERROR(declarator, "extern declaration of `%s' follows declaration with no linkage", declarator->str);
         }
     }
     return;
@@ -389,7 +370,7 @@ redecl_as_diff_kind:
      * - An object/variable
      * is redeclared as denoting a different kind.
      */
-    ERROR_R(declarator, "`%s' redeclared as different kind of symbol", declarator->str);
+    ERROR(declarator, "`%s' redeclared as different kind of symbol", declarator->str);
 }
 
 ExternId *lookup_external_id(char *id)
@@ -475,7 +456,6 @@ void analyze_decl_specs(TypeExp *d)
      * - If there is more than one storage class specifier, the rest of the code will
      *   only see the first one because of the way in which get_sto_class_spec() works.
      * - Something similar occurs with type specifiers.
-     * - Total lack of type specifiers is a fatal error.
      */
     enum {
         START,
@@ -503,7 +483,7 @@ void analyze_decl_specs(TypeExp *d)
                 if (scs == NULL)
                     scs = d;
                 else
-                    ERROR_R(d, "more than one storage class specifier");
+                    ERROR(d, "more than one storage class specifier");
             } else if (is_type_qualifier(d->op)) {
                 /*
                  * type qualifier nodes are merged into a single node.
@@ -519,7 +499,6 @@ void analyze_decl_specs(TypeExp *d)
             if (del_node) {
                 /* delete a type qualifier node */
                 prev->child = d->child;
-                /*free(d);*/
                 d = prev->child;
             } else {
                 prev = d;
@@ -530,7 +509,7 @@ void analyze_decl_specs(TypeExp *d)
         if (d == NULL) {
             if (state==START) {
                 d = temp;
-                FATAL_ERROR(d, "missing type specifier");
+                ERROR(d, "missing type specifier");
             } else {
                 return;
             }
@@ -586,7 +565,7 @@ void analyze_decl_specs(TypeExp *d)
                 state = END;
                 first_ts->op = (d->op==TOK_SIGNED)?TOK_SIGNED_CHAR:TOK_UNSIGNED_CHAR;
             } else {
-                ERROR_R(d, "more than one type specifier");
+                ERROR(d, "more than one type specifier");
             }
             break;
         case SIZE:
@@ -597,7 +576,7 @@ void analyze_decl_specs(TypeExp *d)
             } else if (d->op == TOK_INT) {
                 state = SIZE_INT;
             } else {
-                ERROR_R(d, "more than one type specifier");
+                ERROR(d, "more than one type specifier");
             }
             break;
         case SIGN:
@@ -613,7 +592,7 @@ void analyze_decl_specs(TypeExp *d)
                 state = END;
                 first_ts->op = (first_ts->op==TOK_UNSIGNED)?TOK_UNSIGNED_CHAR:TOK_SIGNED_CHAR;
             } else {
-                ERROR_R(d, "more than one type specifier");
+                ERROR(d, "more than one type specifier");
             }
             break;
         case INT:
@@ -625,7 +604,7 @@ void analyze_decl_specs(TypeExp *d)
                 state = INT_SIZE;
                 first_ts->op = d->op;
             } else {
-                ERROR_R(d, "more than one type specifier");
+                ERROR(d, "more than one type specifier");
             }
             break;
         case SIZE_SIGN:
@@ -633,7 +612,7 @@ void analyze_decl_specs(TypeExp *d)
             if (d->op == TOK_INT)
                 state = END;
             else
-                ERROR_R(d, "more than one type specifier");
+                ERROR(d, "more than one type specifier");
             break;
         case SIZE_INT:
         case INT_SIZE:
@@ -642,7 +621,7 @@ void analyze_decl_specs(TypeExp *d)
                 if (d->op == TOK_UNSIGNED)
                     first_ts->op = (first_ts->op==TOK_SHORT)?TOK_UNSIGNED_SHORT:TOK_UNSIGNED_LONG;
             } else {
-                ERROR_R(d, "more than one type specifier");
+                ERROR(d, "more than one type specifier");
             }
             break;
         case SIGN_INT:
@@ -654,15 +633,14 @@ void analyze_decl_specs(TypeExp *d)
                 else
                     first_ts->op = d->op;
             } else {
-                ERROR_R(d, "more than one type specifier");
+                ERROR(d, "more than one type specifier");
             }
             break;
         case END:
-            ERROR_R(d, "more than one type specifier");
+            ERROR(d, "more than one type specifier");
             break;
         } /* switch (state) */
         prev->child = d->child;
-        /*free(d);*/
         d = prev->child;
     } /* while (TRUE) */
 }
@@ -671,7 +649,7 @@ int is_typedef_name(char *id)
 {
     Symbol *np;
 
-    if ((np=lookup_symbol(id, TRUE)) != NULL) {
+    if ((np=lookup_ordinary_id(id, TRUE)) != NULL) {
         TypeExp *scs;
 
         if ((scs=get_sto_class_spec(np->decl_specs))!=NULL && scs->op==TOK_TYPEDEF)
@@ -700,10 +678,8 @@ void analyze_enumerator(TypeExp *e)
         Token ty;
 
         ty = get_type_category(&e->attr.e->type);
-        if (!is_integer(ty)) {
+        if (!is_integer(ty))
             ERROR(e, "enumerator value is not an integer constant");
-            goto error;
-        }
         en_val = eval_const_expr(e->attr.e, FALSE, TRUE);
     } else {
         e->attr.e = new_exec_node();
@@ -713,7 +689,6 @@ void analyze_enumerator(TypeExp *e)
     }
 
     e->attr.e->attr.val = en_val;
-error:
     install_ordinary_id(&enum_ds, e, FALSE);
 }
 
@@ -840,10 +815,15 @@ int is_incomplete(TypeExp *decl_specs, TypeExp *declarator)
 }
 #endif
 
-static int is_good_declarator(TypeExp *decl_specs, TypeExp *declarator)
+/*
+ * Use this function instead of analyze_declarator() when the declarator
+ * to be analyzed already went through any typedef-name replacement, and
+ * no identifier needs to be installed into the symbol table.
+ */
+static void analyze_declarator2(TypeExp *decl_specs, TypeExp *declarator)
 {
     if (declarator == NULL)
-        return TRUE;
+        return;
 
     switch (declarator->op) {
     case TOK_ID:
@@ -856,15 +836,15 @@ static int is_good_declarator(TypeExp *decl_specs, TypeExp *declarator)
          */
         if (declarator->child != NULL) {
             if (declarator->child->op == TOK_FUNCTION)
-                ERROR_RF(declarator, "array of functions");
+                ERROR(declarator, "array of functions");
             else if (declarator->child->op==TOK_SUBSCRIPT && declarator->child->attr.e==NULL)
-                ERROR_RF(declarator, "array has incomplete element type");
+                ERROR(declarator, "array has incomplete element type");
         } else {
             TypeExp *ts;
 
             ts = get_type_spec(decl_specs);
             if (ts->op==TOK_VOID || is_struct_union_enum(ts->op)&&!is_complete(ts->str))
-                ERROR_RF(declarator, "array has incomplete element type");
+                ERROR(declarator, "array has incomplete element type");
         }
         if (declarator->attr.e != NULL) {
             long size;
@@ -877,11 +857,11 @@ static int is_good_declarator(TypeExp *decl_specs, TypeExp *declarator)
              * expression must always be constant.
              */
             if (!is_integer(get_type_category(&declarator->attr.e->type)))
-                ERROR_RF(declarator, "size of array has non-integer type");
+                ERROR(declarator, "size of array has non-integer type");
 
             size = eval_const_expr(declarator->attr.e, FALSE, TRUE);
             if (size <= 0)
-                ERROR_RF(declarator, "size of array not greater than zero");
+                ERROR(declarator, "size of array not greater than zero");
 
             /* store the computed size in the root of the expression tree */
             declarator->attr.e->attr.val = size; /* maybe overwrites some operator */
@@ -897,9 +877,9 @@ static int is_good_declarator(TypeExp *decl_specs, TypeExp *declarator)
          */
         if (declarator->child != NULL) {
             if (declarator->child->op == TOK_FUNCTION)
-                ERROR_RF(declarator, "function returning a function");
+                ERROR(declarator, "function returning a function");
             else if (declarator->child->op == TOK_SUBSCRIPT)
-                ERROR_RF(declarator, "function returning an array");
+                ERROR(declarator, "function returning an array");
         }
 
         /*
@@ -920,14 +900,14 @@ static int is_good_declarator(TypeExp *decl_specs, TypeExp *declarator)
                     temp = p->decl->idl;
 
                 if (temp==NULL && (p!=declarator->attr.dl || p->next!=NULL))
-                    ERROR_RF(declarator, "`void' must be the first and only parameter");
+                    ERROR(declarator, "`void' must be the first and only parameter");
             }
             p = p->next;
         }
     }
         break;
     }
-    return is_good_declarator(decl_specs, declarator->child);
+    analyze_declarator2(decl_specs, declarator->child);
 }
 
 static TokenNode *typedef_name_info;
@@ -995,7 +975,7 @@ static void replace_typedef_name(Declaration *decl)
     /*
      * Type specifiers
      */
-    s = lookup_symbol(ts->str, TRUE);
+    s = lookup_ordinary_id(ts->str, TRUE);
     /* new created nodes will have the same file/line/column information as the typedef name node */
     typedef_name_info = ts->info;
     /* replace the typedef name node for the type specifier node of the typedef name */
@@ -1099,51 +1079,24 @@ nothing:
     }
 }
 
-int analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym)
+void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym)
 {
-    int good_dctr;
     Declaration d;
 
     d.decl_specs = decl_specs;
     d.idl = declarator;
     replace_typedef_name(&d);
 
-    good_dctr = is_good_declarator(decl_specs, declarator);
-    if (inst_sym) {
-        /*
-         * If an identifier has an invalid type, install it into the symbol
-         * table as having erroneous type. The rest of the code ignores everything
-         * that has 'error' type so error cascades are avoided.
-         * For example, in the following declaration
-         *
-         *      int x[10](void); // x has the invalid type `array of functions'
-         *
-         * subsequent code that checks for expressions correctness will ignore the
-         * whole expression where the identifier appears instead of emit spurious errors
-         * derived from x's erroneous type. For example if the identifier is encountered
-         * in the expression `x * 2', no error will be reported about 'invalid operands to *'.
-         * Other functions in this module act in a similar way.
-         */
-        if (good_dctr)
-            install_ordinary_id(decl_specs, declarator, FALSE);
-        else
-            install_ordinary_id(get_type_node(TOK_ERROR), declarator, FALSE);
-    }
-    return good_dctr;
+    analyze_declarator2(decl_specs, declarator);
+    if (inst_sym)
+        install_ordinary_id(decl_specs, declarator, FALSE);
 }
 
 void analyze_type_name(Declaration *tn)
 {
     analyze_decl_specs(tn->decl_specs);
     replace_typedef_name(tn);
-    if (!is_good_declarator(tn->decl_specs, tn->idl)) { /* the type is faulty */
-        TypeExp *err_ty;
-
-        err_ty = new_type_exp_node();
-        err_ty->op = TOK_ERROR;
-        err_ty->child = tn->decl_specs;
-        tn->decl_specs = err_ty;
-    }
+    analyze_declarator2(tn->decl_specs, tn->idl);
 }
 
 void analyze_parameter_declaration(Declaration *d)
@@ -1158,30 +1111,21 @@ void analyze_parameter_declaration(Declaration *d)
 
     replace_typedef_name(d);
     if (d->idl != NULL) {
-        int good_dctr;
         TypeExp *p;
 
-        good_dctr = is_good_declarator(d->decl_specs, d->idl);
+        analyze_declarator2(d->decl_specs, d->idl);
 
         /*
          * Perform adjustment on array and function parameters.
          */
         if (d->idl->op == TOK_ID) {
             p = d->idl->child;
-            if (p==NULL && get_type_spec(d->decl_specs)->op==TOK_VOID) {
+            if (p==NULL && get_type_spec(d->decl_specs)->op==TOK_VOID)
                 ERROR(d->idl, "parameter has void type");
-                good_dctr = FALSE;
-            }
-            if (good_dctr)
-                install_ordinary_id(d->decl_specs, d->idl, TRUE);
-            else
-                install_ordinary_id(get_type_node(TOK_ERROR), d->idl, TRUE);
+            install_ordinary_id(d->decl_specs, d->idl, TRUE);
         } else {
             p = d->idl;
         }
-        /* if the type is faulty, do nothing */
-        if (!good_dctr)
-            return;
         if (p != NULL) {
             if (p->op == TOK_SUBSCRIPT) {
                 /* 6.7.5.3#7 */
@@ -1207,7 +1151,6 @@ void analyze_function_definition(Declaration *f)
 {
     DeclList *p;
     TypeExp *spec;
-    int good_dctr;
 
     /*
      * 6.9.1#2
@@ -1217,25 +1160,20 @@ void analyze_function_definition(Declaration *f)
      * Note: check this before replace typedef names because it is not allowed for the identifier
      * of a function definition to inherit its 'functionness' from a typedef name.
      */
-    if (f->idl->child==NULL || f->idl->child->op!=TOK_FUNCTION) {
-        set_return_type(get_type_node(TOK_ERROR), NULL);
-        ERROR_R(f->idl, "declarator of function definition does not specify a function type");
-    }
+    if (f->idl->child==NULL || f->idl->child->op!=TOK_FUNCTION)
+        ERROR(f->idl, "declarator of function definition does not specify a function type");
     current_function_name = f->idl->str;
 
+    /*
+     * We currently are in parameters's scope.
+     * Temporarily switch to file scope in order
+     * to analyze the function.
+     */
     assert(nesting_level == OUTERMOST_LEVEL+1);
-    /* temporally switch to file scope */
     nesting_level=OUTERMOST_LEVEL, delayed_delete=FALSE;
-
-    good_dctr = analyze_declarator(f->decl_specs, f->idl, TRUE);
-    if (good_dctr)
-        analyze_init_declarator(f->decl_specs, f->idl, TRUE);
-
-    /* switch back */
+    analyze_declarator(f->decl_specs, f->idl, TRUE);
+    analyze_init_declarator(f->decl_specs, f->idl, TRUE);
     nesting_level = OUTERMOST_LEVEL+1;
-
-    if (!good_dctr)
-        return;
 
     /*
      * 6.9.1#4
@@ -1264,64 +1202,42 @@ void analyze_function_definition(Declaration *f)
      * part of a definition of that function shall not have incomplete type.
      */
     p = f->idl->child->attr.dl;
-    if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID && p->decl->idl==NULL)
-        goto no_params;
-    /*
-     * The function has parameters, enforce the above constraints.
-     */
-    do {
-        if (p->decl->idl==NULL || p->decl->idl->op!=TOK_ID) {
-            ERROR(p->decl->decl_specs, "missing parameter name in function definition");
-        } else if (p->decl->idl->child == NULL) { /* not a derived declarator type */
-            TypeExp *ts;
+    if (get_type_spec(p->decl->decl_specs)->op!=TOK_VOID || p->decl->idl!=NULL) {
+        /* the function has parameters, enforce the above constraints */
+        do {
+            if (p->decl->idl==NULL || p->decl->idl->op!=TOK_ID) {
+                ERROR(p->decl->decl_specs, "missing parameter name in function definition");
+            } else if (p->decl->idl->child == NULL) { /* not a derived declarator type */
+                TypeExp *ts;
 
-            ts = get_type_spec(p->decl->decl_specs);
-            if (is_struct_union_enum(ts->op) && !is_complete(ts->str))
-                ERROR(p->decl->idl, "parameter `%s' has incomplete type", p->decl->idl->str);
-        }
-        p = p->next;
-    } while (p!=NULL && p->decl->idl->op!=TOK_ELLIPSIS);
-no_params:
+                ts = get_type_spec(p->decl->decl_specs);
+                if (is_struct_union_enum(ts->op) && !is_complete(ts->str))
+                    ERROR(p->decl->idl, "parameter `%s' has incomplete type", p->decl->idl->str);
+            }
+            p = p->next;
+        } while (p!=NULL && p->decl->idl->op!=TOK_ELLIPSIS);
+    }
     set_return_type(f->decl_specs, f->idl->child->child);
 }
 
 static void enforce_type_compatibility(TypeExp *prev_ds, TypeExp *prev_dct, TypeExp *ds, TypeExp *dct)
 {
-    char *ty1, *ty2;
-    Declaration d1, d2;
+    if (!are_compatible(prev_ds, prev_dct, ds, dct, TRUE, TRUE)) {
+        Declaration d1, d2;
 
-    if (are_compatible(prev_ds, prev_dct, ds, dct, TRUE, TRUE))
-        return; /* OK */
-
-    /*
-     * Print a pretty diagnostic with the conflicting
-     * types of the previous and current declaration.
-     */
-    d1.decl_specs = prev_ds;
-    d1.idl = prev_dct;
-    d2.decl_specs = ds;
-    d2.idl = dct;
-
-    ty1 = stringify_type_exp(&d1, FALSE);
-    ty2 = stringify_type_exp(&d2, FALSE);
-
-    if (colored_diagnostics) {
-        fprintf(stderr, INFO_COLOR "%s:%d:%d: " ERROR_COLOR "error: " RESET_ATTR,
-        dct->info->src_file, dct->info->src_line, dct->info->src_column);
-        fprintf(stderr, "conflicting types for `%s'\n", dct->str);
-        fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "previously declared with type `%s'\n", ty1);
-        fprintf(stderr, "\x1b[1;34m=> " RESET_ATTR "now redeclared with type      `%s'\n", ty2);
-    } else {
-        fprintf(stderr, "%s:%d:%d: error: ", dct->info->src_file, dct->info->src_line, dct->info->src_column);
-        fprintf(stderr, "conflicting types for `%s'\n", dct->str);
-        fprintf(stderr, "=> previously declared with type `%s'\n", ty1);
-        fprintf(stderr, "=> now redeclared with type      `%s'\n", ty2);
+        d1.decl_specs = prev_ds;
+        d1.idl = prev_dct;
+        d2.decl_specs = ds;
+        d2.idl = dct;
+        ERROR(dct, "conflicting types for `%s': before `%s', now `%s'", dct->str,
+        stringify_type_exp(&d1, FALSE), stringify_type_exp(&d2, FALSE));
     }
-    free(ty1), free(ty2);
-    ++error_count;
 }
 
 /*
+ * Check to see if an object with type ds/dct can be initialized
+ * by an expression e (if is_const_expr, e must be computable at
+ * compile-time).
  * Note: Currently only fully bracketed initialization is handled.
  */
 static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_const_expr)
@@ -1345,7 +1261,7 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
             /* make sure the element type is a character type */
             ty = get_type_spec(ds)->op;
             if (dct->child!=NULL || !is_integer(ty) || get_rank(ty)!=1)
-                ERROR_R(e, "non-char array initialized from string literal");
+                ERROR(e, "non-char array initialized from string literal");
 
             size = strlen(e->attr.str);
 
@@ -1362,7 +1278,7 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
             }
         } else {
             if (e->attr.op != TOK_INIT_LIST)
-                ERROR_R(e, "invalid array initializer");
+                ERROR(e, "invalid array initializer");
             e = e->child[0];
 
             if (dct->attr.e != NULL) {
@@ -1372,7 +1288,7 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
                     analyze_initializer(ds, dct->child, e, is_const_expr);
 
                 if (e != NULL)
-                    ERROR_R(e, "excess elements in array initializer");
+                    ERROR(e, "excess elements in array initializer");
             } else {
                 /* array with unspecified bounds */
                 i = 0;
@@ -1404,9 +1320,13 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
         /* initialized by initializer list */
         e = e->child[0];
 
-        if (ts->attr.dl == NULL)
-            // ts = lookup_tag(ts->str, TRUE)->type;
-            ts->attr.dl = lookup_tag(ts->str, TRUE)->type->attr.dl;
+        if (ts->attr.dl == NULL) {
+            TypeTag *p;
+
+            p = lookup_tag(ts->str, TRUE);
+            assert(p != NULL);
+            ts->attr.dl = p->type->attr.dl;
+        }
         d = ts->attr.dl;
         for (; d != NULL; d = d->next) {
             dct = d->decl->idl;
@@ -1418,7 +1338,7 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
         }
 
         if (e != NULL)
-            ERROR_R(e, "excess elements in struct initializer");
+            ERROR(e, "excess elements in struct initializer");
     } else if (ts->op == TOK_UNION) {
         /*
          * Union.
@@ -1430,44 +1350,38 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
 
         e = e->child[0];
 
-        if (ts->attr.dl == NULL)
-            // ts = lookup_tag(ts->str, TRUE)->type;
-            ts->attr.dl = lookup_tag(ts->str, TRUE)->type->attr.dl;
+        if (ts->attr.dl == NULL) {
+            TypeTag *p;
+
+            p = lookup_tag(ts->str, TRUE);
+            assert(p != NULL);
+            ts->attr.dl = p->type->attr.dl;
+        }
         /* only the first member of the union can be initialized */
         analyze_initializer(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e, is_const_expr);
 
         if (e->sibling != NULL)
-            ERROR_R(e->sibling, "excess elements in union initializer");
+            ERROR(e->sibling, "excess elements in union initializer");
     } else {
         /*
          * Scalar.
          */
         Declaration dest_ty;
+
 scalar:
-
         if (e->kind.exp==OpExp && e->attr.op==TOK_INIT_LIST)
-            ERROR_R(e, "braces around scalar initializer"); // TOFIX: see 6.7.8#11
-
-        // if (is_const_expr && !analyze_static_initializer(e, FALSE))
-            // return;
-        if (is_const_expr)
-            eval_const_expr(e, FALSE, FALSE);
-
+            ERROR(e, "braces around scalar initializer"); // TOFIX: see 6.7.8#11
         if (get_type_category(&e->type) == TOK_ERROR)
             return;
+        if (is_const_expr)
+            (void)eval_const_expr(e, FALSE, FALSE);
 
         /* the same rules as for simple assignment apply */
         dest_ty.decl_specs = ds;
         dest_ty.idl = dct;
-        if (!can_assign_to(&dest_ty, e)) {
-            char *ty1, *ty2;
-
-            ty1 = stringify_type_exp(&dest_ty, FALSE);
-            ty2 = stringify_type_exp(&e->type, FALSE);
-            ERROR(e, "initializing `%s' with an expression of incompatible type `%s'", ty1, ty2);
-            free(ty1), free(ty2);
-            return;
-        }
+        if (!can_assign_to(&dest_ty, e))
+            ERROR(e, "initializing `%s' with an expression of incompatible type `%s'",
+            stringify_type_exp(&dest_ty, FALSE), stringify_type_exp(&e->type, FALSE));
     }
 }
 
@@ -1475,9 +1389,9 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
 {
     TypeExp *scs;
     ExternId *prev;
-    int is_func_decl, is_initialized;
+    int has_func_typecat, is_initialized;
 
-    is_func_decl = declarator->child!=NULL && declarator->child->op==TOK_FUNCTION;
+    has_func_typecat = declarator->child!=NULL && declarator->child->op==TOK_FUNCTION;
     is_initialized = declarator->attr.e!=NULL && !is_func_def;
     scs = get_sto_class_spec(decl_specs);
 
@@ -1489,7 +1403,7 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
     if (is_initialized) {
         if (scs!=NULL &&  scs->op==TOK_TYPEDEF) {
             ERROR(declarator, "trying to initialize typedef");
-        } else if (is_func_decl) {
+        } else if (has_func_typecat) {
             ERROR(declarator->child, "trying to initialize function type");
         } else if (declarator->child == NULL) {
             TypeExp *ts;
@@ -1504,161 +1418,151 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
     if (scs!=NULL && scs->op==TOK_TYPEDEF)
         return; /* OK */
 
-    if (nesting_level != OUTERMOST_LEVEL)
-        goto block_scope;
-
-    /*
-     * File scope.
-     */
-
-    /*
-     * 6.9
-     * #2 The storage-class specifiers auto and register shall not appear in the declaration
-     * specifiers in an external declaration.
-     */
-    if (scs!=NULL && (scs->op==TOK_AUTO||scs->op==TOK_REGISTER))
-        ERROR(scs, "file-scope declaration of `%s' specifies `%s'", declarator->str, tok2lex(scs->op));
-
-    /*
-     * 6.7
-     * #4 All the expressions in an initializer for an object that has static storage
-     * duration shall be constant expressions or string literals.
-     */
-    if (is_initialized)
-        analyze_initializer(decl_specs, declarator->child, declarator->attr.e, TRUE);
-
-    /*
-     * Check for redefinition, linkage, and type compatibility.
-     */
-    if ((prev=lookup_external_id(declarator->str)) == NULL) {
-        /* first time seeing this identifier */
-        if (is_initialized || is_func_def)
-            install_external_id(decl_specs, declarator, DEFINED);
-        else if (is_func_decl || scs!=NULL&&scs->op==TOK_EXTERN)
-            install_external_id(decl_specs, declarator, REFERENCED);
-        else
-            install_external_id(decl_specs, declarator, TENTATIVELY_DEFINED);
-    } else {
-        TypeExp *prev_scs;
-
-        /* check for redefinition */
-        if (is_initialized || is_func_def) {
-            if (prev->status == DEFINED)
-                ERROR_R(declarator, "redefinition of `%s'", declarator->str);
-            // prev->declarator->attr.e = declarator->attr.e;
-            // prev->declarator = declarator;
-            prev->status = DEFINED;
-        }
-
-        /* check linkage */
-        prev_scs = get_sto_class_spec(prev->decl_specs);
-        if (prev_scs == NULL) {
-            if (scs!=NULL && scs->op==TOK_STATIC)
-                /* e.g. int x; ==> static int x; */
-                goto static_follows_non_static;
-        } else if (prev_scs->op == TOK_EXTERN) {
-            if (scs != NULL) {
-                if (scs->op==TOK_STATIC)
-                    /* e.g. extern int x; ==> static int x; */
-                    goto static_follows_non_static;
-            } else if (!is_func_decl && prev->status!=DEFINED) {
-                /* e.g. extern int x; ==> int x; */
-                prev->status = TENTATIVELY_DEFINED;
-            }
-        } else if (prev_scs->op == TOK_STATIC) {
-            if (scs==NULL && !is_func_decl)
-                /* e.g. static int x; ==> int x; */
-                goto non_static_follows_static;
-        }
-
-        /* check type compatibility */
-        enforce_type_compatibility(prev->decl_specs, prev->declarator, decl_specs, declarator);
-
-        /* update previous declaration */
-        if (is_initialized || is_func_def)
-            prev->declarator = declarator;
-    }
-
-    /*
-     * 6.9.2
-     * #3 If the declaration of an identifier for an object is a tentative definition
-     * and has internal linkage, the declared type shall not be an incomplete type.
-     *
-     * See: http://www.open-std.org/jtc1/sc22/wg14/www/docs/dr_016.html
-     * TODO: after the whole translation unit is processed, a final traverse
-     * over the external symbols table should check that the type of the
-     * non-extern identifiers is not an incomplete type.
-     */
-
-    return; /* end file scope */
-static_follows_non_static:
-    ERROR_R(declarator, "static declaration of `%s' follows non-static declaration", declarator->str);
-non_static_follows_static:
-    ERROR_R(declarator, "non-static declaration of `%s' follows static declaration", declarator->str);
-
-block_scope:
-    /*
-     * Block scope.
-     */
-
-    /*
-     * 6.7.1
-     * #5 The declaration of an identifier for a function that has block scope shall have
-     * no explicit storage-class specifier other than extern.
-     */
-    if (is_func_decl && scs!=NULL && scs->op!=TOK_TYPEDEF && scs->op!=TOK_EXTERN)
-        ERROR(declarator->child, "function `%s' declared in block scope cannot have `%s' storage class",
-        declarator->str, tok2lex(scs->op));
-
-    if (is_initialized) {
+    if (nesting_level == OUTERMOST_LEVEL) {
         /*
-         * 6.7.8
-         * #5 If the declaration of an identifier has block scope, and the identifier has
-         * external or internal linkage, the declaration shall have no initializer for the
-         * identifier.
+         * File scope.
          */
-        if (scs!=NULL && scs->op==TOK_EXTERN)
-            ERROR(declarator, "`extern' variable cannot have an initializer");
 
-        analyze_initializer(decl_specs, declarator->child, declarator->attr.e,
-        (scs!=NULL&&scs->op==TOK_STATIC)?TRUE:FALSE);
-    }
+        /*
+         * 6.9
+         * #2 The storage-class specifiers auto and register shall not appear in the declaration
+         * specifiers in an external declaration.
+         */
+        if (scs!=NULL && (scs->op==TOK_AUTO||scs->op==TOK_REGISTER))
+            ERROR(scs, "file-scope declaration of `%s' specifies `%s'", declarator->str, tok2lex(scs->op));
 
-    if (scs!=NULL && scs->op==TOK_EXTERN || is_func_decl) {
-        if ((prev=lookup_external_id(declarator->str)) == NULL)
-            /* first time seeing this identifier */
-            install_external_id(decl_specs, declarator, REFERENCED);
-        else
-            enforce_type_compatibility(prev->decl_specs, prev->declarator, decl_specs, declarator);
-    } else {
         /*
          * 6.7
-         * #7 If an identifier for an object is declared with no linkage, the type for
-         * the object shall be complete by the end of its declarator, or by the end of
-         * its init-declarator if it has an initializer;
+         * #4 All the expressions in an initializer for an object that has static storage
+         * duration shall be constant expressions or string literals.
          */
-        if (declarator->child == NULL) {
-            TypeExp *ts;
+        if (is_initialized)
+            analyze_initializer(decl_specs, declarator->child, declarator->attr.e, TRUE);
 
-            ts = get_type_spec(decl_specs);
-            if (ts->op==TOK_VOID || is_struct_union_enum(ts->op)&&!is_complete(ts->str))
-                goto no_link_incomp;
-        } else if (declarator->child->op==TOK_SUBSCRIPT && declarator->child->attr.e==NULL) {
-            goto no_link_incomp;
+        /*
+         * Check for redefinition, linkage, and type compatibility.
+         */
+        if ((prev=lookup_external_id(declarator->str)) == NULL) {
+            /* first time seeing this identifier */
+            if (is_initialized || is_func_def)
+                install_external_id(decl_specs, declarator, DEFINED);
+            else if (has_func_typecat || scs!=NULL&&scs->op==TOK_EXTERN)
+                install_external_id(decl_specs, declarator, REFERENCED);
+            else
+                install_external_id(decl_specs, declarator, TENTATIVELY_DEFINED);
+        } else {
+            int link_err = 0;
+            TypeExp *prev_scs;
+
+            /* check for redefinition */
+            if (is_initialized || is_func_def) {
+                if (prev->status == DEFINED)
+                    ERROR(declarator, "redefinition of `%s'", declarator->str);
+                prev->status = DEFINED;
+            }
+
+            /* check linkage */
+            prev_scs = get_sto_class_spec(prev->decl_specs);
+            if (prev_scs == NULL) {
+                if (scs!=NULL && scs->op==TOK_STATIC)
+                    /* e.g. int x; ==> static int x; */
+                    link_err = 1;
+            } else if (prev_scs->op == TOK_EXTERN) {
+                if (scs != NULL) {
+                    if (scs->op == TOK_STATIC)
+                        /* e.g. extern int x; ==> static int x; */
+                        link_err = 1;
+                } else if (!has_func_typecat && prev->status!=DEFINED) {
+                    /* e.g. extern int x; ==> int x; */
+                    prev->status = TENTATIVELY_DEFINED;
+                }
+            } else if (prev_scs->op == TOK_STATIC) {
+                if (scs==NULL && !has_func_typecat)
+                    /* e.g. static int x; ==> int x; */
+                    link_err = 2;
+            }
+            if (!link_err)
+                ;
+            else if (link_err == 1)
+                ERROR(declarator, "static declaration of `%s' follows non-static declaration", declarator->str);
+            else if (link_err == 2)
+                ERROR(declarator, "non-static declaration of `%s' follows static declaration", declarator->str);
+
+            /* check type compatibility */
+            enforce_type_compatibility(prev->decl_specs, prev->declarator, decl_specs, declarator);
+
+            /* update previous declaration */
+            if (is_initialized || is_func_def)
+                prev->declarator = declarator;
+        }
+
+        /*
+         * 6.9.2
+         * #3 If the declaration of an identifier for an object is a tentative definition
+         * and has internal linkage, the declared type shall not be an incomplete type.
+         *
+         * See: http://www.open-std.org/jtc1/sc22/wg14/www/docs/dr_016.html
+         * TODO: after the whole translation unit is processed, a final traverse
+         * over the external symbols table should check that the type of the
+         * non-extern identifiers is not an incomplete type.
+         */
+    } else {
+        /*
+         * Block scope.
+         */
+
+        /*
+         * 6.7.1
+         * #5 The declaration of an identifier for a function that has block scope shall have
+         * no explicit storage-class specifier other than extern.
+         */
+        if (has_func_typecat && scs!=NULL && scs->op!=TOK_TYPEDEF && scs->op!=TOK_EXTERN)
+            ERROR(declarator->child, "function `%s' declared in block scope cannot have `%s' storage class",
+            declarator->str, tok2lex(scs->op));
+
+        if (is_initialized) {
+            /*
+             * 6.7.8
+             * #5 If the declaration of an identifier has block scope, and the identifier has
+             * external or internal linkage, the declaration shall have no initializer for the
+             * identifier.
+             */
+            if (scs!=NULL && scs->op==TOK_EXTERN)
+                ERROR(declarator, "`extern' variable cannot have an initializer");
+
+            analyze_initializer(decl_specs, declarator->child, declarator->attr.e,
+            (scs!=NULL&&scs->op==TOK_STATIC)?TRUE:FALSE);
+        }
+
+        if (scs!=NULL && scs->op==TOK_EXTERN || has_func_typecat) {
+            if ((prev=lookup_external_id(declarator->str)) == NULL)
+                /* first time seeing this identifier */
+                install_external_id(decl_specs, declarator, REFERENCED);
+            else
+                enforce_type_compatibility(prev->decl_specs, prev->declarator, decl_specs, declarator);
+        } else {
+            int link_ty_err = 0;
+
+            /*
+             * 6.7
+             * #7 If an identifier for an object is declared with no linkage, the type for
+             * the object shall be complete by the end of its declarator, or by the end of
+             * its init-declarator if it has an initializer;
+             */
+            if (declarator->child == NULL) {
+                TypeExp *ts;
+
+                ts = get_type_spec(decl_specs);
+                if (ts->op==TOK_VOID || is_struct_union_enum(ts->op)&&!is_complete(ts->str))
+                    link_ty_err = 1;
+            } else if (declarator->child->op==TOK_SUBSCRIPT && declarator->child->attr.e==NULL) {
+                link_ty_err = 1;
+            }
+            if (link_ty_err)
+                ERROR(declarator, "`%s' has no linkage and incomplete type", declarator->str);
         }
     }
-
-    return; /* end block scope */
-no_link_incomp:
-    ERROR_R(declarator, "`%s' has no linkage and incomplete type", declarator->str);
 }
-
-
-/*
- *
- * TODO: handle errors more gracefully.
- *
- */
 
 #define MAX_DESCR_STACK 64
 
@@ -1677,7 +1581,7 @@ void new_struct_member(TypeExp *decl_specs, TypeExp *declarator)
     /* before add, check for duplicate */
     for (p = descriptor_stack[descr_stack_top]->members; p != NULL; p = p->next)
         if (equal(declarator->str, p->id))
-            FATAL_ERROR(declarator, "duplicate member `%s'", declarator->str);
+            ERROR(declarator, "duplicate member `%s'", declarator->str);
 
     n = arena_alloc(decl_node_arena, sizeof(StructMember));
     /* set tag and type */
@@ -1718,7 +1622,7 @@ void push_struct_descriptor(TypeExp *ty)
      */
     for (i = descr_stack_top; i >= 0; i--)
         if (*tag!='<' && equal(tag, descriptor_stack[i]->tag))
-            FATAL_ERROR(ty, "nested redefinition of `%s %s'", tok2lex(ty->op), tag);
+            ERROR(ty, "nested redefinition of `%s %s'", tok2lex(ty->op), tag);
 
     /* push new descriptor */
     n = arena_alloc(decl_node_arena, sizeof(StructDescriptor));
@@ -1762,7 +1666,6 @@ StructDescriptor *lookup_struct_descriptor(char *tag)
             break;
 
     assert(np != NULL);
-
     return np;
 }
 
@@ -1776,37 +1679,36 @@ StructMember *get_member_descriptor(TypeExp *ty, char *id)
             return m;
         m = m->next;
     }
-
     assert(0);
 }
 
 void analyze_struct_declarator(TypeExp *sql, TypeExp *declarator)
 {
+    int inc_ty_err = 0;
+
     /* 6.7.2.1
      * #2 A structure or union shall not contain a member with incomplete or function type (hence,
      * a structure shall not contain an instance of itself, but may contain a pointer to an instance
      * of itself) [we don't support flexible array members, so what follows is not important to us]
      */
-    if (!analyze_declarator(sql, declarator, FALSE))
-        FATAL_ERROR(declarator, "faulty struct/union member");
+    analyze_declarator(sql, declarator, FALSE);
     if (declarator->child == NULL) {
         /* not a derived declarator type */
         TypeExp *ts;
 
         ts = get_type_spec(sql);
         if (is_struct_union_enum(ts->op) && !is_complete(ts->str))
-            goto incomp_error;
+            inc_ty_err = 1;
     } else if (declarator->child->op == TOK_SUBSCRIPT) {
         /* the type category is array, the size expression cannot be missing */
         if (declarator->child->attr.e == NULL)
-            goto incomp_error;
+            inc_ty_err = 1;
     } else if (declarator->child->op == TOK_FUNCTION) {
-        FATAL_ERROR(declarator, "member `%s' declared as a function", declarator->str);
+        ERROR(declarator, "member `%s' declared as a function", declarator->str);
     }
+    if (inc_ty_err)
+        ERROR(declarator, "member `%s' has incomplete type", declarator->str);
     new_struct_member(sql, declarator);
-    return; /* OK */
-incomp_error:
-    FATAL_ERROR(declarator, "member `%s' has incomplete type", declarator->str);
 }
 
 /*
