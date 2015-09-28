@@ -24,28 +24,11 @@ char *current_function_name; /* used to implement __func__ */
 #define HASH_VAL2(x)    (hash2(x)%HASH_SIZE)
 
 static ExternId *external_declarations[HASH_SIZE];
+static ExternId *extern_symtab;
 
-/*
- * Linearizes the external symbol table.
- * Don't call functions that consult the symbol
- * table after this function is called.
- */
 ExternId *get_extern_symtab(void)
 {
-    int i;
-    ExternId *first, *last;
-
-    for (i = 0; i < HASH_SIZE; i++) {
-        if (external_declarations[i] != NULL) {
-            first = external_declarations[i];
-            for (last = external_declarations[i]; last->next != NULL; last = last->next);
-            break;
-        }
-    }
-    for (i = i+1; i < HASH_SIZE; i++)
-        if (external_declarations[i] != NULL)
-            for (last->next = external_declarations[i]; last->next != NULL; last = last->next);
-    return first;
+    return extern_symtab;
 }
 
 /*
@@ -1500,17 +1483,6 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
             if (is_initialized || is_func_def)
                 prev->declarator = declarator;
         }
-
-        /*
-         * 6.9.2
-         * #3 If the declaration of an identifier for an object is a tentative definition
-         * and has internal linkage, the declared type shall not be an incomplete type.
-         *
-         * See: http://www.open-std.org/jtc1/sc22/wg14/www/docs/dr_016.html
-         * TODO: after the whole translation unit is processed, a final traverse
-         * over the external symbols table should check that the type of the
-         * non-extern identifiers is not an incomplete type.
-         */
     } else {
         /*
          * Block scope.
@@ -1518,8 +1490,8 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
 
         /*
          * 6.7.1
-         * #5 The declaration of an identifier for a function that has block scope shall have
-         * no explicit storage-class specifier other than extern.
+         * #5 The declaration of an identifier for a function that has block scope shall
+         * have no explicit storage-class specifier other than extern.
          */
         if (has_func_typecat && scs!=NULL && scs->op!=TOK_TYPEDEF && scs->op!=TOK_EXTERN)
             ERROR(declarator->child, "function `%s' declared in block scope cannot have `%s' storage class",
@@ -1816,4 +1788,66 @@ char *stringify_type_exp(Declaration *d, int show_decayed)
     strcat(s, out);
 
     return s;
+}
+
+static void complete_tentative_definition(TypeExp *decl_specs, TypeExp *declarator)
+{
+    if (declarator->child == NULL) {
+        TypeExp *ts;
+
+        ts = get_type_spec(decl_specs);
+        if (ts->op == TOK_VOID)
+            ERROR(declarator, "variable has incomplete type `void'");
+        else if (is_struct_union_enum(ts->op) && !is_complete(ts->str))
+            ERROR(declarator, "tentative definition has type `%s %s' that is never completed",
+            tok2lex(ts->op), ts->str);
+    } else if (declarator->child->op==TOK_SUBSCRIPT && declarator->child->attr.e==NULL) {
+        /*
+         * 6.9.2#2
+         * [...] If a translation unit contains one or more tentative definitions for an
+         * identifier, and the translation unit contains no external definition for that
+         * identifier, then the behavior is exactly as if the translation unit contains a
+         * file scope declaration of that identifier, with the composite type as of the end
+         * of the translation unit, with an initializer equal to 0.
+         *
+         * 6.9.2#5
+         * EXAMPLE 2
+         * If at the end of the translation unit containing
+         *      int i[];
+         * the array i still has incomplete type, the implicit initializer causes it to have
+         * one element, which is set to zero on program startup.
+         */
+        declarator->child->attr.e = new_exec_node();
+        declarator->child->attr.e->attr.val = 1;
+    }
+}
+
+/*
+ * Make the list of external declarations that will be used by the code generator.
+ * On the way, check for tentatively defined objects making sure to not left any
+ * with incomplete type.
+ */
+void analyze_translation_unit(void)
+{
+    int i;
+    ExternId *first, *last;
+
+    first = last = NULL;
+    for (i = 0; i < HASH_SIZE; i++) {
+        if (external_declarations[i] != NULL) {
+            first = last = external_declarations[i];
+            for (; last->next != NULL; last = last->next)
+                if (last->status == TENTATIVELY_DEFINED)
+                    complete_tentative_definition(last->decl_specs, last->declarator);
+            break;
+        }
+    }
+    for (i = i+1; i < HASH_SIZE; i++)
+        if ((last->next=external_declarations[i]) != NULL)
+            for (; last->next != NULL; last = last->next)
+                if (last->status == TENTATIVELY_DEFINED)
+                    complete_tentative_definition(last->decl_specs, last->declarator);
+    if (last!=NULL && last!=first && last->status==TENTATIVELY_DEFINED)
+        complete_tentative_definition(last->decl_specs, last->declarator);
+    extern_symtab = first;
 }

@@ -275,6 +275,7 @@ ExternDecl *translation_unit(void)
         temp = temp->sibling;
     }
     match(TOK_EOF);
+    analyze_translation_unit();
     return n;
 }
 

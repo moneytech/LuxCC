@@ -51,6 +51,7 @@ struct TypeTag {
     TypeTag *next;
 };
 
+void analyze_translation_unit(void);
 void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_func_def);
 void analyze_declarator(TypeExp *decl_specs, TypeExp *declarator, int inst_sym);
 void analyze_decl_specs(TypeExp *d);
