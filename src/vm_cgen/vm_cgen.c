@@ -138,7 +138,7 @@ void function_definition(TypeExp *decl_specs, TypeExp *header)
 
         pty.decl_specs = p->decl->decl_specs;
         pty.idl = p->decl->idl->child;
-        param_offs -= round_up(compute_sizeof(&pty), VM_STACK_ALIGN);
+        param_offs -= round_up(get_sizeof(&pty), VM_STACK_ALIGN);
         location_new(p->decl->idl->str, param_offs);
         emitln("# param:`%s', offset:%d", p->decl->idl->str, param_offs);
 
@@ -218,7 +218,7 @@ void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e/*, int align*/)
                 elem_ty.decl_specs = ds;
                 elem_ty.idl = dct->child;
                 emitln(".align %u", get_alignment(&elem_ty));
-                emitln(".zero %u", nelem*compute_sizeof(&elem_ty));
+                emitln(".zero %u", nelem*get_sizeof(&elem_ty));
             }
         }
     } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
@@ -262,7 +262,7 @@ void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e/*, int align*/)
                     ty.decl_specs = d->decl->decl_specs;
                     ty.idl = dct->child;
                     emitln(".align %u", get_alignment(&ty));
-                    emitln(".zero %u", compute_sizeof(&ty));
+                    emitln(".zero %u", get_sizeof(&ty));
 
                     dct = dct->sibling;
                 }
@@ -357,7 +357,7 @@ scalar:
                         &&  e->child[i]->kind.exp == OpExp
                         &&  e->child[i]->attr.op == TOK_ADDRESS_OF
                         &&  e->child[i]->child[0]->kind.exp == IdExp) {
-                            size = e->child[j]->attr.uval*compute_sizeof(&e->child[i]->child[0]->type);
+                            size = e->child[j]->attr.uval*get_sizeof(&e->child[i]->child[0]->type);
                             emitln(".dword %s+%u", e->child[i]->child[0]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
                             return;
                         /* x+1, x-1, 1+x */
@@ -366,7 +366,7 @@ scalar:
                         && (cat=get_type_category(&e->child[i]->type)) == TOK_SUBSCRIPT) {
                             ty.decl_specs = e->child[i]->type.decl_specs;
                             ty.idl = e->child[i]->type.idl->child;
-                            size = e->child[j]->attr.uval*compute_sizeof(&ty);
+                            size = e->child[j]->attr.uval*get_sizeof(&ty);
                             emitln(".dword %s+%u", e->child[i]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
                             return;
                         }
@@ -422,7 +422,7 @@ void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mang
     if (initializer != NULL)
         do_static_init(ty.decl_specs, ty.idl, initializer/*, FALSE*/);
     else
-        emitln(".res %u", compute_sizeof(&ty));
+        emitln(".res %u", get_sizeof(&ty));
 
     if ((scs=get_sto_class_spec(decl_specs))==NULL || scs->op!=TOK_STATIC)
         emitln(".global %s", declarator->str);
@@ -554,7 +554,7 @@ void do_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, int offset)
              */
             elem_ty.decl_specs = ds;
             elem_ty.idl = dct->child;
-            elem_size = compute_sizeof(&elem_ty);
+            elem_size = get_sizeof(&elem_ty);
 
             /*
              * Handle elements with explicit initializer.
@@ -702,7 +702,7 @@ void compound_statement(ExecNode *s, int push_scope)
                 emitln("# var: %s, offset: %d", dct->str, local_offset);
                 if (dct->attr.e != NULL)
                     do_auto_init(lty.decl_specs, lty.idl, dct->attr.e, local_offset);
-                local_offset += compute_sizeof(&lty);
+                local_offset += get_sizeof(&lty);
             }
         }
     }
@@ -880,7 +880,7 @@ void return_statement(ExecNode *s)
         if ((cat=get_type_category(&ret_ty))==TOK_STRUCT || cat==TOK_UNION) {
             unsigned size;
 
-            size = compute_sizeof(&ret_ty);
+            size = get_sizeof(&ret_ty);
 #if 0
             /* allocate space on the heap and copy the struct/union there */
             emitln("ldi %u;", size);
@@ -1167,7 +1167,7 @@ unsigned function_argument(ExecNode *arg, DeclList *param)
         else
             ty.idl = param->decl->idl;
         expr_convert(arg, &ty);
-        real_arg_size = compute_sizeof(&ty);
+        real_arg_size = get_sizeof(&ty);
     } else {
         /*
          * This and the arguments that follow match the `...'.
@@ -1178,7 +1178,7 @@ unsigned function_argument(ExecNode *arg, DeclList *param)
         if (ty.idl!=NULL && (ty.idl->op==TOK_SUBSCRIPT || ty.idl->op==TOK_FUNCTION))
             real_arg_size = 4;
         else
-            real_arg_size = compute_sizeof(&arg->type);
+            real_arg_size = get_sizeof(&arg->type);
     }
     aligned_arg_size = round_up(real_arg_size, VM_STACK_ALIGN);
     arg_area_size += aligned_arg_size;
@@ -1385,7 +1385,7 @@ relational_unsigned:
 
                 expression(e->child[j], FALSE);
                 expression(e->child[i], FALSE);
-                emitln("ldi %u;", compute_sizeof(&ty));
+                emitln("ldi %u;", get_sizeof(&ty));
                 emitln("mul;");
             }
             emitln("add;");
@@ -1403,13 +1403,13 @@ relational_unsigned:
                 expression(e->child[1], FALSE);
                 if (is_integer(get_type_category(&e->child[1]->type))) {
                     /* pointer - integer */
-                    emitln("ldi %u;", compute_sizeof(&ty));
+                    emitln("ldi %u;", get_sizeof(&ty));
                     emitln("mul;");
                     emitln("sub;");
                 } else {
                     /* pointer - pointer */
                     emitln("sub;");
-                    emitln("ldi %u;", compute_sizeof(&ty));
+                    emitln("ldi %u;", get_sizeof(&ty));
                     emitln("sdiv;");
                 }
             }
@@ -1451,7 +1451,7 @@ relational_unsigned:
 
                 pointed_to_ty.decl_specs = e->type.decl_specs;
                 pointed_to_ty.idl = e->type.idl->child;
-                emitln("ldi %u;", compute_sizeof(&pointed_to_ty));
+                emitln("ldi %u;", get_sizeof(&pointed_to_ty));
             }
             (e->attr.op == TOK_PRE_INC) ? emitln("add;") : emitln("sub;");
             emitln("swap;");
@@ -1475,7 +1475,7 @@ relational_unsigned:
 
                 pointed_to_ty.decl_specs = e->type.decl_specs;
                 pointed_to_ty.idl = e->type.idl->child;
-                emitln("ldi %u;", compute_sizeof(&pointed_to_ty));
+                emitln("ldi %u;", get_sizeof(&pointed_to_ty));
             }
             (e->attr.op == TOK_POS_INC) ? emitln("add;") : emitln("sub;");
             emitln("swap;");
@@ -1517,7 +1517,7 @@ relational_unsigned:
                 expression(e->child[1], FALSE);
                 expression(e->child[0], FALSE);
             }
-            emitln("ldi %u;", compute_sizeof(&e->type));
+            emitln("ldi %u;", get_sizeof(&e->type));
             emitln("mul;");
             emitln("add;");
             if (!is_addr)
@@ -1593,7 +1593,7 @@ void store(Declaration *dest_ty)
     case TOK_STRUCT:
     case TOK_UNION:
         emitln("swap;");
-        emitln("memcpy %u;", compute_sizeof(dest_ty));
+        emitln("memcpy %u;", get_sizeof(dest_ty));
         break;
     }
 }

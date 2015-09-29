@@ -880,7 +880,7 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
         DEBUG_PRINTF("==> param:`%s', offset:%d\n", p->decl->idl->str, param_offs);
         ty.decl_specs = p->decl->decl_specs;
         ty.idl = p->decl->idl->child;
-        param_offs += round_up(compute_sizeof(&ty), 4);
+        param_offs += round_up(get_sizeof(&ty), 4);
 
 #if 0
         if (cg_node(curr_cg_node).pn == NULL) {
@@ -1675,7 +1675,7 @@ void ic_compound_statement(ExecNode *s, int push_scope)
                 if (get_type_category(&lty) == TOK_FUNCTION)
                     continue;
                 local_offset = round_up(local_offset, get_alignment(&lty));
-                local_offset -= compute_sizeof(&lty);
+                local_offset -= get_sizeof(&lty);
                 location_new(dct->str, local_offset);
                 DEBUG_PRINTF("==> var: %s, offset: %d\n", dct->str, local_offset);
                 if (dct->attr.e != NULL) {
@@ -1856,7 +1856,7 @@ void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned 
             /* get element size */
             ty.decl_specs = ds;
             ty.idl = dct->child;
-            elem_size = compute_sizeof(&ty);
+            elem_size = get_sizeof(&ty);
 
             /* handle elements with explicit initializer */
             for (e = e->child[0]; e!=NULL && nelem!=0; e=e->sibling, --nelem) {
@@ -2072,7 +2072,7 @@ unsigned get_step_size(ExecNode *e)
 
         ty = e->type;
         ty.idl = ty.idl->child;
-        address(a).cont.uval = compute_sizeof(&ty);
+        address(a).cont.uval = get_sizeof(&ty);
     }
     return a;
 }
@@ -2287,7 +2287,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                 ty = e->child[pi]->type;
                 ty.idl = ty.idl->child;
                 a3 = new_address(IConstKind);
-                address(a3).cont.uval = compute_sizeof(&ty);
+                address(a3).cont.uval = get_sizeof(&ty);
                 a4 = new_temp_addr();
                 emit_i(OpMul, NULL, a4, a1, a3);
                 a5 = new_temp_addr();
@@ -2317,7 +2317,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                 ty = e->child[0]->type;
                 ty.idl = ty.idl->child;
                 a3 = new_address(IConstKind);
-                address(a3).cont.uval = compute_sizeof(&ty);
+                address(a3).cont.uval = get_sizeof(&ty);
 
                 if (is_integer(get_type_category(&e->child[1]->type))) { /* ptr-int */
                     a4 = new_temp_addr();
@@ -2478,7 +2478,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             ty = e->child[pi]->type;
             ty.idl = ty.idl->child;
             a3 = new_address(IConstKind);
-            address(a3).cont.uval = compute_sizeof(&ty);
+            address(a3).cont.uval = get_sizeof(&ty);
             a4 = new_temp_addr();
             emit_i(OpMul, NULL, a4, a1, a3);
             a5 = new_temp_addr();

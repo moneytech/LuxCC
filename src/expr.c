@@ -11,9 +11,8 @@
 #include "error.h"
 
 /*
- * Print error, increase error count, and set to 'error'
- * the type of the node 'tok' (tok is generally an operator
- * node).
+ * Print error and set to 'error' the type of
+ * the node 'tok' (generally an operator node).
  */
 #define ERROR(tok, ...)\
     do {\
@@ -61,12 +60,6 @@
 
 Token get_type_category(Declaration *d)
 {
-    /*
-     * If the type 'error' is between the declaration specifiers,
-     * ignore any declarator and just return that type. This is only to handle
-     * those identifiers that were installed in the symbol table as having
-     * erroneous type.
-     */
     if (/*d->decl_specs!=NULL && */d->decl_specs->op==TOK_ERROR)
         return TOK_ERROR;
 
@@ -1327,7 +1320,7 @@ void analyze_unary_expression(ExecNode *e)
         /* convert node to integer constant */
         e->kind.exp = IConstExp;
         e->type.decl_specs = get_type_node(TOK_UNSIGNED_LONG);
-        e->attr.uval = compute_sizeof(&ty);
+        e->attr.uval = get_sizeof(&ty);
         break;
     }
     case TOK_ADDRESS_OF: {
@@ -1800,16 +1793,15 @@ unsigned_ty:
         if (errno == ERANGE) /* Note: strtoul() saturates its result (we end up with 0xFFFFFFFF) */
             WARNING(e, "integer constant is too large for `unsigned long' type");
         e->type.decl_specs = get_type_node(TOK_UNSIGNED);
-        break;
     }
-    case StrLitExp: {
+        break;
+    case StrLitExp:
         e->type.decl_specs = get_type_node(TOK_CHAR);
         e->type.idl = new_type_exp_node();
         e->type.idl->op = TOK_SUBSCRIPT;
         e->type.idl->attr.e = new_exec_node();
         e->type.idl->attr.e->attr.val = strlen(e->attr.str)+1;
         break;
-    }
     }
 }
 
@@ -1852,7 +1844,7 @@ unsigned get_alignment(Declaration *ty)
     return alignment;
 }
 
-unsigned compute_sizeof(Declaration *ty)
+unsigned get_sizeof(Declaration *ty)
 {
     Token cat;
     unsigned size;
@@ -1879,7 +1871,7 @@ unsigned compute_sizeof(Declaration *ty)
     case TOK_SUBSCRIPT:
         new_ty.decl_specs = ty->decl_specs;
         new_ty.idl = ty->idl->child;
-        size = ty->idl->attr.e->attr.val*compute_sizeof(&new_ty);
+        size = ty->idl->attr.e->attr.val*get_sizeof(&new_ty);
         break;
     case TOK_STAR:
         size = 4;
@@ -1947,7 +1939,7 @@ long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
                 KIND(e) = IConstExp;
                 ty = e->child[pi]->type;
                 ty.idl = ty.idl->child;
-                return (VALUE(e) = ptr+indx*compute_sizeof(&ty));
+                return (VALUE(e) = ptr+indx*get_sizeof(&ty));
             } else {
                 return ptr;
             }
@@ -1972,9 +1964,9 @@ long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
             }
         case TOK_SIZEOF:
             if (e->child[1] != NULL)
-                resL = (long)compute_sizeof((Declaration *)e->child[1]);
+                resL = (long)get_sizeof((Declaration *)e->child[1]);
             else
-                resL = (long)compute_sizeof(&e->child[0]->type);
+                resL = (long)get_sizeof(&e->child[0]->type);
             KIND(e) = IConstExp;
             return (VALUE(e) = resL);
         case TOK_ADDRESS_OF:
@@ -2110,9 +2102,9 @@ long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
                     ty = e->child[pi]->type;
                     ty.idl = ty.idl->child;
                     if (pi == 0)
-                        return (VALUE(e) = resL + resR*compute_sizeof(&ty));
+                        return (VALUE(e) = resL + resR*get_sizeof(&ty));
                     else
-                        return (VALUE(e) = resL*compute_sizeof(&ty) + resR);
+                        return (VALUE(e) = resL*get_sizeof(&ty) + resR);
                 } else {
                     return 0xABCD; /* doesn't matter */
                 }
@@ -2141,9 +2133,9 @@ long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
                     ty = e->child[0]->type;
                     ty.idl = ty.idl->child;
                     if (is_integer(get_type_category(&e->child[1]->type))) /* ptr-int */
-                        return (VALUE(e) = resL - resR*compute_sizeof(&ty));
+                        return (VALUE(e) = resL - resR*get_sizeof(&ty));
                     else /* ptr-ptr */
-                        return (VALUE(e) = (resL-resR)/compute_sizeof(&ty));
+                        return (VALUE(e) = (resL-resR)/get_sizeof(&ty));
                 } else {
                     return 0xABCD; /* doesn't matter */
                 }

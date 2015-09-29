@@ -433,12 +433,6 @@ void set_attributes(ExecNode *e, Symbol *sym)
 
 void analyze_decl_specs(TypeExp *d)
 {
-    /*
-     * Some notes:
-     * - If there is more than one storage class specifier, the rest of the code will
-     *   only see the first one because of the way in which get_sto_class_spec() works.
-     * - Something similar occurs with type specifiers.
-     */
     enum {
         START,
         CHAR,
@@ -669,7 +663,6 @@ void analyze_enumerator(TypeExp *e)
             WARNING(e, "overflow in enumeration value");
         ++en_val;
     }
-
     e->attr.e->attr.val = en_val;
     install_ordinary_id(&enum_ds, e, FALSE);
 }
@@ -1566,7 +1559,7 @@ void new_struct_member(TypeExp *decl_specs, TypeExp *declarator)
     n->type.decl_specs = decl_specs;
     n->type.idl = declarator->child;
     /* set size */
-    n->size = compute_sizeof(&n->type);
+    n->size = get_sizeof(&n->type);
     /* set an offset that met with the alignment requirements of the member's type */
     alignment = get_alignment(&n->type);
     n->offset = round_up(descriptor_stack[descr_stack_top]->size, alignment);

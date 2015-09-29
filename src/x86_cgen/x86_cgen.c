@@ -856,7 +856,7 @@ void x86_store(X86_Reg r, unsigned a)
                 cluttered |= 4;
                 emitln("push ecx");
             }
-            emitln("mov ecx, %u", compute_sizeof(&e->type));
+            emitln("mov ecx, %u", get_sizeof(&e->type));
             /*emitln("cld");*/
             emitln("rep movsb");
             /* restore all */
@@ -1426,7 +1426,7 @@ void x86_pre_call(int i)
     if ((cat=get_type_category(instruction(i).type))==TOK_STRUCT || cat==TOK_UNION) {
         unsigned siz;
 
-        siz = compute_sizeof(instruction(i).type);
+        siz = get_sizeof(instruction(i).type);
         if (siz > temp_struct_size)
             temp_struct_size = siz;
         emit("lea eax, [ebp+");
@@ -1500,7 +1500,7 @@ void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
             cluttered |= 4;
             emitln("push ecx");
         }
-        emitln("mov ecx, %u", compute_sizeof(instruction(i).type));
+        emitln("mov ecx, %u", get_sizeof(instruction(i).type));
         /*emitln("cld");*/
         emitln("rep movsb");
         if (cluttered & 4)
@@ -1619,7 +1619,7 @@ void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
         unsigned siz, asiz;
         int cluttered, savnb;
 
-        siz = compute_sizeof(&ty);
+        siz = get_sizeof(&ty);
         asiz = round_up(siz, 4);
         emitln("sub esp, %u", asiz);
         arg_stack[arg_stack_top++] = asiz;
@@ -1666,7 +1666,7 @@ void x86_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
     } else {
         unsigned siz;
 
-        siz = compute_sizeof(instruction(i).type);
+        siz = get_sizeof(instruction(i).type);
         /*if (!reg_is_empty(X86_ESI))
             spill_reg(X86_ESI);*/
         x86_load(X86_ESI, arg1);
@@ -1977,7 +1977,7 @@ void x86_static_expr(ExecNode *e)
 
                 ty = e->child[pi]->type;
                 ty.idl = ty.idl->child;
-                emit_decl("+%u*", compute_sizeof(&ty));
+                emit_decl("+%u*", get_sizeof(&ty));
                 x86_static_expr(e->child[ii]);
             }
         }
@@ -2019,7 +2019,7 @@ void x86_static_expr(ExecNode *e)
 
                     ty = e->child[pi]->type;
                     ty.idl = ty.idl->child;
-                    emit_decl("+%u*", compute_sizeof(&ty));
+                    emit_decl("+%u*", get_sizeof(&ty));
                     x86_static_expr(e->child[ii]);
                 }
             }
@@ -2036,7 +2036,7 @@ void x86_static_expr(ExecNode *e)
 
                     ty = e->child[0]->type;
                     ty.idl = ty.idl->child;
-                    emit_decl("-%u*", compute_sizeof(&ty));
+                    emit_decl("-%u*", get_sizeof(&ty));
                     x86_static_expr(e->child[1]);
                 }
             }
@@ -2098,7 +2098,7 @@ void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
                 ty.decl_specs = ds;
                 ty.idl = dct->child;
                 emit_declln("align %u", get_alignment(&ty));
-                emit_declln("times %u db 0", nelem*compute_sizeof(&ty));
+                emit_declln("times %u db 0", nelem*get_sizeof(&ty));
             }
         }
     } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
@@ -2138,7 +2138,7 @@ void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
                     ty.decl_specs = d->decl->decl_specs;
                     ty.idl = dct->child;
                     emit_declln("align %u", get_alignment(&ty));
-                    emit_declln("times %u db 0",  compute_sizeof(&ty));
+                    emit_declln("times %u db 0",  get_sizeof(&ty));
 
                     dct = dct->sibling;
                 }
@@ -2221,7 +2221,7 @@ void x86_allocate_static_objects(void)
         if (initzr != NULL)
             x86_static_init(ty.decl_specs, ty.idl, initzr);
         else
-            emit_declln("resb %u", compute_sizeof(&ty));
+            emit_declln("resb %u", get_sizeof(&ty));
     }
 }
 
