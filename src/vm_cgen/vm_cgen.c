@@ -41,7 +41,7 @@ void vm_cgen(FILE *outf)
 #if 0
     emitln(".extern malloc"); /* for return of structs */
 #endif
-    for (ed = get_extern_symtab(); ed != NULL; ed = ed->next) {
+    for (ed = get_external_declarations(); ed != NULL; ed = ed->next) {
         if (ed->status == REFERENCED) {
             TypeExp *scs;
 

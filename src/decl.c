@@ -24,11 +24,11 @@ char *current_function_name; /* used to implement __func__ */
 #define HASH_VAL2(x)    (hash2(x)%HASH_SIZE)
 
 static ExternId *external_declarations[HASH_SIZE];
-static ExternId *extern_symtab;
+static ExternId *external_declarations_list; /* linearized symtab */
 
-ExternId *get_extern_symtab(void)
+ExternId *get_external_declarations(void)
 {
-    return extern_symtab;
+    return external_declarations_list;
 }
 
 /*
@@ -1849,5 +1849,5 @@ void analyze_translation_unit(void)
                     complete_tentative_definition(last->decl_specs, last->declarator);
     if (last!=NULL && last!=first && last->status==TENTATIVELY_DEFINED)
         complete_tentative_definition(last->decl_specs, last->declarator);
-    extern_symtab = first;
+    external_declarations_list = first;
 }

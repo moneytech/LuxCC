@@ -22,8 +22,6 @@ struct ExternId {
     ExternId *next;
 };
 
-ExternId *get_extern_symtab(void);
-
 struct StructMember {
     char *id;
     unsigned size, offset;
@@ -92,5 +90,7 @@ void push_struct_descriptor(TypeExp *ty);
 void pop_struct_descriptor(void);
 StructDescriptor *lookup_struct_descriptor(char *tag);
 StructMember *get_member_descriptor(TypeExp *ty, char *id);
+
+ExternId *get_external_declarations(void);
 
 #endif

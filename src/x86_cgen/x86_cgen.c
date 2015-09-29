@@ -170,7 +170,7 @@ void x86_cgen(FILE *outf)
     ExternId *ed, *func_def_list[512] = { NULL }, *ext_sym_list[512] = { NULL };
 
     x86_output_file = outf;
-    for (ed=get_extern_symtab(), i=j=0; ed != NULL; ed = ed->next) {
+    for (ed=get_external_declarations(), i=j=0; ed != NULL; ed = ed->next) {
         TypeExp *scs;
 
         if (ed->status == REFERENCED) {
