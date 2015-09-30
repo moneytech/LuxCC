@@ -83,7 +83,6 @@ int is_integer(Token ty)
     }
 }
 
-// static
 int is_pointer(Token op)
 {
     /*
@@ -993,8 +992,8 @@ void analyze_relational_equality_expression(ExecNode *e)
      * 6.5.8 Relational operators
      * #2 One of the following shall hold:
      * - both operands have real type;
-     * - both operands are pointers to qualified or unqualified versions of compatible object
-     * types; or
+     * - both operands are pointers to qualified or unqualified versions of compatible
+     * object types; or
      * - both operands are pointers to qualified or unqualified versions of compatible
      * incomplete types.
      */
@@ -1004,8 +1003,8 @@ void analyze_relational_equality_expression(ExecNode *e)
       * One of the following shall hold:
       * - both operands have arithmetic type;
       * - both operands are pointers to qualified or unqualified versions of compatible types;
-      * - one operand is a pointer to an object or incomplete type and the other is a pointer to a
-      * qualified or unqualified version of void; or
+      * - one operand is a pointer to an object or incomplete type and the other is a pointer
+      * to a qualified or unqualified version of void; or
       * - one operand is a pointer and the other is a null pointer constant.
       */
     Token ty1, ty2;
@@ -1113,15 +1112,15 @@ void analyze_additive_expression(ExecNode *e)
 
     /*
      * 6.5.6
-     * #8 When an expression that has integer type is added to or subtracted from a pointer, the
-     * result has the type of the pointer operand.
+     * #8 When an expression that has integer type is added to or subtracted from a pointer,
+     * the result has the type of the pointer operand.
      */
 
     if (e->attr.op == TOK_PLUS) {
         /*
          * 6.5.6
-         * #2 For addition, either both operands shall have arithmetic type, or one operand shall be a
-         * pointer to an object type and the other shall have integer type. (Incrementing is
+         * #2 For addition, either both operands shall have arithmetic type, or one operand shall
+         * be a pointer to an object type and the other shall have integer type. (Incrementing is
          * equivalent to adding 1.)
          */
         if (is_integer(ty_l)) {
@@ -1202,8 +1201,8 @@ void analyze_multiplicative_expression(ExecNode *e)
 
     /*
      * 6.5.5
-     * #2 Each of the operands shall have arithmetic type. The operands of the % operator shall
-     * have integer type.
+     * #2 Each of the operands shall have arithmetic type. The operands of the % operator
+     * shall have integer type.
      */
     ty1 = get_type_category(&e->child[0]->type);
     ty2 = get_type_category(&e->child[1]->type);
@@ -1248,8 +1247,7 @@ void analyze_cast_expression(ExecNode *e)
     e->type = *(Declaration *)e->child[1];
 }
 
-static
-void analyze_inc_dec_operator(ExecNode *e)
+static void analyze_inc_dec_operator(ExecNode *e)
 {
     /*
      * 6.5.2.4#1/6.5.3.1#1
@@ -1283,9 +1281,9 @@ void analyze_unary_expression(ExecNode *e)
 
         /*
          * 6.5.3.4
-         * #1 The sizeof operator shall not be applied to an expression that has function type or an
-         * incomplete type, to the parenthesized name of such a type, or to an expression that
-         * designates a bit-field member.
+         * #1 The sizeof operator shall not be applied to an expression that has function type
+         * or an incomplete type, to the parenthesized name of such a type, or to an expression
+         * that designates a bit-field member.
          */
         if (e->child[1] != NULL) {
             /* "sizeof" "(" type_name ")" */
@@ -1379,8 +1377,8 @@ void analyze_unary_expression(ExecNode *e)
 
         /*
          * 6.5.3.2
-         * #4 The unary * operator denotes indirection. If the operand points to a function, the result is
-         * a function designator; if it points to an object, the result is an lvalue designating the
+         * #4 The unary * operator denotes indirection. If the operand points to a function, the result
+         * is a function designator; if it points to an object, the result is an lvalue designating the
          * object. If the operand has type ‘‘pointer to type’’, the result has type ‘‘type’’. If an
          * invalid value has been assigned to the pointer, the behavior of the unary * operator is
          * undefined.
@@ -1434,8 +1432,8 @@ void analyze_postfix_expression(ExecNode *e)
     case TOK_SUBSCRIPT: {
         /*
          * 6.5.2.1#1
-         * One of the expressions shall have type ‘‘pointer to object type’’, the other expression
-         * shall have integer type, and the result has type ‘‘type’’.
+         * One of the expressions shall have type ‘‘pointer to object type’’, the other
+         * expression shall have integer type, and the result has type ‘‘type’’.
          */
         int ch_idx; /* index of the pointer child */
         Token ty1, ty2;
@@ -1477,7 +1475,7 @@ void analyze_postfix_expression(ExecNode *e)
             ERROR_R(e, "subscripting pointer to function");
         }
 
-        /* set as the type of the [] node the element type */
+        /* set the element type as the type of the [] node */
         e->type.decl_specs = e->child[ch_idx]->type.decl_specs;
         e->type.idl = e->child[ch_idx]->type.idl->child;
         break;
@@ -1497,7 +1495,7 @@ subs_incomp:
          * #5 If the expression that denotes the called function has type pointer to function returning an
          * object type, the function call expression has the same type as that object type, and has the
          * value determined as specified in 6.8.6.4. Otherwise, the function call has type void. [...]
-         * 6.7.2.3#footnote
+         * 6.7.2.3#footnote (about incomplete types)
          * [...] The specification has to be complete before such a function is called or defined.
          */
         int n;
@@ -1570,7 +1568,6 @@ subs_incomp:
                 "parameter/argument type mismatch (parameter #%d; expected `%s', given `%s')",
                 n, ty1, ty2);
                 free(ty1), free(ty2);
-
                 // return;
             }
 
@@ -1585,7 +1582,7 @@ subs_incomp:
                 ERROR_R(e, "parameter/argument number mismatch");
         }
 
-        /* set as the type of the node () the return type of the function */
+        /* set the return type of the function as the type of the () node */
         e->type.decl_specs = e->child[0]->type.decl_specs;
         e->type.idl = ty->child;
         break;
@@ -1628,7 +1625,7 @@ non_callable:
             TypeTag *np;
 
             if ((np=lookup_tag(ts->str, TRUE))->type->attr.dl == NULL)
-                ERROR_R(e, "left operand of . has incomplete type");
+                ERROR_R(e, "left operand of %s has incomplete type", tok2lex(e->attr.op));
             // ts = np->type;
             ts->attr.dl = np->type->attr.dl;
         }
@@ -1636,7 +1633,7 @@ non_callable:
         /* search for the member */
         for (d = ts->attr.dl; d != NULL; d = d->next) {
             for (dct = d->decl->idl; dct != NULL; dct = dct->sibling) {
-                if (strcmp(id, dct->str) == 0)
+                if (equal(id, dct->str))
                     goto mem_found;
             }
         }
@@ -1744,10 +1741,9 @@ decl_specs_qualif:
         break;
     }
     case TOK_POS_INC:
-    case TOK_POS_DEC: {
+    case TOK_POS_DEC:
         analyze_inc_dec_operator(e);
         break;
-    }
     }
 }
 

@@ -19,14 +19,13 @@ void analyze_expression(ExecNode *e);
 
 int can_assign_to(Declaration *dest_ty, ExecNode *e);
 long eval_const_expr(ExecNode *e, int is_addr, int is_iconst);
-Token get_type_category(Declaration *d);
-TypeExp *get_type_node(Token ty);
-int is_unsigned_int(Token ty);
 int is_signed_int(Token ty);
-int is_integer(Token ty);
-int get_rank(Token ty);
+int is_unsigned_int(Token ty);
 int is_integer(Token ty);
 int is_pointer(Token op);
+int get_rank(Token ty);
+TypeExp *get_type_node(Token ty);
+Token get_type_category(Declaration *d);
 Token get_promoted_type(Token int_ty);
 unsigned get_alignment(Declaration *ty);
 unsigned get_sizeof(Declaration *ty);

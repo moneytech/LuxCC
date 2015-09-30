@@ -16,7 +16,8 @@ static PreTokenNode *pre_tok; /* declared global so ERROR can access it */
 Arena *lexer_node_arena;
 static Arena *lexer_str_arena;
 
-#define ERROR(...) emit_error(TRUE, pre_tok->src_file, pre_tok->src_line, pre_tok->src_column, __VA_ARGS__)
+#define ERROR(...)   emit_error(TRUE, pre_tok->src_file, pre_tok->src_line, pre_tok->src_column, __VA_ARGS__)
+#define WARNING(...) emit_warning(pre_tok->src_file, pre_tok->src_line, pre_tok->src_column, __VA_ARGS__)
 
 /*
  * Table that contains token-name/lexeme pairs.
@@ -583,7 +584,10 @@ TokenNode *lexer(PreTokenNode *pre_token_list)
             /*
              * Ignore `other' tokens (`, $, etc).
              */
-            fprintf(stderr, "stray `%s' found; ignoring...\n", pre_tok->lexeme);
+            if (isprint(*pre_tok->lexeme))
+                WARNING("stray `%c' found; ignoring...", *pre_tok->lexeme);
+            else
+                WARNING("stray `0x%02x' found; ignoring...", *pre_tok->lexeme);
             pre_tok = pre_tok->next;
             continue;
         }
