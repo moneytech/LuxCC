@@ -1956,13 +1956,17 @@ static void print_ast(ExternDecl *n);
  */
 ExternDecl *parser(TokenNode *tokens)
 {
+    ExternDecl *n;
+
     curr_tok = tokens;
     decl_init();
     stmt_init();
     parser_node_arena = arena_new(4096, TRUE);
     parser_str_arena = arena_new(1024, FALSE);
-    return translation_unit();
+    n = translation_unit();
+    stmt_done();
     // print_ast(translation_unit()), exit(0);
+    return n;
 }
 
 /*

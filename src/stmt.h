@@ -4,6 +4,7 @@
 #include "parser.h"
 
 void stmt_init(void);
+void stmt_done(void);
 void analyze_labeled_statement(ExecNode *s, int in_switch);
 void analyze_selection_statement(ExecNode *s);
 void analyze_iteration_statement(ExecNode *s);

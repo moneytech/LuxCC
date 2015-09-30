@@ -173,8 +173,8 @@ void push_scope(void)
     if (delayed_delete)
         delete_scope();
 
-    if (++nesting_level == MAX_NEST) /* overflow */
-        TERMINATE("Error: too many nested scopes (>= %d)", MAX_NEST);
+    if (++nesting_level >= MAX_NEST) /* overflow */
+        TERMINATE("error: too many nested scopes (>= %d)", MAX_NEST);
 
     ++scope_id; /* create a new ID for this scope */
 }

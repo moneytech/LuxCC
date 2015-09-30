@@ -13,13 +13,11 @@
 #include "imp_lim.h"
 
 #define ERROR(tok, ...) emit_error(FALSE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
-
 #define ERROR_R(tok, ...)\
     do {\
         ERROR(tok, __VA_ARGS__);\
         return;\
     } while (0)
-
 #define WARNING(tok, ...) emit_warning((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
 
 #define HASH_SIZE     4093
@@ -27,24 +25,24 @@
 #define HASH_VAL2(x)  (hash2(x)%HASH_SIZE)
 
 typedef struct UnresolvedGoto UnresolvedGoto;
+typedef struct SwitchLabel SwitchLabel;
+typedef struct LabelName LabelName;
+
 static struct UnresolvedGoto {
     ExecNode *s;
     UnresolvedGoto *next;
 } *unresolved_gotos_list;
 
-typedef struct SwitchLabel SwitchLabel;
 static struct SwitchLabel {
     int val;
     int is_default;
     SwitchLabel *next;
 } *switch_labels[MAX_SWITCH_NEST][HASH_SIZE];
-
 static int switch_nesting_level = -1;
 static int switch_case_counter[MAX_SWITCH_NEST];
 static Arena *switch_arena[MAX_SWITCH_NEST];
 static int install_switch_label(long val, int is_default);
 
-typedef struct LabelName LabelName;
 static struct LabelName {
     char *name;
     LabelName *next;
@@ -71,7 +69,14 @@ void stmt_init(void)
     label_names_arena = arena_new(sizeof(LabelName)*16, FALSE);
 }
 
-// =============================================================================
+void stmt_done(void)
+{
+    int i;
+
+    for (i = 0; i < MAX_SWITCH_NEST; i++)
+        arena_destroy(switch_arena[i]);
+    arena_destroy(label_names_arena);
+}
 
 int install_switch_label(long val, int is_default)
 {
@@ -106,7 +111,8 @@ int install_switch_label(long val, int is_default)
 void increase_switch_nesting_level(void)
 {
     ++switch_nesting_level;
-    assert(switch_nesting_level < MAX_SWITCH_NEST);
+    if (switch_nesting_level >= MAX_SWITCH_NEST)
+        TERMINATE("error: too many nested switch statements (>= %d)", MAX_SWITCH_NEST);
     switch_case_counter[switch_nesting_level] = 1;
 }
 
@@ -118,8 +124,6 @@ int decrease_switch_nesting_level(void)
 
     return switch_case_counter[switch_nesting_level--];
 }
-
-// =============================================================================
 
 LabelName *lookup_label_name(char *name)
 {
@@ -143,7 +147,8 @@ int install_label_name(char *name)
 
     if (np == NULL) {
         np = arena_alloc(label_names_arena, sizeof(LabelName));
-        np->name = strdup(name);
+        // np->name = strdup(name);
+        np->name = name;
         np->next = label_names[h];
         label_names[h] = np;
         return TRUE; /* success */
@@ -170,9 +175,8 @@ void resolve_gotos(void)
         LabelName *lab;
         UnresolvedGoto *temp;
 
-        if ((lab=lookup_label_name(p->s->attr.str)) == NULL) {
+        if ((lab=lookup_label_name(p->s->attr.str)) == NULL)
             ERROR(p->s, "use of undefined label `%s'", p->s->attr.str);
-        }
 
         temp = p;
         p = p->next;
@@ -181,10 +185,10 @@ void resolve_gotos(void)
     unresolved_gotos_list = NULL;
 }
 
-// =============================================================================
-
-/* This functions is similar to expr.c's one, but also
- considers as scalars to array and function expressions. */
+/*
+ * This functions is similar to expr.c's one but also
+ * considers as scalars to array and function expressions.
+ */
 static int is_scalar(Token op)
 {
     return (op==TOK_STAR || op==TOK_SUBSCRIPT || op==TOK_FUNCTION || is_integer(op));
@@ -206,12 +210,11 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
          */
         if (!install_label_name(s->attr.str))
             ERROR(s, "duplicate label `%s'", s->attr.str);
-
         break;
     /*
      * 6.8.4.2
-     * #3 The expression of each case label shall be an integer constant expression and no two of
-     * the case constant expressions in the same switch statement shall have the same value
+     * #3 The expression of each case label shall be an integer constant expression and no two
+     * of the case constant expressions in the same switch statement shall have the same value
      * after conversion. There may be at most one default label in a switch statement.
      * (Any enclosed switch statement may have a default label or case constant
      * expressions with values that duplicate case constant expressions in the enclosing
@@ -225,8 +228,7 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
         if (!in_switch)
             ERROR(s, "case label not within a switch statement");
 
-        ty = get_type_category(&s->child[0]->type);
-        if (ty == TOK_ERROR)
+        if ((ty=get_type_category(&s->child[0]->type)) == TOK_ERROR)
             return;
         if (!is_integer(ty))
             ERROR_R(s->child[0], "case label expression has non-integer type");
@@ -234,8 +236,8 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
 
         if (!install_switch_label(s->child[0]->attr.val, FALSE))
             ERROR(s, "duplicate case value `%ld'", s->child[0]->attr.val);
-        break;
     }
+        break;
     case DefaultStmt:
         if (!in_switch)
             ERROR_R(s, "default label not within a switch statement");
@@ -250,8 +252,7 @@ void analyze_selection_statement(ExecNode *s)
 {
     Token ty;
 
-    ty = get_type_category(&s->child[0]->type);
-    if (ty == TOK_ERROR)
+    if ((ty=get_type_category(&s->child[0]->type)) == TOK_ERROR)
         return;
 
     if (s->kind.stmt == IfStmt) {
@@ -283,8 +284,7 @@ void analyze_iteration_statement(ExecNode *s)
     if (s->child[0] == NULL)
         return; /* OK */
 
-    ty = get_type_category(&s->child[0]->type);
-    if (ty == TOK_ERROR)
+    if ((ty=get_type_category(&s->child[0]->type)) == TOK_ERROR)
         return;
 
     if (!is_scalar(ty))
@@ -312,8 +312,8 @@ void analyze_jump_statement(ExecNode *s, int in_loop, int in_switch)
             new_node->next = unresolved_gotos_list;
             unresolved_gotos_list = new_node;
         }
-        break;
     }
+        break;
     case ContinueStmt:
         if (!in_loop)
             ERROR(s, "continue statement not within a loop");
@@ -338,8 +338,8 @@ void analyze_jump_statement(ExecNode *s, int in_loop, int in_switch)
                 return;
             /*
              * #3 If a return statement with an expression is executed, the value of the expression is
-             * returned to the caller as the value of the function call expression. If the expression has a
-             * type different from the return type of the function in which it appears, the value is
+             * returned to the caller as the value of the function call expression. If the expression has
+             * a type different from the return type of the function in which it appears, the value is
              * converted as if by assignment to an object having the return type of the function.
              */
             if (!can_assign_to(&ret_ty, s->child[0])) {
