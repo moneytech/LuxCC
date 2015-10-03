@@ -435,10 +435,8 @@ static void ic_find_atv_in_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
     TypeExp *ts;
 
     if (dct != NULL) {
-        if (dct->op != TOK_SUBSCRIPT) {
-            ic_find_atv_in_expr(e);
-            return;
-        }
+        if (dct->op != TOK_SUBSCRIPT)
+            goto scalar;
         if (e->kind.exp==StrLitExp || e->child[0]->kind.exp==StrLitExp)
             return;
         for (e = e->child[0]; e != NULL; e = e->sibling)
@@ -459,6 +457,9 @@ static void ic_find_atv_in_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
         e = e->child[0];
         ic_find_atv_in_init(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e);
     } else {
+scalar:
+        if (e->kind.exp==OpExp && e->attr.op==TOK_INIT_LIST)
+            e = e->child[0];
         ic_find_atv_in_expr(e);
     }
 }

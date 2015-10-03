@@ -1341,7 +1341,6 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
          * Scalar.
          */
         Declaration dest_ty;
-
 scalar:
         if (e->kind.exp==OpExp && e->attr.op==TOK_INIT_LIST) {
             /*

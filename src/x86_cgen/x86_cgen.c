@@ -28,14 +28,23 @@ static BSet *operand_liveness;
 static BSet *operand_next_use;
 static void init_operand_table(BSet *block_LiveOut);
 static void compute_liveness_and_next_use(unsigned fn);
+#if DEBUG
 static void print_liveness_and_next_use(unsigned fn);
+#endif
 
-#define tar_liveness(i)  (liveness_and_next_use[i] & 0x01)
-#define arg1_liveness(i) (liveness_and_next_use[i] & 0x02)
-#define arg2_liveness(i) (liveness_and_next_use[i] & 0x04)
-#define tar_next_use(i)  (liveness_and_next_use[i] & 0x08)
-#define arg1_next_use(i) (liveness_and_next_use[i] & 0x10)
-#define arg2_next_use(i) (liveness_and_next_use[i] & 0x20)
+#define TAR_LIVE_MASK   0x01
+#define AR1_LIVE_MASK   0x02
+#define AR2_LIVE_MASK   0x04
+#define TAR_NEXT_MASK   0x08
+#define AR1_NEXT_MASK   0x10
+#define AR2_NEXT_MASK   0x20
+
+#define tar_liveness(i)  (liveness_and_next_use[i] & TAR_LIVE_MASK)
+#define arg1_liveness(i) (liveness_and_next_use[i] & AR1_LIVE_MASK)
+#define arg2_liveness(i) (liveness_and_next_use[i] & AR2_LIVE_MASK)
+#define tar_next_use(i)  (liveness_and_next_use[i] & TAR_NEXT_MASK)
+#define arg1_next_use(i) (liveness_and_next_use[i] & AR1_NEXT_MASK)
+#define arg2_next_use(i) (liveness_and_next_use[i] & AR2_NEXT_MASK)
 
 typedef enum {
     X86_EAX,
@@ -193,7 +202,7 @@ void x86_cgen(FILE *outf)
     }
 
     /* generate intermediate code and do some analysis */
-    ic_main(func_def_list); //exit(0);
+    ic_main(func_def_list);
 
     /* compute liveness and next use */
     liveness_and_next_use = calloc(ic_instructions_counter, sizeof(unsigned char));
@@ -225,6 +234,7 @@ void x86_cgen(FILE *outf)
     for (j = 0; (ed=ext_sym_list[j]) != NULL; j++) {
         int tmp;
 
+        /* get_var_nid() will increment nid_counter when it sees a new identifier */
         tmp = nid_counter;
         get_var_nid(ed->declarator->str, 0);
         if (tmp == nid_counter)
@@ -241,8 +251,6 @@ void x86_cgen(FILE *outf)
         string_write(str_lits, x86_output_file);
     }
     string_free(str_lits);
-
-    // printf("=> %d\n", nid_counter);
 }
 
 /*
@@ -287,16 +295,16 @@ void compute_liveness_and_next_use(unsigned fn)
 \
             tar_nid = address_nid(tar);\
             if (bset_member(operand_liveness, tar_nid)) {\
-                liveness_and_next_use[i] |= 0x01;\
+                liveness_and_next_use[i] |= TAR_LIVE_MASK;\
                 bset_delete(operand_liveness, tar_nid);\
             } else {\
-                /*liveness_and_next_use[i] &= ~0x01;*/\
+                /*liveness_and_next_use[i] &= ~TAR_LIVE_MASK;*/\
             }\
             if (bset_member(operand_next_use, tar_nid)) {\
-                liveness_and_next_use[i] |= 0x08;\
+                liveness_and_next_use[i] |= TAR_NEXT_MASK;\
                 bset_delete(operand_next_use, tar_nid);\
             } else {\
-                /*liveness_and_next_use[i] &= ~0x08;*/\
+                /*liveness_and_next_use[i] &= ~TAR_NEXT_MASK;*/\
             }\
         } while (0)
 #define update_arg1()\
@@ -305,15 +313,15 @@ void compute_liveness_and_next_use(unsigned fn)
 \
             arg1_nid = address_nid(arg1);\
             if (bset_member(operand_liveness, arg1_nid)) {\
-                liveness_and_next_use[i] |= 0x02;\
+                liveness_and_next_use[i] |= AR1_LIVE_MASK;\
             } else {\
-                /*liveness_and_next_use[i] &= ~0x02;*/\
+                /*liveness_and_next_use[i] &= ~AR1_LIVE_MASK;*/\
                 bset_insert(operand_liveness, arg1_nid);\
             }\
             if (bset_member(operand_next_use, arg1_nid)) {\
-                liveness_and_next_use[i] |= 0x10;\
+                liveness_and_next_use[i] |= AR1_NEXT_MASK;\
             } else {\
-                /*liveness_and_next_use[i] &= ~0x10;*/\
+                /*liveness_and_next_use[i] &= ~AR1_NEXT_MASK;*/\
                 bset_insert(operand_next_use, arg1_nid);\
             }\
         } while (0)
@@ -323,15 +331,15 @@ void compute_liveness_and_next_use(unsigned fn)
 \
             arg2_nid = address_nid(arg2);\
             if (bset_member(operand_liveness, arg2_nid)) {\
-                liveness_and_next_use[i] |= 0x04;\
+                liveness_and_next_use[i] |= AR2_LIVE_MASK;\
             } else {\
-                /*liveness_and_next_use[i] &= ~0x04;*/\
+                /*liveness_and_next_use[i] &= ~AR2_LIVE_MASK;*/\
                 bset_insert(operand_liveness, arg2_nid);\
             }\
             if (bset_member(operand_next_use, arg2_nid)) {\
-                liveness_and_next_use[i] |= 0x20;\
+                liveness_and_next_use[i] |= AR2_NEXT_MASK;\
             } else {\
-                /*liveness_and_next_use[i] &= ~0x20;*/\
+                /*liveness_and_next_use[i] &= ~AR2_NEXT_MASK;*/\
                 bset_insert(operand_next_use, arg2_nid);\
             }\
         } while (0)
@@ -399,6 +407,7 @@ void compute_liveness_and_next_use(unsigned fn)
 #endif
 }
 
+#if DEBUG
 void print_liveness_and_next_use(unsigned fn)
 {
     int b;
@@ -501,6 +510,7 @@ void print_liveness_and_next_use(unsigned fn)
         printf("\n\n");
     }
 }
+#endif
 
 void dump_addr_descr_tab(void)
 {
@@ -519,8 +529,6 @@ void dump_reg_descr_tab(void)
         if (!reg_is_empty(i))
             printf("%s => %s\n", x86_reg_str[i], address_sid(reg_descr_tab[i]));
 }
-
-// =============================================================================
 
 X86_Reg get_empty_reg(void)
 {
@@ -2079,9 +2087,11 @@ void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
          * Array.
          */
         nelem = dct->attr.e->attr.uval;
-        if (e->kind.exp == StrLitExp) { /* character array initialized by string literal */
+        if (e->kind.exp==StrLitExp || e->child[0]->kind.exp==StrLitExp) { /* character array initialized by string literal */
             unsigned n;
 
+            if (e->kind.exp != StrLitExp)
+                e = e->child[0];
             e->attr.str[nelem-1] = '\0';
             emit_raw_string(asm_decls, e->attr.str);
             if ((n=strlen(e->attr.str)+1) < nelem)
@@ -2163,6 +2173,8 @@ void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
          */
         Declaration dest_ty;
 scalar:
+        if (e->kind.exp==OpExp && e->attr.op==TOK_INIT_LIST)
+            e = e->child[0];
         dest_ty.decl_specs = ds;
         dest_ty.idl = dct;
         switch (get_type_category(&dest_ty)) {
