@@ -927,11 +927,11 @@ static void print_CG_ordering(void)
 
     printf("CG PO = [ ");
     for (i = 0; i < cg_nodes_counter; i++)
-        printf("%u, ", cg_node(i).PO);
+        printf("%u%s", cg_node(i).PO, (i!=cg_nodes_counter-1)?", ":" ");
     printf("]\n");
     printf("CG RPO = [ ");
     for (i = 0; i < cg_nodes_counter; i++)
-        printf("%u, ", cg_node(i).RPO);
+        printf("%u%s", cg_node(i).RPO, (i!=cg_nodes_counter-1)?", ":" ");
     printf("]\n");
 }
 
@@ -1006,12 +1006,12 @@ static void print_CFG_ordering(unsigned fn)
 
     printf("CFG PO = [ ");
     for (i = entry_bb; i <= last_bb; i++)
-        printf("%u, ", cfg_node(i).PO);
+        printf("%u%s", cfg_node(i).PO, (i!=last_bb)?", ":" ");
     printf("]\n");
 
     printf("CFG RPO = [ ");
     for (i = entry_bb; i <= last_bb; i++)
-        printf("%u, ", cfg_node(i).RPO);
+        printf("%u%s", cfg_node(i).RPO, (i!=last_bb)?", ":" ");
     printf("]\n");
 }
 
@@ -1031,7 +1031,7 @@ static void print_CFG(unsigned fn)
 
         printf("V%u[label=\"B%u ", i, i);
         for (j = cfg_node(i).leader; j <= cfg_node(i).last; j++)
-            printf("(%u), ", j);
+            printf("(%u)%s", j, (j!=cfg_node(i).last)?", ":"");
         printf("\"];\n");
 
         for (j = 0; j < cfg_node(i).out.n; j++)
