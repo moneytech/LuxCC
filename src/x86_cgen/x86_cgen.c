@@ -2087,11 +2087,9 @@ void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
          * Array.
          */
         nelem = dct->attr.e->attr.uval;
-        if (e->kind.exp==StrLitExp || e->child[0]->kind.exp==StrLitExp) { /* character array initialized by string literal */
+        if (e->kind.exp == StrLitExp) { /* character array initialized by string literal */
             unsigned n;
 
-            if (e->kind.exp != StrLitExp)
-                e = e->child[0];
             e->attr.str[nelem-1] = '\0';
             emit_raw_string(asm_decls, e->attr.str);
             if ((n=strlen(e->attr.str)+1) < nelem)

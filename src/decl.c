@@ -1235,8 +1235,12 @@ static void analyze_initializer(TypeExp *ds, TypeExp *dct, ExecNode *e, int is_c
             /* character array initialized by string literal (or a string literal enclosed in braces) */
             int size;
 
-            if (is_init_list)
-                e = e->child[0];
+            if (is_init_list) {
+                /* replace the {} by for the string */
+                e->kind.exp = StrLitExp;
+                e->attr.str = e->child[0]->attr.str;
+                e->child[0] = NULL;
+            }
 
             size = strlen(e->attr.str);
             if (dct->attr.e != NULL) {

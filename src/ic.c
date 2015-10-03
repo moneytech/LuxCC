@@ -437,7 +437,7 @@ static void ic_find_atv_in_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
     if (dct != NULL) {
         if (dct->op != TOK_SUBSCRIPT)
             goto scalar;
-        if (e->kind.exp==StrLitExp || e->child[0]->kind.exp==StrLitExp)
+        if (e->kind.exp == StrLitExp)
             return;
         for (e = e->child[0]; e != NULL; e = e->sibling)
             ic_find_atv_in_init(ds, dct->child, e);
@@ -1780,12 +1780,10 @@ void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned 
          * Array.
          */
         nelem = dct->attr.e->attr.uval;
-        if (e->kind.exp==StrLitExp || e->child[0]->kind.exp==StrLitExp) {
+        if (e->kind.exp == StrLitExp) {
             /* char array initialized by string literal */
             unsigned a1, n, nfill;
 
-            if (e->kind.exp != StrLitExp)
-                e = e->child[0];
             a1 = new_address(IConstKind);
             n = strlen(e->attr.str)+1;
             nfill = 0;
