@@ -28,8 +28,7 @@ void location_init(void)
         location_arena[i] = arena_new(128, FALSE);
 }
 
-static
-Location *alloc_location(void)
+static Location *alloc_location(void)
 {
     void *p;
 

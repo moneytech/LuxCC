@@ -1965,7 +1965,7 @@ ExternDecl *parser(TokenNode *tokens)
     parser_str_arena = arena_new(1024, FALSE);
     n = translation_unit();
     stmt_done();
-    // print_ast(translation_unit()), exit(0);
+    // print_ast(n), exit(0);
     return n;
 }
 

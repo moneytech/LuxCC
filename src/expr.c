@@ -2338,8 +2338,7 @@ long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
         }
         return TRUE;
     }
-    emit_error(FALSE, e->info->src_file, e->info->src_line, e->info->src_column,
+    emit_error(TRUE, e->info->src_file, e->info->src_line, e->info->src_column,
     "invalid constant expression");
     // longjmp(env, 1);
-    assert(0);
 }

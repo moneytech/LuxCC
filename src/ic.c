@@ -5,7 +5,6 @@
 #define DEBUG 0
 #include "ic.h"
 #include <stdio.h>
-#include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -17,6 +16,11 @@
 #include "loc.h"
 #include "dflow.h"
 #include "bset.h"
+
+#define ID_TABLE_SIZE 1009
+typedef struct IDNode IDNode;
+typedef struct SwitchLabel SwitchLabel;
+typedef struct Label Label;
 
 #define IINIT   1024
 #define IGROW   2
@@ -52,6 +56,10 @@ static Declaration int_ty = { &int_expr };
 static TypeExp unsigned_expr = { TOK_UNSIGNED };
 static Declaration unsigned_ty = { &unsigned_expr };
 ExternId *static_objects_list;
+static unsigned curr_cg_node;
+static unsigned ic_func_first_instr;
+static unsigned exit_label;
+static Arena *temp_names_arena;
 
 /*
  * X86 stuff.
@@ -64,14 +72,10 @@ static int local_offset;
 /* ---- */
 
 static Arena *id_table_arena;
-static Arena *temp_names_arena;
-
-#define ID_TABLE_SIZE 1009
-typedef struct IDNode IDNode;
 static struct IDNode {
     char *sid;
-    int scope;
     int nid;
+    int scope;
     IDNode *next;
 } *id_table[ID_TABLE_SIZE];
 
@@ -79,32 +83,23 @@ int nid_counter;
 static int nid_max;
 char **nid2sid_tab;
 
-static int *atv;
+static int *atv_table;
 static int atv_counter, atv_max;
 BSet *address_taken_variables;
 
-static void ic_reset(void);
-static void new_cfg_node(unsigned leader);
-static void emit_i(OpKind op, Declaration *type, unsigned tar, unsigned arg1, unsigned arg2);
-static unsigned new_address(AddrKind kind);
-static unsigned new_temp_addr(void);
-static unsigned new_label(void);
-static void ic_compound_statement(ExecNode *s, int push_scope);
-static void ic_function_definition(TypeExp *decl_specs, TypeExp *header);
-static void new_nid(char *sid);
-static void new_atv(int vnid);
-/*static int get_var_nid(char *sid, int scope);*/
-static void edge_init(GraphEdge *p, unsigned max);
-static void edge_free(GraphEdge *p);
+static void ic_out_of_memory(char *func)
+{
+    TERMINATE("error: %s(): out of memory", func);
+}
 
-void new_nid(char *sid)
+static void new_nid(char *sid)
 {
     if (nid_counter >= nid_max) {
         char **p;
 
-        p = realloc(nid2sid_tab, 2*nid_max*sizeof(char *));
-        assert(p != NULL);
         nid_max *= 2;
+        if ((p=realloc(nid2sid_tab, nid_max*sizeof(char *))) == NULL)
+            ic_out_of_memory("new_nid");
         nid2sid_tab = p;
     }
     nid2sid_tab[nid_counter++] = sid;
@@ -129,11 +124,16 @@ int get_var_nid(char *sid, int scope)
     return np->nid;
 }
 
-void edge_init(GraphEdge *p, unsigned max)
+static void edge_init(GraphEdge *p, unsigned max)
 {
     p->edges = calloc(max, sizeof(unsigned));
     p->max = max;
     p->n = 0;
+}
+
+static void edge_free(GraphEdge *p)
+{
+    free(p->edges);
 }
 
 void edge_add(GraphEdge *p, unsigned e)
@@ -148,8 +148,8 @@ void edge_add(GraphEdge *p, unsigned e)
         unsigned *new_edges;
 
         p->max *= 2;
-        new_edges = realloc(p->edges, p->max*sizeof(unsigned));
-        assert(new_edges != NULL);
+        if ((new_edges=realloc(p->edges, p->max*sizeof(unsigned))) == NULL)
+            ic_out_of_memory("edge_add");
         p->edges = new_edges;
     }
     p->edges[p->n++] = e;
@@ -170,11 +170,6 @@ unsigned edge_iterate(GraphEdge *p)
     return (unsigned)-1;
 }
 
-void edge_free(GraphEdge *p)
-{
-    free(p->edges);
-}
-
 unsigned new_cg_node(char *func_id)
 {
     unsigned i;
@@ -183,13 +178,13 @@ unsigned new_cg_node(char *func_id)
         if (equal(cg_nodes[i].func_id, func_id))
             return i;
     if (cg_nodes_counter >= cg_nodes_max) {
-        CGNode *new_p;
+        CGNode *p;
 
         /* grow */
-        new_p = realloc(cg_nodes, CGROW*cg_nodes_max*sizeof(CGNode));
-        assert(new_p != NULL);
         cg_nodes_max *= CGROW;
-        cg_nodes = new_p;
+        if ((p=realloc(cg_nodes, cg_nodes_max*sizeof(CGNode))) == NULL)
+            ic_out_of_memory("new_cg_node");
+        cg_nodes = p;
     }
     memset(&cg_nodes[cg_nodes_counter], 0, sizeof(CGNode));
     cg_nodes[cg_nodes_counter].func_id = func_id;
@@ -197,16 +192,16 @@ unsigned new_cg_node(char *func_id)
     return cg_nodes_counter++;
 }
 
-void new_cfg_node(unsigned leader)
+static void new_cfg_node(unsigned leader)
 {
     if (cfg_nodes_counter >= cfg_nodes_max) {
-        CFGNode *new_p;
+        CFGNode *p;
 
         /* grow */
-        new_p = realloc(cfg_nodes, NGROW*cfg_nodes_max*sizeof(CFGNode));
-        assert(new_p != NULL);
         cfg_nodes_max *= NGROW;
-        cfg_nodes = new_p;
+        if ((p=realloc(cfg_nodes, cfg_nodes_max*sizeof(CFGNode))) == NULL)
+            ic_out_of_memory("new_cfg_node");
+        cfg_nodes = p;
     }
     cfg_nodes[cfg_nodes_counter].leader = leader;
     edge_init(&cfg_nodes[cfg_nodes_counter].out, 2);
@@ -214,16 +209,16 @@ void new_cfg_node(unsigned leader)
     ++cfg_nodes_counter;
 }
 
-void emit_i(OpKind op, Declaration *type, unsigned tar, unsigned arg1, unsigned arg2)
+static void emit_i(OpKind op, Declaration *type, unsigned tar, unsigned arg1, unsigned arg2)
 {
     if (ic_instructions_counter >= ic_instructions_max) {
-        Quad *new_p;
+        Quad *p;
 
         /* grow */
-        new_p = realloc(ic_instructions, IGROW*ic_instructions_max*sizeof(Quad));
-        assert(new_p != NULL);
         ic_instructions_max *= IGROW;
-        ic_instructions = new_p;
+        if ((p=realloc(ic_instructions, ic_instructions_max*sizeof(Quad))) == NULL)
+            ic_out_of_memory("emit_i");
+        ic_instructions = p;
     }
     ic_instructions[ic_instructions_counter].op = op;
     ic_instructions[ic_instructions_counter].type = type;
@@ -233,16 +228,16 @@ void emit_i(OpKind op, Declaration *type, unsigned tar, unsigned arg1, unsigned 
     ++ic_instructions_counter;
 }
 
-unsigned new_address(AddrKind kind)
+static unsigned new_address(AddrKind kind)
 {
     if (ic_addresses_counter >= ic_addresses_max) {
-        Address *new_p;
+        Address *p;
 
         /* grow */
-        new_p = realloc(ic_addresses, AGROW*ic_addresses_max*sizeof(Address));
-        assert(new_p != NULL);
         ic_addresses_max *= AGROW;
-        ic_addresses = new_p;
+        if ((p=realloc(ic_addresses, ic_addresses_max*sizeof(Address))) == NULL)
+            ic_out_of_memory("new_address");
+        ic_addresses = p;
     }
     memset(&ic_addresses[ic_addresses_counter], 0, sizeof(Address));
     ic_addresses[ic_addresses_counter].kind = kind;
@@ -250,7 +245,7 @@ unsigned new_address(AddrKind kind)
     return ic_addresses_counter++;
 }
 
-unsigned new_temp_addr(void)
+static unsigned new_temp_addr(void)
 {
     unsigned n;
     char s[10], *p;
@@ -264,16 +259,16 @@ unsigned new_temp_addr(void)
     return n;
 }
 
-unsigned new_label(void)
+static unsigned new_label(void)
 {
     unsigned L;
 
     if (label_counter >= label_max) {
         unsigned *p;
 
-        p = realloc(lab2instr, label_max*2*sizeof(unsigned));
-        assert(p != NULL);
         label_max *= 2;
+        if ((p=realloc(lab2instr, label_max*sizeof(unsigned))) == NULL)
+            ic_out_of_memory("new_label");
         lab2instr = p;
     }
     L = new_address(IConstKind);
@@ -282,60 +277,62 @@ unsigned new_label(void)
     return L;
 }
 
-void emit_label(unsigned L)
+static void emit_label(unsigned L)
 {
     lab2instr[address(L).cont.val] = ic_instructions_counter;
     emit_i(OpLab, NULL, L, 0, 0);
 }
 
-void new_atv(int vnid)
+static void new_atv(int vnid)
 {
     if (atv_counter >= atv_max) {
+        int *p;
+
         atv_max *= 2;
-        atv = realloc(atv, atv_max*sizeof(int));
-        assert(atv != NULL);
+        if ((p=realloc(atv_table, atv_max*sizeof(int))) == NULL)
+            ic_out_of_memory("new_atv");
+        atv_table = p;
     }
-    atv[atv_counter++] = vnid;
+    atv_table[atv_counter++] = vnid;
 }
 
-void ic_init(void)
+static void ic_init(void)
 {
     location_init();
 
     /* init instruction buffer */
-    ic_instructions = malloc(IINIT*sizeof(Quad));
-    assert(ic_instructions != NULL);
+    if ((ic_instructions=malloc(IINIT*sizeof(Quad))) == NULL)
+        goto out_mem;
     ic_instructions_max = IINIT;
     ic_instructions_counter = 0;
 
     /* init address buffer */
-    ic_addresses = malloc(AINIT*sizeof(Address));
-    assert(ic_addresses != NULL);
+    if ((ic_addresses=malloc(AINIT*sizeof(Address))) == NULL)
+        goto out_mem;
     ic_addresses_max = AINIT;
     ic_addresses_counter = 1; /* address 0 is reserved for 'empty' */
 
     /* init CFG buffer */
-    cfg_nodes = malloc(NINIT*sizeof(CFGNode));
-    assert(cfg_nodes != NULL);
+    if ((cfg_nodes=malloc(NINIT*sizeof(CFGNode))) == NULL)
+        goto out_mem;
     cfg_nodes_max = NINIT;
     cfg_nodes_counter = 1; /* 0 reserved for null node */
 
     /* init CG buffer */
-    cg_nodes = malloc(CINIT*sizeof(CGNode));
-    assert(cg_nodes != NULL);
+    if ((cg_nodes=malloc(CINIT*sizeof(CGNode))) == NULL)
+        goto out_mem;
     cg_nodes_max = CINIT;
     cg_nodes_counter = 0;
 
     /* init nid -> sid table */
-    nid2sid_tab = malloc(128*sizeof(char *));
-    assert(nid2sid_tab != NULL);
+    if ((nid2sid_tab=malloc(128*sizeof(char *))) == NULL)
+        goto out_mem;
     nid_max = 128;
     nid_counter = 0;
 
     id_table_arena = arena_new(256, FALSE);
     temp_names_arena = arena_new(256, FALSE);
 
-    /* FALSE/TRUE addresses */
     true_addr = new_address(IConstKind);
     address(true_addr).cont.uval = 1;
     false_addr = new_address(IConstKind);
@@ -352,21 +349,28 @@ void ic_init(void)
     address(memcpy_addr).cont.var.e = &memcpy_node;
 
     label_max = 64;
-    lab2instr = malloc(label_max*sizeof(unsigned));
+    if ((lab2instr=malloc(label_max*sizeof(unsigned))) == NULL)
+        goto out_mem;
 
     atv_max = 32;
-    atv = malloc(atv_max*sizeof(int));
+    if ((atv_table=malloc(atv_max*sizeof(int))) == NULL)
+        goto out_mem;
     atv_counter = 0;
+
+    return;
+out_mem:
+    ic_out_of_memory("ic_init");
 }
 
-void ic_reset(void)
+static void ic_reset(void)
 {
+    label_counter = 0;
+    /* x86 stuff */
     size_of_local_area = 0;
     local_offset = 0;
-    label_counter = 0;
 }
 
-void ic_free_all(void)
+static void ic_free_all(void)
 {
     unsigned i;
 
@@ -393,53 +397,40 @@ void ic_free_all(void)
     free(nid2sid_tab);
 }
 
-static unsigned curr_cg_node;
-static void print_CG(void);
-static unsigned ic_func_first_instr;
-static void dump_ic(unsigned fn);
-static void build_CFG(void);
-static void print_CFG(unsigned fn);
-static void number_CG(void);
-static void ic_simplify(void);
-static void ic_find_atv_in_expr(ExecNode *e);
-static void ic_find_atv_in_init(TypeExp *ds, TypeExp *dct, ExecNode *e);
-static void ic_find_atv(void);
-
-/* find address-taken variables in static initializer expression */
-void ic_find_atv_in_expr(ExecNode *e)
+/* Find address-taken variables in a single static initializer expression. */
+static void ic_find_atv_in_expr(ExecNode *e)
 {
     if (e->kind.exp == OpExp) {
         switch (e->attr.op) {
-        case TOK_UNARY_PLUS:
-        case TOK_UNARY_MINUS:
-        case TOK_COMPLEMENT:
-        case TOK_NEGATION:
+        case TOK_DOT:
+        case TOK_ARROW:
         case TOK_ADDRESS_OF:
+        case TOK_INDIRECTION:
+        case TOK_CAST:
             ic_find_atv_in_expr(e->child[0]);
             break;
-        case TOK_MUL:
-        case TOK_DIV:
-        case TOK_REM:
-        case TOK_LSHIFT:
-        case TOK_RSHIFT:
-        case TOK_BW_AND:
-        case TOK_BW_XOR:
-        case TOK_BW_OR:
+        case TOK_SUBSCRIPT:
         case TOK_PLUS:
         case TOK_MINUS:
             ic_find_atv_in_expr(e->child[0]);
             ic_find_atv_in_expr(e->child[1]);
             break;
-        default:
+        case TOK_CONDITIONAL:
+            if (e->child[0]->attr.val)
+                ic_find_atv_in_expr(e->child[1]);
+            else
+                ic_find_atv_in_expr(e->child[2]);
             break;
+        default:
+            assert(0);
         }
     } else if (e->kind.exp == IdExp) {
         new_atv(get_var_nid(e->attr.str, e->attr.var.scope));
     }
 }
 
-/* find address-taken variables in static initializer */
-void ic_find_atv_in_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
+/* Find address-taken variables in static initializer (scalar or bracketed). */
+static void ic_find_atv_in_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
 {
     TypeExp *ts;
 
@@ -448,7 +439,7 @@ void ic_find_atv_in_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
             ic_find_atv_in_expr(e);
             return;
         }
-        if (e->kind.exp == StrLitExp)
+        if (e->kind.exp==StrLitExp || e->child[0]->kind.exp==StrLitExp)
             return;
         for (e = e->child[0]; e != NULL; e = e->sibling)
             ic_find_atv_in_init(ds, dct->child, e);
@@ -472,8 +463,8 @@ void ic_find_atv_in_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
     }
 }
 
-/* find address-taken variables in static initializers */
-void ic_find_atv(void)
+/* Find address-taken variables in static initializers. */
+static void ic_find_atv(void)
 {
     ExternId *np;
 
@@ -482,14 +473,14 @@ void ic_find_atv(void)
             ic_find_atv_in_init(np->decl_specs, np->declarator->child, np->declarator->attr.e);
 }
 
-void ic_simplify(void)
+static void ic_simplify(void)
 {
     unsigned i;
 
     for (i = ic_func_first_instr; i < ic_instructions_counter; i++) {
-        unsigned tar, arg1, arg2;
+        unsigned /*tar,*/ arg1, arg2;
 
-        tar = instruction(i).tar;
+        /*tar = instruction(i).tar;*/
         arg1 = instruction(i).arg1;
         arg2 = instruction(i).arg2;
 
@@ -587,6 +578,10 @@ void ic_simplify(void)
         /*
          * x = 0/y => x = 0
          * x = y/1 => x = y
+         *
+         * The following will only work with unsigned numbers (or when
+         * y has a positive value, but of course we may not know that).
+         * x = y/p => x = y>>n (with p == 2^n)
          */
         case OpDiv:
             if (is_iconst(arg1)) {
@@ -594,13 +589,23 @@ void ic_simplify(void)
                     fold2(i, /);
                 else if (address(arg1).cont.val == 0)
                     instruction(i).op = OpAsn;
-            } else if (is_iconst(arg2) && address(arg2).cont.val==1) {
-                instruction(i).op = OpAsn;
+            } else if (is_iconst(arg2)) {
+                if (address(arg2).cont.val==1) {
+                    instruction(i).op = OpAsn;
+                } else if (is_po2(address(arg2).cont.uval)
+                && is_unsigned_int(get_type_category(instruction(i).type))) {
+                    instruction(i).op = OpSHR;
+                    address(arg2).cont.uval = ilog2(address(arg2).cont.uval);
+                }
             }
             break;
         /*
          * x = 0%y => x = 0
          * x = y%1 => x = 0
+         *
+         * The following will only work under the same constraints as
+         * for the division case.
+         * x = y%p => x = y & (p-1) (with p being a power of two)
          */
         case OpRem:
             if (is_iconst(arg1)) {
@@ -608,10 +613,16 @@ void ic_simplify(void)
                     fold2(i, %);
                 else if (address(arg1).cont.val == 0)
                     instruction(i). op = OpAsn;
-            } else if (is_iconst(arg2) && address(arg2).cont.val==1) {
-                instruction(i). op = OpAsn;
-                address(arg1).kind = IConstKind;
-                address(arg1).cont.val = 0;
+            } else if (is_iconst(arg2)) {
+                if (address(arg2).cont.val==1) {
+                    instruction(i).op = OpAsn;
+                    address(arg1).kind = IConstKind;
+                    address(arg1).cont.val = 0;
+                } else if (is_po2(address(arg2).cont.uval)
+                && is_unsigned_int(get_type_category(instruction(i).type))) {
+                    instruction(i).op = OpAnd;
+                    address(arg2).cont.uval = address(arg2).cont.uval-1;
+                }
             }
             break;
         /*
@@ -815,48 +826,23 @@ address(arg1).cont.val = _op_ address(arg1).cont.val
     }
 }
 
-void ic_main(ExternId *func_def_list[])
-{
-    unsigned i;
-    ExternId *ed;
-
-    ic_init();
-    for (i = 0, ed = func_def_list[i]; ed != NULL; ++i, ed = func_def_list[i]) {
-        ic_func_first_instr = ic_instructions_counter;
-        curr_cg_node = new_cg_node(ed->declarator->str);
-        ic_function_definition(ed->decl_specs, ed->declarator);
-        ic_simplify();
-        build_CFG();
-        ic_reset();
-    }
-    if (i == 0)
-        return;
-
-    ic_find_atv();
-    address_taken_variables = bset_new(nid_counter);
-    for (i = 0; i < atv_counter; i++)
-        bset_insert(address_taken_variables, atv[i]);
-    free(atv);
-
-    /*
-     * [!] Important: from now on the nid counter
-     * must stand still for the analyses to work
-     * correctly.
-     */
-    number_CG();
-    // opt_main();
-    for (i = 0; i < cg_nodes_counter; i++) {
-        // dump_ic(i);
-        // print_CFG(i);
-        dflow_Dom(i);
-        dflow_LiveOut(i);
-        // dflow_ReachIn(i, i == cg_nodes_counter-1);
-    }
-    // print_CG();
-}
-
+static void ic_function_definition(TypeExp *decl_specs, TypeExp *header);
+static void ic_compound_statement(ExecNode *s, int push_scope);
+static void ic_if_statement(ExecNode *s);
+static void ic_switch_statement(ExecNode *s);
+static void ic_while_statement(ExecNode *s);
+static void ic_do_statement(ExecNode *s);
+static void ic_for_statement(ExecNode *s);
+static void ic_goto_statement(ExecNode *s);
+static void ic_continue_statement(void);
+static void ic_break_statement(void);
+static void ic_return_statement(ExecNode *s);
+static void ic_case_statement(ExecNode *s);
+static void ic_default_statement(ExecNode *s);
+static void ic_expression_statement(ExecNode *s);
+static void ic_label_statement(ExecNode *s);
+static void ic_statement(ExecNode *s);
 static void fix_gotos(void);
-static unsigned exit_label;
 
 void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
 {
@@ -930,13 +916,12 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
 
 static int pocount;
 static int *visited, nunvisited;
-// =============================================================================
-// Call-Graph (CG)
-// =============================================================================
-static void number_subCG(unsigned n);
-static void print_CG_ordering(void);
 
-void print_CG_ordering(void)
+/*                 */
+/* Call-Graph (CG) */
+/*                 */
+
+static void print_CG_ordering(void)
 {
     unsigned i;
 
@@ -950,14 +935,12 @@ void print_CG_ordering(void)
     printf("]\n");
 }
 
-void print_CG(void)
+static void print_CG(void)
 {
     unsigned i;
 
     printf("Program Call-Graph\n");
-// #if DEBUG
     print_CG_ordering();
-// #endif
     printf("digraph {\n");
     for (i = 0; i < cg_nodes_counter; i++) {
         unsigned j;
@@ -970,7 +953,26 @@ void print_CG(void)
     printf("}\n");
 }
 
-void number_CG(void)
+static void number_subCG(unsigned n)
+{
+    int i;
+
+    visited[n] = TRUE;
+    --nunvisited;
+    if (!cg_node_is_empty(n)) {
+        for (i = 0; i < cg_node(n).out.n; i++) {
+            unsigned succ;
+
+            succ = cg_node(n).out.edges[i];
+            if (!visited[succ])
+                number_subCG(succ);
+        }
+    }
+    cg_node(pocount).PO = n;
+    ++pocount;
+}
+
+static void number_CG(void)
 {
     unsigned n, n2;
 
@@ -990,33 +992,11 @@ void number_CG(void)
     free(visited);
 }
 
-void number_subCG(unsigned n)
-{
-    int i;
+/*                          */
+/* Control Flow Graph (CFG) */
+/*                          */
 
-    visited[n] = TRUE;
-    --nunvisited;
-    if (!cg_node_is_empty(n)) {
-        for (i = 0; i < cg_node(n).out.n; i++) {
-            unsigned succ;
-
-            succ = cg_node(n).out.edges[i];
-            if (!visited[succ])
-                number_subCG(succ);
-        }
-    }
-    cg_node(pocount).PO = n;
-    ++pocount;
-}
-
-// =============================================================================
-// Control Flow Graph (CFG)
-// =============================================================================
-static void number_CFG(void);
-static void number_subCFG(unsigned n);
-static void print_CFG_ordering(unsigned fn);
-
-void print_CFG_ordering(unsigned fn)
+static void print_CFG_ordering(unsigned fn)
 {
     unsigned i;
     unsigned entry_bb, last_bb;
@@ -1036,16 +1016,14 @@ void print_CFG_ordering(unsigned fn)
 }
 
 /* emit a DOT definition of the CFG */
-void print_CFG(unsigned fn)
+static void print_CFG(unsigned fn)
 {
     unsigned i;
 
     if (cg_node_is_empty(fn))
         return;
 
-// #if DEBUG
     print_CFG_ordering(fn);
-// #endif
 
     printf("digraph {\n");
     for (i = cg_node(fn).bb_i; i <= cg_node(fn).bb_f; i++) {
@@ -1062,7 +1040,24 @@ void print_CFG(unsigned fn)
     printf("}\n");
 }
 
-void number_CFG(void)
+static void number_subCFG(unsigned n)
+{
+    int i;
+
+    visited[n-cg_node(curr_cg_node).bb_i] = TRUE;
+    --nunvisited;
+    for (i = 0; i < cfg_node(n).out.n; i++) {
+        unsigned succ;
+
+        succ = cfg_node(n).out.edges[i];
+        if (!visited[succ-cg_node(curr_cg_node).bb_i])
+            number_subCFG(succ);
+    }
+    cfg_node(pocount).PO = n;
+    ++pocount;
+}
+
+static void number_CFG(void)
 {
     unsigned n, n2;
 
@@ -1086,24 +1081,7 @@ void number_CFG(void)
     free(visited);
 }
 
-void number_subCFG(unsigned n)
-{
-    int i;
-
-    visited[n-cg_node(curr_cg_node).bb_i] = TRUE;
-    --nunvisited;
-    for (i = 0; i < cfg_node(n).out.n; i++) {
-        unsigned succ;
-
-        succ = cfg_node(n).out.edges[i];
-        if (!visited[succ-cg_node(curr_cg_node).bb_i])
-            number_subCFG(succ);
-    }
-    cfg_node(pocount).PO = n;
-    ++pocount;
-}
-
-void build_CFG(void)
+static void build_CFG(void)
 {
     int i;
     unsigned leader, func_ninstr, *leader2node;
@@ -1235,10 +1213,10 @@ void build_CFG(void)
     number_CFG();
 }
 
-// =============================================================================
-// Statements
-// =============================================================================
-typedef struct SwitchLabel SwitchLabel;
+/*            */
+/* Statements */
+/*            */
+
 struct SwitchLabel {
     unsigned lab;
     long val;
@@ -1246,59 +1224,46 @@ struct SwitchLabel {
 } *ic_case_labels[MAX_SWITCH_NEST], *ic_default_labels[MAX_SWITCH_NEST];
 static int ic_switch_nesting_level = -1;
 
-typedef struct Label Label;
 static struct Label {
     char *str;
     unsigned addr;
     Label *next;
 } *ic_labels;
-
-static int gotos_to_fix[MAX_GOTOS_PER_FUNC], gotos_to_fix_counter;
 static void register_label(char *str, unsigned addr);
 static unsigned get_label_address(char *str);
+static int gotos_to_fix[MAX_GOTOS_PER_FUNC], gotos_to_fix_counter;
 
 static unsigned btarget_stack[128], ctarget_stack[128];
 static int bt_stack_top = -1, ct_stack_top = -1;
-static void push_break_target(unsigned lab);
-static void pop_break_target(void);
-static void push_continue_target(unsigned lab);
-static void pop_continue_target(void);
 
-static void ic_if_statement(ExecNode *s);
-static void ic_switch_statement(ExecNode *s);
-static void ic_while_statement(ExecNode *s);
-static void ic_do_statement(ExecNode *s);
-static void ic_for_statement(ExecNode *s);
-static void ic_goto_statement(ExecNode *s);
-static void ic_continue_statement(void);
-static void ic_break_statement(void);
-static void ic_return_statement(ExecNode *s);
-static void ic_case_statement(ExecNode *s);
-static void ic_default_statement(ExecNode *s);
-static void ic_expression_statement(ExecNode *s);
-static void ic_label_statement(ExecNode *s);
-static void ic_statement(ExecNode *s);
-static unsigned ic_expression2(ExecNode *e);
+static unsigned ic_expression(ExecNode *e, int is_addr);
+static int number_expression_tree(ExecNode *e);
 static unsigned ic_expr_convert(ExecNode *e, Declaration *dest);
 static void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned offset);
 static void ic_zero(unsigned id, unsigned offset, unsigned nb);
 
-void push_break_target(unsigned lab)
+static unsigned ic_expression2(ExecNode *e)
+{
+    number_expression_tree(e);
+    return ic_expression(e, FALSE);
+}
+
+static void push_break_target(unsigned lab)
 {
     btarget_stack[++bt_stack_top] = lab;
 }
 
-void pop_break_target(void)
+static void pop_break_target(void)
 {
     --bt_stack_top;
 }
 
-void push_continue_target(unsigned lab)
+static void push_continue_target(unsigned lab)
 {
     ctarget_stack[++ct_stack_top] = lab;
 }
 
-void pop_continue_target(void)
+static void pop_continue_target(void)
 {
     --ct_stack_top;
 }
@@ -1656,7 +1621,7 @@ void ic_compound_statement(ExecNode *s, int push_scope)
                         np = new_extern_id_node();
                         np->decl_specs = dl->decl->decl_specs;
                         np->declarator = dct;
-                        np->status = (ExtIdStatus)cg_node(curr_cg_node).func_id;
+                        np->enclosing_function = cg_node(curr_cg_node).func_id;
                         np->next = static_objects_list;
                         static_objects_list = np;
                     }
@@ -1682,6 +1647,7 @@ void ic_compound_statement(ExecNode *s, int push_scope)
                     unsigned a;
                     ExecNode *id_node;
 
+                    /* make up an identifier node so this can be treated as a normal assignment */
                     id_node = new_exec_node();
                     id_node->node_kind = ExpNode;
                     id_node->kind.exp = IdExp;
@@ -1966,26 +1932,17 @@ scalar:
         emit_i(OpIndAsn, ty, 0, a1, ic_expr_convert(e, ty));
     }
 }
-// =============================================================================
-// Expressions
-// =============================================================================
-static int is_binary(Token op);
-static int number_expression_tree(ExecNode *e);
-static void print_addr(unsigned addr);
-static int function_argument(ExecNode *arg, DeclList *param);
-static unsigned ic_dereference(unsigned ptr, Declaration *ty);
-static void ic_indirect_assignment(unsigned ptr, unsigned expr, Declaration *ty);
-static unsigned get_step_size(ExecNode *e);
-static unsigned ic_expression(ExecNode *e, int is_addr);
+
+/*             */
+/* Expressions */
+/*             */
 
 #define NREG(x) ((x)->nreg)
 
-int is_binary(Token op);
-
 /*
  * Annotate an expression syntax tree with the number
- * of registers needed to evaluate the expressions it
- * represent.
+ * of registers needed to evaluate the expression it
+ * represents.
  */
 int number_expression_tree(ExecNode *e)
 {
@@ -1993,7 +1950,26 @@ int number_expression_tree(ExecNode *e)
 
     switch (e->kind.exp) {
     case OpExp:
-        if (is_binary(e->attr.op)) {
+        switch (e->attr.op) {
+        case TOK_OR:
+        case TOK_AND:
+        case TOK_BW_OR:
+        case TOK_BW_XOR:
+        case TOK_BW_AND:
+        case TOK_EQ:
+        case TOK_NEQ:
+        case TOK_LT:
+        case TOK_GT:
+        case TOK_LET:
+        case TOK_GET:
+        case TOK_LSHIFT:
+        case TOK_RSHIFT:
+        case TOK_PLUS:
+        case TOK_MINUS:
+        case TOK_MUL:
+        case TOK_DIV:
+        case TOK_REM:
+        case TOK_SUBSCRIPT: {
             int nl, nr;
 
             nl = number_expression_tree(e->child[0]);
@@ -2002,9 +1978,15 @@ int number_expression_tree(ExecNode *e)
                 e->nreg = nl+1;
             else
                 e->nreg = nl>nr?nl:nr;
-        } else {
-            /* TBD [!] may be not accurate */
+        }
+            break;
+        default:
+            /*
+             * TODO: Assign a value according to the specific operator.
+             * For now just approx. a value.
+             */
             e->nreg = number_expression_tree(e->child[0])+1;
+            break;
         }
         break;
     case IConstExp:
@@ -2013,17 +1995,10 @@ int number_expression_tree(ExecNode *e)
         e->nreg = 1;
         break;
     }
-
     return e->nreg;
 }
 
-unsigned ic_expression2(ExecNode *e)
-{
-    number_expression_tree(e);
-    return ic_expression(e, FALSE);
-}
-
-unsigned ic_dereference(unsigned ptr, Declaration *ty)
+static unsigned ic_dereference(unsigned ptr, Declaration *ty)
 {
     unsigned dst;
 
@@ -2046,7 +2021,7 @@ unsigned ic_dereference(unsigned ptr, Declaration *ty)
     return dst;
 }
 
-void ic_indirect_assignment(unsigned ptr, unsigned expr, Declaration *ty)
+static void ic_indirect_assignment(unsigned ptr, unsigned expr, Declaration *ty)
 {
     if (const_addr(ptr)) {
         unsigned tmp;
@@ -2060,7 +2035,7 @@ void ic_indirect_assignment(unsigned ptr, unsigned expr, Declaration *ty)
     emit_i(OpIndAsn, ty, 0, ptr, expr);
 }
 
-unsigned get_step_size(ExecNode *e)
+static unsigned get_step_size(ExecNode *e)
 {
     unsigned a;
 
@@ -2075,6 +2050,90 @@ unsigned get_step_size(ExecNode *e)
         address(a).cont.uval = get_sizeof(&ty);
     }
     return a;
+}
+
+/*
+ * Push arguments from right to left recursively.
+ * Return the number of arguments pushed.
+ */
+static int function_argument(ExecNode *arg, DeclList *param)
+{
+    int n;
+
+    if (arg == NULL)
+        return 0;
+
+    n = 1;
+    if (param->decl->idl==NULL || param->decl->idl->op!=TOK_ELLIPSIS) {
+        /* this argument matches a declared (non-optional) parameter */
+
+        Declaration ty;
+
+        n += function_argument(arg->sibling, param->next);
+        ty = *param->decl;
+        if (ty.idl!=NULL && ty.idl->op==TOK_ID) /* skip any identifier */
+            ty.idl = ty.idl->child;
+        emit_i(OpArg, param->decl, 0, ic_expr_convert(arg, &ty), 0);
+    } else {
+        /* this and the arguments that follow match the `...' */
+
+        n += function_argument(arg->sibling, param);
+        emit_i(OpArg, &arg->type, 0, ic_expression(arg, FALSE), 0);
+    }
+    return n;
+}
+
+/*
+ * Evaluate expression `e' and convert the result to type `dest'.
+ */
+static unsigned ic_expr_convert(ExecNode *e, Declaration *dest)
+{
+    OpKind op;
+    unsigned a1, a2;
+    Token cat_dest, cat_src;
+
+    a1 = ic_expression(e, FALSE);
+
+    cat_src  = get_type_category(&e->type);
+    cat_dest = get_type_category(dest);
+
+    switch (cat_dest) {
+    case TOK_CHAR:
+    case TOK_SIGNED_CHAR:
+        if (cat_src!=TOK_CHAR && cat_src!=TOK_SIGNED_CHAR) {
+            op = OpCh;
+            break;
+        }
+        return a1; /* no conversion */
+    case TOK_UNSIGNED_CHAR:
+        if (cat_src != TOK_UNSIGNED_CHAR) {
+            op = OpUCh;
+            break;
+        }
+        return a1; /* no conversion */
+    case TOK_SHORT:
+        if (cat_src != TOK_CHAR
+        &&  cat_src != TOK_SIGNED_CHAR
+        &&  cat_src != TOK_UNSIGNED_CHAR
+        &&  cat_src != TOK_SHORT) {
+            op = OpSh;
+            break;
+        }
+        return a1; /* no conversion */
+    case TOK_UNSIGNED_SHORT:
+        if (cat_src!=TOK_UNSIGNED_CHAR && cat_src!=TOK_UNSIGNED_SHORT) {
+            op = OpUSh;
+            break;
+        }
+        return a1; /* no conversion */
+    default:
+        return a1; /* no conversion */
+    }
+    /* fall through */
+    /* convert */
+    a2 = new_temp_addr();
+    emit_i(op, NULL, a2, a1, 0);
+    return a2;
 }
 
 unsigned ic_expression(ExecNode *e, int is_addr)
@@ -2611,157 +2670,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
     assert(0);
 }
 
-/*
- * Evaluate expression `e' and convert the result to type `dest'.
- */
-unsigned ic_expr_convert(ExecNode *e, Declaration *dest)
-{
-    OpKind op;
-    unsigned a1, a2;
-    Token cat_dest, cat_src;
-
-    a1 = ic_expression(e, FALSE);
-
-    cat_src  = get_type_category(&e->type);
-    cat_dest = get_type_category(dest);
-
-    switch (cat_dest) {
-    case TOK_CHAR:
-    case TOK_SIGNED_CHAR:
-        if (cat_src!=TOK_CHAR && cat_src!=TOK_SIGNED_CHAR) {
-            op = OpCh;
-            break;
-        }
-        return a1; /* no conversion */
-    case TOK_UNSIGNED_CHAR:
-        if (cat_src != TOK_UNSIGNED_CHAR) {
-            op = OpUCh;
-            break;
-        }
-        return a1; /* no conversion */
-    case TOK_SHORT:
-        if (cat_src != TOK_CHAR
-        &&  cat_src != TOK_SIGNED_CHAR
-        &&  cat_src != TOK_UNSIGNED_CHAR
-        &&  cat_src != TOK_SHORT) {
-            op = OpSh;
-            break;
-        }
-        return a1; /* no conversion */
-    case TOK_UNSIGNED_SHORT:
-        if (cat_src!=TOK_UNSIGNED_CHAR && cat_src!=TOK_UNSIGNED_SHORT) {
-            op = OpUSh;
-            break;
-        }
-        return a1; /* no conversion */
-    default:
-        return a1; /* no conversion */
-    }
-    /* fall through */
-    /* convert */
-    a2 = new_temp_addr();
-    emit_i(op, NULL, a2, a1, 0);
-    return a2;
-}
-
-/*
- * Push arguments from right to left recursively.
- * Return the number of arguments pushed.
- */
-int function_argument(ExecNode *arg, DeclList *param)
-{
-    int n;
-
-    if (arg == NULL)
-        return 0;
-
-    n = 1;
-    if (param->decl->idl==NULL || param->decl->idl->op!=TOK_ELLIPSIS) {
-        /* this argument matches a declared (non-optional) parameter */
-
-        Declaration ty;
-
-        n += function_argument(arg->sibling, param->next);
-        ty = *param->decl;
-        if (ty.idl!=NULL && ty.idl->op==TOK_ID) /* skip any identifier */
-            ty.idl = ty.idl->child;
-        emit_i(OpArg, param->decl, 0, ic_expr_convert(arg, &ty), 0);
-    } else {
-        /* this and the arguments that follow match the `...' */
-
-        n += function_argument(arg->sibling, param);
-        emit_i(OpArg, &arg->type, 0, ic_expression(arg, FALSE), 0);
-    }
-    return n;
-}
-
-int is_binary(Token op)
-{
-    switch (op) {
-    /*case TOK_COMMA:
-    case TOK_ASSIGN:
-    case TOK_MUL_ASSIGN:
-    case TOK_DIV_ASSIGN:
-    case TOK_REM_ASSIGN:
-    case TOK_PLUS_ASSIGN:
-    case TOK_MINUS_ASSIGN:
-    case TOK_LSHIFT_ASSIGN:
-    case TOK_RSHIFT_ASSIGN:
-    case TOK_BW_AND_ASSIGN:
-    case TOK_BW_XOR_ASSIGN:
-    case TOK_BW_OR_ASSIGN:
-    case TOK_CONDITIONAL:*/
-    case TOK_OR:
-    case TOK_AND:
-    case TOK_BW_OR:
-    case TOK_BW_XOR:
-    case TOK_BW_AND:
-    case TOK_EQ:
-    case TOK_NEQ:
-    case TOK_LT:
-    case TOK_GT:
-    case TOK_LET:
-    case TOK_GET:
-    case TOK_LSHIFT:
-    case TOK_RSHIFT:
-    case TOK_PLUS:
-    case TOK_MINUS:
-    case TOK_MUL:
-    case TOK_DIV:
-    case TOK_REM:
-    case TOK_SUBSCRIPT:
-        return TRUE;
-    default:
-        return FALSE;
-    }
-}
-
-/*static
-int is_unary(Token op)
-{
-    switch (op) {
-    case TOK_CAST:
-    case TOK_PRE_INC:
-    case TOK_PRE_DEC:
-    case TOK_SIZEOF:
-    case TOK_ADDRESS_OF:
-    case TOK_INDIRECTION:
-    case TOK_UNARY_PLUS:
-    case TOK_UNARY_MINUS:
-    case TOK_COMPLEMENT:
-    case TOK_NEGATION:
-    case TOK_FUNCTION:
-    case TOK_DOT:
-    case TOK_ARROW:;
-    case TOK_INC:
-    case TOK_DEC:
-        return TRUE;
-    default:
-        return FALSE;
-    }
-}*/
-
-void print_addr(unsigned addr)
+static void print_addr(unsigned addr)
 {
     if (addr == 0)
         return;
@@ -2780,8 +2689,7 @@ void print_addr(unsigned addr)
     }
 }
 
-static
-void print_binop(Quad *i, char *op)
+static void print_binop(Quad *i, char *op)
 {
     print_addr(i->tar);
     printf(" = ");
@@ -2790,15 +2698,14 @@ void print_binop(Quad *i, char *op)
     print_addr(i->arg2);
 }
 
-static
-void print_unaop(Quad *i, char *op)
+static void print_unaop(Quad *i, char *op)
 {
     print_addr(i->tar);
     printf(" = %s", op);
     print_addr(i->arg1);
 }
 
-void dump_ic(unsigned fn)
+static void dump_ic(unsigned fn)
 {
     unsigned i;
     unsigned first, last;
@@ -2895,4 +2802,44 @@ void dump_ic(unsigned fn)
         }
         printf("\n");
     }
+}
+
+void ic_main(ExternId *func_def_list[])
+{
+    unsigned i;
+    ExternId *ed;
+
+    ic_init();
+    for (i = 0, ed = func_def_list[i]; ed != NULL; ++i, ed = func_def_list[i]) {
+        ic_func_first_instr = ic_instructions_counter;
+        curr_cg_node = new_cg_node(ed->declarator->str);
+        ic_function_definition(ed->decl_specs, ed->declarator);
+        ic_simplify();
+        build_CFG();
+        ic_reset();
+    }
+    if (i == 0)
+        return;
+
+    ic_find_atv();
+    address_taken_variables = bset_new(nid_counter);
+    for (i = 0; i < atv_counter; i++)
+        bset_insert(address_taken_variables, atv_table[i]);
+    free(atv_table);
+
+    /*
+     * [!] Important: from now on the nid counter
+     * must stand still for the analyses to work
+     * correctly.
+     */
+    number_CG();
+    // opt_main();
+    for (i = 0; i < cg_nodes_counter; i++) {
+        // dump_ic(i);
+        // print_CFG(i);
+        dflow_Dom(i);
+        dflow_LiveOut(i);
+        // dflow_ReachIn(i, i == cg_nodes_counter-1);
+    }
+    // print_CG();
 }

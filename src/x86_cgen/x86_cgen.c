@@ -185,7 +185,7 @@ void x86_cgen(FILE *outf)
                 np = malloc(sizeof(ExternId));
                 np->decl_specs = ed->decl_specs;
                 np->declarator = ed->declarator;
-                np->status = 0;
+                np->enclosing_function = NULL;
                 np->next = static_objects_list;
                 static_objects_list = np;
             }
@@ -2209,8 +2209,8 @@ void x86_allocate_static_objects(void)
             if (al > 1)
                 emit_declln("alignb %u", al);
         }
-        if (np->status != 0) { /* static local */
-            emit_declln("$%s@%s:", (char *)np->status, np->declarator->str);
+        if (np->enclosing_function != NULL) { /* static local */
+            emit_declln("$%s@%s:", np->enclosing_function, np->declarator->str);
         } else {
             TypeExp *scs;
 

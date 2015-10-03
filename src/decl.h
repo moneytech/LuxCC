@@ -19,6 +19,7 @@ struct ExternId {
     TypeExp *decl_specs;
     TypeExp *declarator;
     ExtIdStatus status;
+    char *enclosing_function; /* used with static local variables */
     ExternId *next;
 };
 
