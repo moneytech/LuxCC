@@ -173,84 +173,24 @@ static int get_temp_offs(unsigned a);
 static void free_temp(unsigned a);
 static void free_all_temps(void);
 
-void x86_cgen(FILE *outf)
+void emit_raw_string(String *q, char *s)
 {
-    unsigned i, j;
-    ExternId *ed, *func_def_list[512] = { NULL }, *ext_sym_list[512] = { NULL };
+    unsigned len, i;
 
-    x86_output_file = outf;
-    for (ed=get_external_declarations(), i=j=0; ed != NULL; ed = ed->next) {
-        TypeExp *scs;
-
-        if (ed->status == REFERENCED) {
-            if ((scs=get_sto_class_spec(ed->decl_specs))==NULL || scs->op!=TOK_STATIC)
-                ext_sym_list[j++] = ed;
-        } else {
-            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION) {
-                func_def_list[i++] = ed;
-            } else {
-                ExternId *np;
-
-                np = malloc(sizeof(ExternId));
-                np->decl_specs = ed->decl_specs;
-                np->declarator = ed->declarator;
-                np->enclosing_function = NULL;
-                np->next = static_objects_list;
-                static_objects_list = np;
-            }
-        }
+    len = strlen(s)+1;
+    for (i = len/4; i; i--) {
+        string_printf(q, "dd 0x%02x%02x%02x%02x\n", s[3], s[2], s[1], s[0]);
+        s += 4;
     }
+    for (i = len%4; i; i--)
+        string_printf(q, "db 0x%02x\n", *s++);
+}
 
-    /* generate intermediate code and do some analysis */
-    ic_main(func_def_list);
-
-    /* compute liveness and next use */
-    liveness_and_next_use = calloc(ic_instructions_counter, sizeof(unsigned char));
-    operand_liveness = bset_new(nid_counter);
-    operand_next_use = bset_new(nid_counter);
-    for (i = 0; i < cg_nodes_counter; i++)
-        compute_liveness_and_next_use(i);
-    bset_free(operand_liveness);
-    bset_free(operand_next_use);
-
-    /* generate assembly */
-    asm_decls = string_new(512);
-    str_lits = string_new(512);
-    func_body = string_new(1024);
-    func_prolog = string_new(1024);
-    func_epilog = string_new(1024);
-    addr_descr_tab = malloc(nid_counter*sizeof(int));
-    memset(addr_descr_tab, -1, nid_counter*sizeof(int));
-    for (i = 0; (ed=func_def_list[i]) != NULL; i++)
-        x86_function_definition(ed->decl_specs, ed->declarator);
-    string_free(func_body);
-    string_free(func_prolog);
-    string_free(func_epilog);
-
-    emit_declln("\n; == objects with static duration");
-    x86_allocate_static_objects();
-    emit_declln("\n; == extern symbols");
-    /* emit extern directives only for those symbols that were referenced */
-    for (j = 0; (ed=ext_sym_list[j]) != NULL; j++) {
-        int tmp;
-
-        /* get_var_nid() will increment nid_counter when it sees a new identifier */
-        tmp = nid_counter;
-        get_var_nid(ed->declarator->str, 0);
-        if (tmp == nid_counter)
-            emit_declln("extern %s", ed->declarator->str);
-    }
-    /* the front-end may emit calls to memcpy/memset */
-    emit_declln("extern memcpy"); emit_declln("extern memset");
-    string_write(asm_decls, x86_output_file);
-    string_free(asm_decls);
-
-    if (string_literals_counter) {
-        fprintf(x86_output_file, "\n; == string literals\n");
-        fprintf(x86_output_file, "segment .rodata\n");
-        string_write(str_lits, x86_output_file);
-    }
-    string_free(str_lits);
+int new_string_literal(unsigned a)
+{
+    emit_strln("_@S%d:", string_literals_counter);
+    emit_raw_string(str_lits, address(a).cont.str);
+    return string_literals_counter++;
 }
 
 /*
@@ -987,8 +927,6 @@ void update_tar_descriptors(X86_Reg res, unsigned tar, unsigned char liveness, i
         reg_descr_tab[res] = 0;
     }
 }
-
-// =======================================================================================
 
 #define UPDATE_ADDRESSES(res_reg)\
     do {\
@@ -2235,22 +2173,82 @@ void x86_allocate_static_objects(void)
     }
 }
 
-void emit_raw_string(String *q, char *s)
+void x86_cgen(FILE *outf)
 {
-    unsigned len, i;
+    unsigned i, j;
+    ExternId *ed, *func_def_list[512] = { NULL }, *ext_sym_list[512] = { NULL };
 
-    len = strlen(s)+1;
-    for (i = len/4; i; i--) {
-        string_printf(q, "dd 0x%02x%02x%02x%02x\n", s[3], s[2], s[1], s[0]);
-        s += 4;
+    x86_output_file = outf;
+    for (ed=get_external_declarations(), i=j=0; ed != NULL; ed = ed->next) {
+        TypeExp *scs;
+
+        if (ed->status == REFERENCED) {
+            if ((scs=get_sto_class_spec(ed->decl_specs))==NULL || scs->op!=TOK_STATIC)
+                ext_sym_list[j++] = ed;
+        } else {
+            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION) {
+                func_def_list[i++] = ed;
+            } else {
+                ExternId *np;
+
+                np = malloc(sizeof(ExternId));
+                np->decl_specs = ed->decl_specs;
+                np->declarator = ed->declarator;
+                np->enclosing_function = NULL;
+                np->next = static_objects_list;
+                static_objects_list = np;
+            }
+        }
     }
-    for (i = len%4; i; i--)
-        string_printf(q, "db 0x%02x\n", *s++);
-}
 
-int new_string_literal(unsigned a)
-{
-    emit_strln("_@S%d:", string_literals_counter);
-    emit_raw_string(str_lits, address(a).cont.str);
-    return string_literals_counter++;
+    /* generate intermediate code and do some analysis */
+    ic_main(func_def_list);
+
+    /* compute liveness and next use */
+    liveness_and_next_use = calloc(ic_instructions_counter, sizeof(unsigned char));
+    operand_liveness = bset_new(nid_counter);
+    operand_next_use = bset_new(nid_counter);
+    for (i = 0; i < cg_nodes_counter; i++)
+        compute_liveness_and_next_use(i);
+    bset_free(operand_liveness);
+    bset_free(operand_next_use);
+
+    /* generate assembly */
+    asm_decls = string_new(512);
+    str_lits = string_new(512);
+    func_body = string_new(1024);
+    func_prolog = string_new(1024);
+    func_epilog = string_new(1024);
+    addr_descr_tab = malloc(nid_counter*sizeof(int));
+    memset(addr_descr_tab, -1, nid_counter*sizeof(int));
+    for (i = 0; (ed=func_def_list[i]) != NULL; i++)
+        x86_function_definition(ed->decl_specs, ed->declarator);
+    string_free(func_body);
+    string_free(func_prolog);
+    string_free(func_epilog);
+
+    emit_declln("\n; == objects with static duration");
+    x86_allocate_static_objects();
+    emit_declln("\n; == extern symbols");
+    /* emit extern directives only for those symbols that were referenced */
+    for (j = 0; (ed=ext_sym_list[j]) != NULL; j++) {
+        int tmp;
+
+        /* get_var_nid() will increment nid_counter when it sees a new identifier */
+        tmp = nid_counter;
+        get_var_nid(ed->declarator->str, 0);
+        if (tmp == nid_counter)
+            emit_declln("extern %s", ed->declarator->str);
+    }
+    /* the front-end may emit calls to memcpy/memset */
+    emit_declln("extern memcpy"); emit_declln("extern memset");
+    string_write(asm_decls, x86_output_file);
+    string_free(asm_decls);
+
+    if (string_literals_counter) {
+        fprintf(x86_output_file, "\n; == string literals\n");
+        fprintf(x86_output_file, "segment .rodata\n");
+        string_write(str_lits, x86_output_file);
+    }
+    string_free(str_lits);
 }

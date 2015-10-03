@@ -4,6 +4,8 @@
 #include <ctype.h>
 #include <string.h>
 #include <getopt.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "as.h"
 #include "operations.h"
 #include "../util.h"
@@ -92,6 +94,15 @@ void do_libcall(int *sp, int *bp, int c)
         break;
     case 16: /* fgets */
         sp[0] = (int)fgets((char *)bp[-3], bp[-4], (FILE *)bp[-5]);
+        break;
+    case 17:
+        sp[0] = stat((char *)bp[-3], (struct stat *)bp[-4]);
+        break;
+    case 18:
+        sp[0] = fileno((FILE *)bp[-3]);
+        break;
+    case 19:
+        sp[0] = isatty(bp[-3]);
         break;
     default:
         fprintf(stderr, "libcall %d not implemented\n", c);

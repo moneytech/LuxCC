@@ -120,3 +120,15 @@ fgets:
 .global fgets
     libcall 16;
     ret;
+stat:
+.global stat
+    libcall 17;
+    ret;
+fileno:
+.global fileno
+    libcall 18;
+    ret;
+isatty:
+.global isatty
+    libcall 19;
+    ret;

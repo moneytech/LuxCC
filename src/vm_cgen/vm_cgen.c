@@ -8,64 +8,57 @@
 #include "../util.h"
 #include "../decl.h"
 #include "../expr.h"
-#include "../decl.h"
-#include "../arena.h"
 #include "../imp_lim.h"
-#include "../error.h"
 #include "../loc.h"
 #include "../str.h"
+#include "../error.h"
+
+#define MAX_STRLIT  1024
 
 static FILE *output_file;
 static char *curr_func_name;
 static unsigned temp_struct_size;
-#define MAX_STRLIT  1024
 static char *string_literal_pool[MAX_STRLIT];
 static unsigned str_lit_count;
-static unsigned new_string_literal(char *s);
-static void emit_string_literals(void);
+
+/* The amount of space to allocate for the current function's local variables. */
+static int size_of_local_area = 0;
+/* Used to compute the addresses of local variables. */
+static int local_offset = VM_LOCAL_START;
+/* Return type of the current function being processed. */
+static Declaration ret_ty;
+
 static String *output_buffer;
 #define emit(...)   (string_printf(output_buffer, __VA_ARGS__))
 #define emitln(...) (string_printf(output_buffer, __VA_ARGS__), string_printf(output_buffer, "\n"))
 
-static void function_definition(TypeExp *decl_specs, TypeExp *header);
-static void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mangle_name);
-
-void vm_cgen(FILE *outf)
+static unsigned new_string_literal(char *s)
 {
-    ExternId *ed;
+    /* TOIMPROVE: search into the pool before add a new string */
 
-    location_init();
-    output_file = outf;
-    output_buffer = string_new(4096);
+    string_literal_pool[str_lit_count] = s;
 
-#if 0
-    emitln(".extern malloc"); /* for return of structs */
-#endif
-    for (ed = get_external_declarations(); ed != NULL; ed = ed->next) {
-        if (ed->status == REFERENCED) {
-            TypeExp *scs;
+    return str_lit_count++;
+}
 
-            if ((scs=get_sto_class_spec(ed->decl_specs))==NULL || scs->op!=TOK_STATIC)
-                emitln(".extern %s", ed->declarator->str);
-        } else {
-            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION)
-                function_definition(ed->decl_specs, ed->declarator);
-            else
-                static_object_definition(ed->decl_specs, ed->declarator, FALSE);
-        }
+static void emit_string_literals(void)
+{
+    unsigned n;
+    unsigned char *c;
 
-        string_write(output_buffer, output_file);
-        string_clear(output_buffer);
+    if (str_lit_count == 0)
+        return;
+
+    emitln(".data");
+    for (n = 0; n < str_lit_count; n++) {
+        emitln("@S%u:", n);
+        c = (unsigned char *)string_literal_pool[n];
+        do
+            emitln(".byte %u", *c);
+        while (*c++ != '\0');
     }
-    if (temp_struct_size > 0) {
-        emitln(".bss");
-        emitln(".align 4");
-        emitln("__temp_struct:");
-        emitln(".res %u", temp_struct_size);
-        string_write(output_buffer, output_file);
-        string_clear(output_buffer);
-    }
-    emit_string_literals();
+    string_write(output_buffer, output_file);
+    string_clear(output_buffer);
 }
 
 static void compound_statement(ExecNode *s, int push_scope);
@@ -85,376 +78,35 @@ static void label_statement(ExecNode *s);
 static void statement(ExecNode *s);
 static void expression(ExecNode *e, int is_addr);
 static void expr_convert(ExecNode *e, Declaration *dest);
+static unsigned function_argument(ExecNode *arg, DeclList *param);
 static void load(ExecNode *e);
 static void load_addr(ExecNode *e);
 static void store(Declaration *dest_ty);
+static void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mangle_name);
 
-/*
- * The amount of space to allocate for the
- * current function's local variables.
- */
-static int size_of_local_area = 0;
-/*
- * Used to compute the addresses of local variables.
- */
-static int local_offset = VM_LOCAL_START;
-
-/*
- * Return type of the current function being processed.
- * Used for return statement.
- */
-static Declaration ret_ty;
-
-void function_definition(TypeExp *decl_specs, TypeExp *header)
-{
-    DeclList *p;
-    TypeExp *scs;
-    int param_offs;
-    char num[11], *cp;
-    unsigned addsp_param, pos_tmp;
-
-    curr_func_name = header->str;
-    emitln("# ==== start of definition of function `%s' ====", curr_func_name);
-    emitln(".text");
-    emitln("%s:", curr_func_name);
-    if ((scs=get_sto_class_spec(decl_specs))==NULL || scs->op!=TOK_STATIC)
-        emitln(".global %s", curr_func_name);
-    emit("addsp ");
-    addsp_param = string_get_pos(output_buffer);
-    emitln("XXXXXXXXXXX");
-
-    location_push_scope();
-
-    p = header->child->attr.dl;
-    if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID && p->decl->idl==NULL)
-        p = NULL; /* function with no parameters */
-
-    param_offs = VM_LOCAL_PARAM_END;
-    while (p != NULL) {
-        Declaration pty;
-
-        if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
-            break; /* start of optional parameters (`...') */
-
-        pty.decl_specs = p->decl->decl_specs;
-        pty.idl = p->decl->idl->child;
-        param_offs -= round_up(get_sizeof(&pty), VM_STACK_ALIGN);
-        location_new(p->decl->idl->str, param_offs);
-        emitln("# param:`%s', offset:%d", p->decl->idl->str, param_offs);
-
-        p = p->next;
-    }
-
-    /* set return type before encounter any return statement */
-    ret_ty.decl_specs = decl_specs;
-    ret_ty.idl = header->child->child;
-
-    compound_statement(header->attr.e, FALSE);
-    location_pop_scope();
-
-    /* fix up the amount of storage to allocate for locals */
-    pos_tmp = string_get_pos(output_buffer);
-    string_set_pos(output_buffer, addsp_param);
-    sprintf(num, "%d", round_up(size_of_local_area-VM_LOCAL_START, VM_STACK_ALIGN));
-    cp = string_curr(output_buffer);
-    strncpy(cp, num, 10);
-    cp += strlen(num);
-    *cp++ = ';';
-    while (*cp != '\n')
-        *cp++ = ' ';
-    string_set_pos(output_buffer, pos_tmp);
-
-    size_of_local_area = 0;
-    local_offset = VM_LOCAL_START;
-
-    emitln("ldi 0;");
-    emitln("ret;");
-}
-
-void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e/*, int align*/)
-{
-    TypeExp *ts;
-
-    if (dct != NULL) {
-        unsigned nelem;
-
-        if (dct->op != TOK_SUBSCRIPT)
-            goto scalar; /* pointer */
-
-        /*
-         * Array.
-         */
-        nelem = dct->attr.e->attr.uval;
-        if (e->kind.exp == StrLitExp) {
-            /*
-             * Character array initialized by string literal.
-             */
-            unsigned n;
-            unsigned char *c;
-
-            n = 0;
-            c = (unsigned char *)e->attr.str;
-            do
-                emitln(".byte %u", *c), ++n;
-            while (n<nelem && *c++!='\0');
-
-            /* zero any trailing elements */
-            if (n < nelem)
-                emitln(".zero %u", nelem-n);
-        } else {
-            /*
-             * Handle elements with explicit initializer.
-             */
-            e = e->child[0];
-            for (; e!=NULL && nelem!=0; e=e->sibling, --nelem)
-                do_static_init(ds, dct->child, e)/*, align=TRUE*/;
-
-            /*
-             * Handle elements without explicit initializer.
-             */
-            if (nelem != 0) {
-                Declaration elem_ty;
-
-                elem_ty.decl_specs = ds;
-                elem_ty.idl = dct->child;
-                emitln(".align %u", get_alignment(&elem_ty));
-                emitln(".zero %u", nelem*get_sizeof(&elem_ty));
-            }
-        }
-    } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
-        /*
-         * Struct.
-         */
-        DeclList *d;
-        int full_init;
-
-        e = e->child[0];
-
-        /*
-         * Handle members with explicit initializer.
-         */
-        d = ts->attr.dl;
-        full_init = FALSE;
-        for (; d != NULL; d = d->next) {
-            dct = d->decl->idl;
-            for (; e!=NULL && dct!=NULL; e=e->sibling, dct=dct->sibling)
-                do_static_init(d->decl->decl_specs, dct->child, e);
-
-            if (e == NULL) {
-                if (dct==NULL && d->next==NULL)
-                    full_init = TRUE;
-                break;
-            }
-        }
-
-        /*
-         * Handle members without explicit initializer.
-         */
-        if (!full_init) {
-            if (dct == NULL) {
-                d = d->next;
-                dct = d->decl->idl;
-            }
-            while (TRUE) {
-                while (dct != NULL) {
-                    Declaration ty;
-
-                    ty.decl_specs = d->decl->decl_specs;
-                    ty.idl = dct->child;
-                    emitln(".align %u", get_alignment(&ty));
-                    emitln(".zero %u", get_sizeof(&ty));
-
-                    dct = dct->sibling;
-                }
-                d = d->next;
-                if (d != NULL)
-                    dct = d->decl->idl;
-                else
-                    break;
-            }
-        }
-    } else if (ts->op == TOK_UNION) {
-        /*
-         * Union.
-         */
-        e = e->child[0];
-
-        /* initialize the first named member */
-        do_static_init(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e);
-    } else {
-        /*
-         * Scalar.
-         */
-        Declaration dest_ty;
-scalar:
-        dest_ty.decl_specs = ds;
-        dest_ty.idl = dct;
-        switch (get_type_category(&dest_ty)) {
-#define BAD_INIT(n) do { emitln(".zero %u", n); goto bad_init; } while (0)
-        case TOK_CHAR:
-        case TOK_SIGNED_CHAR:
-        case TOK_UNSIGNED_CHAR:
-            if (is_integer(get_type_category(&e->type)))
-                emitln(".byte %lu", eval_const_expr(e, FALSE, TRUE));
-            else
-                BAD_INIT(1);
-            break;
-        case TOK_SHORT:
-        case TOK_UNSIGNED_SHORT:
-            // if (align)
-            emitln(".align 2");
-            if (is_integer(get_type_category(&e->type)))
-                emitln(".word %lu", eval_const_expr(e, FALSE, TRUE));
-            else
-                BAD_INIT(2);
-            break;
-        case TOK_INT:
-        case TOK_UNSIGNED:
-        case TOK_LONG:
-        case TOK_UNSIGNED_LONG:
-        case TOK_ENUM:
-        case TOK_STAR:
-            // if (align)
-            emitln(".align 4");
-            /*
-             * The only supported expressions are:
-             * 1) any-integer-constant-expression; e.g. 1+2*3
-             * 2) any-string-literal; e.g. "abc"
-             * 2) x   // if x has array or function type
-             * 3) &x
-             * 4) &x+1, 1+&x, or &x-1
-             * 5) x+1, 1+x, or x-1 // if x has array type
-             */
-            if (is_integer(get_type_category(&e->type))) {
-                emitln(".dword %lu", eval_const_expr(e, FALSE, TRUE));
-            } else if (e->kind.exp == StrLitExp) {
-                emitln(".dword @S%u", new_string_literal(e->attr.str));
-            } else if (e->kind.exp == IdExp) {
-                Token cat;
-
-                if ((cat=get_type_category(&e->type))==TOK_SUBSCRIPT || cat==TOK_FUNCTION)
-                    emitln(".dword %s", e->attr.str);
-                else
-                    BAD_INIT(4);
-            } else if (e->kind.exp == OpExp) {
-                switch (e->attr.op) {
-                case TOK_ADDRESS_OF:
-                    if (e->child[0]->kind.exp == IdExp)
-                        emitln(".dword %s", e->child[0]->attr.str);
-                    else
-                        BAD_INIT(4);
-                    break;
-                case TOK_PLUS:
-                case TOK_MINUS: {
-                    Token cat;
-                    Declaration ty;
-                    int i, j;
-                    unsigned size;
-
-                    for (i=0, j=1; i < 2; i++, j--) {
-                        /* &x+1, &x-1, 1+&x */
-                        if (e->child[j]->kind.exp == IConstExp
-                        &&  e->child[i]->kind.exp == OpExp
-                        &&  e->child[i]->attr.op == TOK_ADDRESS_OF
-                        &&  e->child[i]->child[0]->kind.exp == IdExp) {
-                            size = e->child[j]->attr.uval*get_sizeof(&e->child[i]->child[0]->type);
-                            emitln(".dword %s+%u", e->child[i]->child[0]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
-                            return;
-                        /* x+1, x-1, 1+x */
-                        } else if (e->child[j]->kind.exp == IConstExp
-                        && e->child[i]->kind.exp == IdExp
-                        && (cat=get_type_category(&e->child[i]->type)) == TOK_SUBSCRIPT) {
-                            ty.decl_specs = e->child[i]->type.decl_specs;
-                            ty.idl = e->child[i]->type.idl->child;
-                            size = e->child[j]->attr.uval*get_sizeof(&ty);
-                            emitln(".dword %s+%u", e->child[i]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
-                            return;
-                        }
-                    }
-                    BAD_INIT(4);
-                    break;
-                }
-                default:
-                    BAD_INIT(4);
-                    break;
-                }
-            } else {
-                BAD_INIT(4);
-            }
-            break;
-        }
-        return; /* OK */
-bad_init:
-        emit_warning(e->info->src_file, e->info->src_line, e->info->src_column,
-        "initializer form not supported, defaulting to zero");
-    }
-}
-
-void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mangle_name)
-{
-    TypeExp *scs;
-    Declaration ty;
-    ExecNode *initializer;
-    unsigned alignment;
-
-    ty.decl_specs = decl_specs;
-    ty.idl = declarator->child;
-    initializer = declarator->attr.e;
-
-    /* segment */
-    if (initializer != NULL)
-        emitln(".data");
-    else
-        emitln(".bss");
-
-    /* alignment */
-    if ((alignment=get_alignment(&ty)) > 1)
-        emitln(".align %u", alignment);
-
-    /* label */
-    if (mangle_name)
-        /* mangled name = '@' + current function name + '_' + static local object name */
-        emitln("@%s_%s:", curr_func_name, declarator->str);
-    else
-        emitln("%s:", declarator->str);
-
-    /* allocation/initialization */
-    if (initializer != NULL)
-        do_static_init(ty.decl_specs, ty.idl, initializer/*, FALSE*/);
-    else
-        emitln(".res %u", get_sizeof(&ty));
-
-    if ((scs=get_sto_class_spec(decl_specs))==NULL || scs->op!=TOK_STATIC)
-        emitln(".global %s", declarator->str);
-}
-
-// =============================================================================
-// Statements
-// =============================================================================
+/*            */
+/* Statements */
+/*            */
 
 static unsigned btarget_stack[128], ctarget_stack[128];
 static int bt_stack_top = -1, ct_stack_top = -1;
 
-static
-void push_break_target(unsigned lab)
+static void push_break_target(unsigned lab)
 {
     btarget_stack[++bt_stack_top] = lab;
 }
 
-static
-void pop_break_target(void)
+static void pop_break_target(void)
 {
     --bt_stack_top;
 }
 
-static
-void push_continue_target(unsigned lab)
+static void push_continue_target(unsigned lab)
 {
     ctarget_stack[++ct_stack_top] = lab;
 }
 
-static
-void pop_continue_target(void)
+static void pop_continue_target(void)
 {
     --ct_stack_top;
 }
@@ -507,7 +159,7 @@ void statement(ExecNode *s)
     }
 }
 
-void do_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, int offset)
+static void do_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, int offset)
 {
     TypeExp *ts;
 
@@ -652,6 +304,8 @@ void do_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, int offset)
          */
         Declaration dest_ty;
 scalar:
+        if (e->kind.exp==OpExp && e->attr.op==TOK_INIT_LIST)
+            e = e->child[0];
         dest_ty.decl_specs = ds;
         dest_ty.idl = dct;
         expr_convert(e, &dest_ty);
@@ -718,14 +372,12 @@ void compound_statement(ExecNode *s, int push_scope)
     }
 }
 
-/* some shorthand macros */
 #define emit_lab(n)         (emitln("@L%u:", n))
 #define emit_jmp(target)    (emitln("jmp @L%u;", target))
 #define emit_jmpf(target)   (emitln("jmpf @L%u;", target))
 #define emit_jmpt(target)   (emitln("jmpt @L%u;", target))
 
-static unsigned new_label(void);
-unsigned new_label(void)
+static unsigned new_label(void)
 {
     static unsigned label_count = 1;
     return label_count++;
@@ -962,12 +614,9 @@ static struct SwitchLabel {
     int val, is_default;
     SwitchLabel *next;
 } *switch_labels[MAX_SWITCH_NEST][HASH_SIZE];
-
 static int switch_nesting_level = -1;
-static int cmp_switch_label(const void *p1, const void *p2);
-static void install_switch_label(int val, int is_default, unsigned lab);
 
-int cmp_switch_label(const void *p1, const void *p2)
+static int cmp_switch_label(const void *p1, const void *p2)
 {
     SwitchLabel *x1 = *(SwitchLabel **)p1;
     SwitchLabel *x2 = *(SwitchLabel **)p2;
@@ -986,7 +635,7 @@ int cmp_switch_label(const void *p1, const void *p2)
         return 1;
 }
 
-void install_switch_label(int val, int is_default, unsigned lab)
+static void install_switch_label(int val, int is_default, unsigned lab)
 {
     unsigned h;
     SwitchLabel *np;
@@ -1038,7 +687,6 @@ void switch_statement(ExecNode *s)
     --switch_nesting_level;
     if (st_size != 0)
         qsort(search_table, st_size, sizeof(search_table[0]), cmp_switch_label);
-    // fprintf(stderr, "st_size=%d\n", st_size);
     /*
      * Emit search table.
      */
@@ -1099,9 +747,9 @@ void default_statement(ExecNode *s)
     statement(s->child[0]);
 }
 
-// =============================================================================
-// Expressions
-// =============================================================================
+/*             */
+/* Expressions */
+/*             */
 
 /*
  * Generate code for expression `e'.
@@ -1650,31 +1298,365 @@ void load_addr(ExecNode *e)
     }
 }
 
-unsigned new_string_literal(char *s)
+static void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e/*, int align*/)
 {
-    /* TOIMPROVE: search into the pool before add a new string */
+    TypeExp *ts;
 
-    string_literal_pool[str_lit_count] = s;
+    if (dct != NULL) {
+        unsigned nelem;
 
-    return str_lit_count++;
+        if (dct->op != TOK_SUBSCRIPT)
+            goto scalar; /* pointer */
+
+        /*
+         * Array.
+         */
+        nelem = dct->attr.e->attr.uval;
+        if (e->kind.exp == StrLitExp) {
+            /*
+             * Character array initialized by string literal.
+             */
+            unsigned n;
+            unsigned char *c;
+
+            n = 0;
+            c = (unsigned char *)e->attr.str;
+            do
+                emitln(".byte %u", *c), ++n;
+            while (n<nelem && *c++!='\0');
+
+            /* zero any trailing elements */
+            if (n < nelem)
+                emitln(".zero %u", nelem-n);
+        } else {
+            /*
+             * Handle elements with explicit initializer.
+             */
+            e = e->child[0];
+            for (; e!=NULL && nelem!=0; e=e->sibling, --nelem)
+                do_static_init(ds, dct->child, e)/*, align=TRUE*/;
+
+            /*
+             * Handle elements without explicit initializer.
+             */
+            if (nelem != 0) {
+                Declaration elem_ty;
+
+                elem_ty.decl_specs = ds;
+                elem_ty.idl = dct->child;
+                emitln(".align %u", get_alignment(&elem_ty));
+                emitln(".zero %u", nelem*get_sizeof(&elem_ty));
+            }
+        }
+    } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
+        /*
+         * Struct.
+         */
+        DeclList *d;
+        int full_init;
+
+        e = e->child[0];
+
+        /*
+         * Handle members with explicit initializer.
+         */
+        d = ts->attr.dl;
+        full_init = FALSE;
+        for (; d != NULL; d = d->next) {
+            dct = d->decl->idl;
+            for (; e!=NULL && dct!=NULL; e=e->sibling, dct=dct->sibling)
+                do_static_init(d->decl->decl_specs, dct->child, e);
+
+            if (e == NULL) {
+                if (dct==NULL && d->next==NULL)
+                    full_init = TRUE;
+                break;
+            }
+        }
+
+        /*
+         * Handle members without explicit initializer.
+         */
+        if (!full_init) {
+            if (dct == NULL) {
+                d = d->next;
+                dct = d->decl->idl;
+            }
+            while (TRUE) {
+                while (dct != NULL) {
+                    Declaration ty;
+
+                    ty.decl_specs = d->decl->decl_specs;
+                    ty.idl = dct->child;
+                    emitln(".align %u", get_alignment(&ty));
+                    emitln(".zero %u", get_sizeof(&ty));
+
+                    dct = dct->sibling;
+                }
+                d = d->next;
+                if (d != NULL)
+                    dct = d->decl->idl;
+                else
+                    break;
+            }
+        }
+    } else if (ts->op == TOK_UNION) {
+        /*
+         * Union.
+         */
+        e = e->child[0];
+
+        /* initialize the first named member */
+        do_static_init(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e);
+    } else {
+        /*
+         * Scalar.
+         */
+        Declaration dest_ty;
+scalar:
+        if (e->kind.exp==OpExp && e->attr.op==TOK_INIT_LIST)
+            e = e->child[0];
+        dest_ty.decl_specs = ds;
+        dest_ty.idl = dct;
+        switch (get_type_category(&dest_ty)) {
+#define BAD_INIT(n) do { emitln(".zero %u", n); goto bad_init; } while (0)
+        case TOK_CHAR:
+        case TOK_SIGNED_CHAR:
+        case TOK_UNSIGNED_CHAR:
+            if (is_integer(get_type_category(&e->type)))
+                emitln(".byte %lu", eval_const_expr(e, FALSE, TRUE));
+            else
+                BAD_INIT(1);
+            break;
+        case TOK_SHORT:
+        case TOK_UNSIGNED_SHORT:
+            // if (align)
+            emitln(".align 2");
+            if (is_integer(get_type_category(&e->type)))
+                emitln(".word %lu", eval_const_expr(e, FALSE, TRUE));
+            else
+                BAD_INIT(2);
+            break;
+        case TOK_INT:
+        case TOK_UNSIGNED:
+        case TOK_LONG:
+        case TOK_UNSIGNED_LONG:
+        case TOK_ENUM:
+        case TOK_STAR:
+            // if (align)
+            emitln(".align 4");
+            /*
+             * The only supported expressions are:
+             * 1) any-integer-constant-expression; e.g. 1+2*3
+             * 2) any-string-literal; e.g. "abc"
+             * 2) x   // if x has array or function type
+             * 3) &x
+             * 4) &x+1, 1+&x, or &x-1
+             * 5) x+1, 1+x, or x-1 // if x has array type
+             */
+            if (is_integer(get_type_category(&e->type))) {
+                emitln(".dword %lu", eval_const_expr(e, FALSE, TRUE));
+            } else if (e->kind.exp == StrLitExp) {
+                emitln(".dword @S%u", new_string_literal(e->attr.str));
+            } else if (e->kind.exp == IdExp) {
+                Token cat;
+
+                if ((cat=get_type_category(&e->type))==TOK_SUBSCRIPT || cat==TOK_FUNCTION)
+                    emitln(".dword %s", e->attr.str);
+                else
+                    BAD_INIT(4);
+            } else if (e->kind.exp == OpExp) {
+                switch (e->attr.op) {
+                case TOK_ADDRESS_OF:
+                    if (e->child[0]->kind.exp == IdExp)
+                        emitln(".dword %s", e->child[0]->attr.str);
+                    else
+                        BAD_INIT(4);
+                    break;
+                case TOK_PLUS:
+                case TOK_MINUS: {
+                    Token cat;
+                    Declaration ty;
+                    int i, j;
+                    unsigned size;
+
+                    for (i=0, j=1; i < 2; i++, j--) {
+                        /* &x+1, &x-1, 1+&x */
+                        if (e->child[j]->kind.exp == IConstExp
+                        &&  e->child[i]->kind.exp == OpExp
+                        &&  e->child[i]->attr.op == TOK_ADDRESS_OF
+                        &&  e->child[i]->child[0]->kind.exp == IdExp) {
+                            size = e->child[j]->attr.uval*get_sizeof(&e->child[i]->child[0]->type);
+                            emitln(".dword %s+%u", e->child[i]->child[0]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
+                            return;
+                        /* x+1, x-1, 1+x */
+                        } else if (e->child[j]->kind.exp == IConstExp
+                        && e->child[i]->kind.exp == IdExp
+                        && (cat=get_type_category(&e->child[i]->type)) == TOK_SUBSCRIPT) {
+                            ty.decl_specs = e->child[i]->type.decl_specs;
+                            ty.idl = e->child[i]->type.idl->child;
+                            size = e->child[j]->attr.uval*get_sizeof(&ty);
+                            emitln(".dword %s+%u", e->child[i]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
+                            return;
+                        }
+                    }
+                    BAD_INIT(4);
+                    break;
+                }
+                default:
+                    BAD_INIT(4);
+                    break;
+                }
+            } else {
+                BAD_INIT(4);
+            }
+            break;
+        }
+        return; /* OK */
+bad_init:
+        emit_warning(e->info->src_file, e->info->src_line, e->info->src_column,
+        "initializer form not supported, defaulting to zero");
+    }
 }
 
-void emit_string_literals(void)
+void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mangle_name)
 {
-    unsigned n;
-    unsigned char *c;
+    TypeExp *scs;
+    Declaration ty;
+    ExecNode *initializer;
+    unsigned alignment;
 
-    if (str_lit_count == 0)
-        return;
+    ty.decl_specs = decl_specs;
+    ty.idl = declarator->child;
+    initializer = declarator->attr.e;
 
-    emitln(".data");
-    for (n = 0; n < str_lit_count; n++) {
-        emitln("@S%u:", n);
-        c = (unsigned char *)string_literal_pool[n];
-        do
-            emitln(".byte %u", *c);
-        while (*c++ != '\0');
+    /* segment */
+    if (initializer != NULL)
+        emitln(".data");
+    else
+        emitln(".bss");
+
+    /* alignment */
+    if ((alignment=get_alignment(&ty)) > 1)
+        emitln(".align %u", alignment);
+
+    /* label */
+    if (mangle_name)
+        /* mangled name = '@' + current function name + '_' + static local object name */
+        emitln("@%s_%s:", curr_func_name, declarator->str);
+    else
+        emitln("%s:", declarator->str);
+
+    /* allocation/initialization */
+    if (initializer != NULL)
+        do_static_init(ty.decl_specs, ty.idl, initializer/*, FALSE*/);
+    else
+        emitln(".res %u", get_sizeof(&ty));
+
+    if ((scs=get_sto_class_spec(decl_specs))==NULL || scs->op!=TOK_STATIC)
+        emitln(".global %s", declarator->str);
+}
+
+static void function_definition(TypeExp *decl_specs, TypeExp *header)
+{
+    DeclList *p;
+    TypeExp *scs;
+    int param_offs;
+    char num[11], *cp;
+    unsigned addsp_param, pos_tmp;
+
+    curr_func_name = header->str;
+    emitln("# ==== start of definition of function `%s' ====", curr_func_name);
+    emitln(".text");
+    emitln("%s:", curr_func_name);
+    if ((scs=get_sto_class_spec(decl_specs))==NULL || scs->op!=TOK_STATIC)
+        emitln(".global %s", curr_func_name);
+    emit("addsp ");
+    addsp_param = string_get_pos(output_buffer);
+    emitln("XXXXXXXXXXX");
+
+    location_push_scope();
+
+    p = header->child->attr.dl;
+    if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID && p->decl->idl==NULL)
+        p = NULL; /* function with no parameters */
+
+    param_offs = VM_LOCAL_PARAM_END;
+    while (p != NULL) {
+        Declaration pty;
+
+        if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
+            break; /* start of optional parameters (`...') */
+
+        pty.decl_specs = p->decl->decl_specs;
+        pty.idl = p->decl->idl->child;
+        param_offs -= round_up(get_sizeof(&pty), VM_STACK_ALIGN);
+        location_new(p->decl->idl->str, param_offs);
+        emitln("# param:`%s', offset:%d", p->decl->idl->str, param_offs);
+
+        p = p->next;
     }
-    string_write(output_buffer, output_file);
-    string_clear(output_buffer);
+
+    /* set return type before encounter any return statement */
+    ret_ty.decl_specs = decl_specs;
+    ret_ty.idl = header->child->child;
+
+    compound_statement(header->attr.e, FALSE);
+    location_pop_scope();
+
+    /* fix up the amount of storage to allocate for locals */
+    pos_tmp = string_get_pos(output_buffer);
+    string_set_pos(output_buffer, addsp_param);
+    sprintf(num, "%d", round_up(size_of_local_area-VM_LOCAL_START, VM_STACK_ALIGN));
+    cp = string_curr(output_buffer);
+    strncpy(cp, num, 10);
+    cp += strlen(num);
+    *cp++ = ';';
+    while (*cp != '\n')
+        *cp++ = ' ';
+    string_set_pos(output_buffer, pos_tmp);
+
+    size_of_local_area = 0;
+    local_offset = VM_LOCAL_START;
+
+    emitln("ldi 0;");
+    emitln("ret;");
+}
+
+void vm_cgen(FILE *outf)
+{
+    ExternId *ed;
+
+    location_init();
+    output_file = outf;
+    output_buffer = string_new(4096);
+
+#if 0
+    emitln(".extern malloc"); /* for return of structs */
+#endif
+    for (ed = get_external_declarations(); ed != NULL; ed = ed->next) {
+        if (ed->status == REFERENCED) {
+            TypeExp *scs;
+
+            if ((scs=get_sto_class_spec(ed->decl_specs))==NULL || scs->op!=TOK_STATIC)
+                emitln(".extern %s", ed->declarator->str);
+        } else {
+            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION)
+                function_definition(ed->decl_specs, ed->declarator);
+            else
+                static_object_definition(ed->decl_specs, ed->declarator, FALSE);
+        }
+
+        string_write(output_buffer, output_file);
+        string_clear(output_buffer);
+    }
+    if (temp_struct_size > 0) {
+        emitln(".bss");
+        emitln(".align 4");
+        emitln("__temp_struct:");
+        emitln(".res %u", temp_struct_size);
+        string_write(output_buffer, output_file);
+        string_clear(output_buffer);
+    }
+    emit_string_literals();
 }
