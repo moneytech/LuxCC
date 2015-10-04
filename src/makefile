@@ -39,3 +39,5 @@ vm_cgen.o: vm_cgen/vm_cgen.h vm_cgen/vm_cgen.c decl.h parser.h lexer.h pre.h uti
 x86_cgen.o: x86_cgen/x86_cgen.c x86_cgen/x86_cgen.h decl.h parser.h lexer.h pre.h util.h expr.h ic.h arena.h imp_lim.h \
 error.h bset.h str.h dflow.h
 	$(CC) $(CFLAGS) x86_cgen/x86_cgen.c
+
+.PHONY: all clean depend
