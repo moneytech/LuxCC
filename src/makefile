@@ -2,8 +2,8 @@ CC=gcc
 CFLAGS=-c -g -Wall -Wconversion -Wextra -Wno-switch -Wno-parentheses -Wno-missing-field-initializers \
 -fwrapv -Wno-sign-conversion -Wno-unused-parameter -Wno-sign-compare -Wno-empty-body -Wno-conversion #-pg
 PROG = luxcc
-OBJS = luxc.o pre.o lexer.o parser.o util.o decl.o expr.o stmt.o ic.o arena.o error.o loc.o bset.o str.o dflow.o opt.o
-SRCS = luxc.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c error.c loc.c bset.c str.c dflow.c opt.c
+OBJS = luxcc.o pre.o lexer.o parser.o util.o decl.o expr.o stmt.o ic.o arena.o error.o loc.o bset.o str.o dflow.o opt.o
+SRCS = luxcc.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c error.c loc.c bset.c str.c dflow.c opt.c
 LFLAGS = -lm
 
 all: $(PROG)
@@ -18,7 +18,7 @@ depend:
 	makedepend -- $(CFLAGS) -- $(SRCS) -Y
 # DO NOT DELETE
 
-luxc.o: parser.h lexer.h pre.h ic.h bset.h vm_cgen/vm_cgen.h x86_cgen/x86_cgen.h
+luxcc.o: parser.h lexer.h pre.h ic.h bset.h vm_cgen/vm_cgen.h x86_cgen/x86_cgen.h
 pre.o: pre.h util.h imp_lim.h error.h
 lexer.o: lexer.h pre.h util.h error.h
 parser.o: parser.h lexer.h pre.h util.h decl.h expr.h stmt.h error.h

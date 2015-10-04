@@ -7,6 +7,31 @@
 #include "vm_cgen/vm_cgen.h"
 #include "x86_cgen/x86_cgen.h"
 
+/*
+Driver options
+    h -> print driver supported command-line options (with -v print help of called programs by the driver too)
+    v -> verbose
+    E -> preprocess only
+    S -> compile only
+    c -> compile and assemble only
+passed to cc
+    I
+    i
+    dump-tokens
+    analyze
+    quiet
+    show-stats
+    boring
+    target
+passed to ld
+    l
+    L
+    entry
+passed to all
+    o
+*/
+
+
 unsigned warning_count, error_count;
 int disable_warnings;
 int colored_diagnostics = 1;
