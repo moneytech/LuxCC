@@ -1298,7 +1298,83 @@ void load_addr(ExecNode *e)
     }
 }
 
-static void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e/*, int align*/)
+static unsigned long do_static_expr(ExecNode *e)
+{
+    switch (e->kind.exp) {
+    case OpExp:
+        switch (e->attr.op) {
+        case TOK_SUBSCRIPT: {
+            int pi, ii;
+            Declaration ty;
+
+            if (is_integer(get_type_category(&e->child[0]->type)))
+                pi = 1, ii = 0;
+            else
+                pi = 0, ii = 1;
+            ty = e->child[pi]->type;
+            ty.idl = ty.idl->child;
+            return do_static_expr(e->child[pi])+get_sizeof(&ty)*do_static_expr(e->child[ii]);
+        }
+        case TOK_DOT:
+        case TOK_ARROW:
+            if (get_type_category(&e->child[0]->type) != TOK_UNION) {
+                StructMember *m;
+
+                m = get_member_descriptor(get_type_spec(e->child[0]->type.decl_specs), e->child[1]->attr.str);
+                return do_static_expr(e->child[0])+m->offset;
+            } else {
+                return do_static_expr(e->child[0]);
+            }
+        case TOK_ADDRESS_OF:
+        case TOK_INDIRECTION:
+        case TOK_CAST:
+            return do_static_expr(e->child[0]);
+
+        case TOK_PLUS:
+            if (is_integer(get_type_category(&e->type))) {
+                return do_static_expr(e->child[0])+do_static_expr(e->child[1]);
+            } else {
+                int pi, ii;
+                Declaration ty;
+
+                if (is_integer(get_type_category(&e->child[0]->type)))
+                    pi = 1, ii = 0;
+                else
+                    pi = 0, ii = 1;
+                ty = e->child[pi]->type;
+                ty.idl = ty.idl->child;
+                return do_static_expr(e->child[pi])+get_sizeof(&ty)*do_static_expr(e->child[ii]);
+            }
+        case TOK_MINUS:
+            if (is_integer(get_type_category(&e->child[0]->type))) { /* int-int */
+                return do_static_expr(e->child[0])-do_static_expr(e->child[1]);
+            } else { /* ptr-int */
+                Declaration ty;
+
+                ty = e->child[0]->type;
+                ty.idl = ty.idl->child;
+                return do_static_expr(e->child[0])-get_sizeof(&ty)*do_static_expr(e->child[1]);
+            }
+        case TOK_CONDITIONAL:
+            if (e->child[0]->attr.val)
+                return do_static_expr(e->child[1]);
+            else
+                return do_static_expr(e->child[2]);
+        default:
+            assert(0);
+        }
+    case IConstExp:
+        return e->attr.uval;
+    case StrLitExp:
+        emit("@S%u+", new_string_literal(e->attr.str));
+        return 0;
+    case IdExp:
+        emit("%s+", e->attr.str);
+        return 0;
+    }
+}
+
+static void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
 {
     TypeExp *ts;
 
@@ -1334,7 +1410,7 @@ static void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e/*, int align*/
              */
             e = e->child[0];
             for (; e!=NULL && nelem!=0; e=e->sibling, --nelem)
-                do_static_init(ds, dct->child, e)/*, align=TRUE*/;
+                do_static_init(ds, dct->child, e);
 
             /*
              * Handle elements without explicit initializer.
@@ -1419,23 +1495,15 @@ scalar:
         dest_ty.decl_specs = ds;
         dest_ty.idl = dct;
         switch (get_type_category(&dest_ty)) {
-#define BAD_INIT(n) do { emitln(".zero %u", n); goto bad_init; } while (0)
         case TOK_CHAR:
         case TOK_SIGNED_CHAR:
         case TOK_UNSIGNED_CHAR:
-            if (is_integer(get_type_category(&e->type)))
-                emitln(".byte %lu", eval_const_expr(e, FALSE, TRUE));
-            else
-                BAD_INIT(1);
+            emit(".byte ");
             break;
         case TOK_SHORT:
         case TOK_UNSIGNED_SHORT:
-            // if (align)
             emitln(".align 2");
-            if (is_integer(get_type_category(&e->type)))
-                emitln(".word %lu", eval_const_expr(e, FALSE, TRUE));
-            else
-                BAD_INIT(2);
+            emit(".word ");
             break;
         case TOK_INT:
         case TOK_UNSIGNED:
@@ -1443,79 +1511,11 @@ scalar:
         case TOK_UNSIGNED_LONG:
         case TOK_ENUM:
         case TOK_STAR:
-            // if (align)
             emitln(".align 4");
-            /*
-             * The only supported expressions are:
-             * 1) any-integer-constant-expression; e.g. 1+2*3
-             * 2) any-string-literal; e.g. "abc"
-             * 2) x   // if x has array or function type
-             * 3) &x
-             * 4) &x+1, 1+&x, or &x-1
-             * 5) x+1, 1+x, or x-1 // if x has array type
-             */
-            if (is_integer(get_type_category(&e->type))) {
-                emitln(".dword %lu", eval_const_expr(e, FALSE, TRUE));
-            } else if (e->kind.exp == StrLitExp) {
-                emitln(".dword @S%u", new_string_literal(e->attr.str));
-            } else if (e->kind.exp == IdExp) {
-                Token cat;
-
-                if ((cat=get_type_category(&e->type))==TOK_SUBSCRIPT || cat==TOK_FUNCTION)
-                    emitln(".dword %s", e->attr.str);
-                else
-                    BAD_INIT(4);
-            } else if (e->kind.exp == OpExp) {
-                switch (e->attr.op) {
-                case TOK_ADDRESS_OF:
-                    if (e->child[0]->kind.exp == IdExp)
-                        emitln(".dword %s", e->child[0]->attr.str);
-                    else
-                        BAD_INIT(4);
-                    break;
-                case TOK_PLUS:
-                case TOK_MINUS: {
-                    Token cat;
-                    Declaration ty;
-                    int i, j;
-                    unsigned size;
-
-                    for (i=0, j=1; i < 2; i++, j--) {
-                        /* &x+1, &x-1, 1+&x */
-                        if (e->child[j]->kind.exp == IConstExp
-                        &&  e->child[i]->kind.exp == OpExp
-                        &&  e->child[i]->attr.op == TOK_ADDRESS_OF
-                        &&  e->child[i]->child[0]->kind.exp == IdExp) {
-                            size = e->child[j]->attr.uval*get_sizeof(&e->child[i]->child[0]->type);
-                            emitln(".dword %s+%u", e->child[i]->child[0]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
-                            return;
-                        /* x+1, x-1, 1+x */
-                        } else if (e->child[j]->kind.exp == IConstExp
-                        && e->child[i]->kind.exp == IdExp
-                        && (cat=get_type_category(&e->child[i]->type)) == TOK_SUBSCRIPT) {
-                            ty.decl_specs = e->child[i]->type.decl_specs;
-                            ty.idl = e->child[i]->type.idl->child;
-                            size = e->child[j]->attr.uval*get_sizeof(&ty);
-                            emitln(".dword %s+%u", e->child[i]->attr.str, (e->attr.op==TOK_PLUS)?size:-size);
-                            return;
-                        }
-                    }
-                    BAD_INIT(4);
-                    break;
-                }
-                default:
-                    BAD_INIT(4);
-                    break;
-                }
-            } else {
-                BAD_INIT(4);
-            }
+            emit(".dword ");
             break;
         }
-        return; /* OK */
-bad_init:
-        emit_warning(e->info->src_file, e->info->src_line, e->info->src_column,
-        "initializer form not supported, defaulting to zero");
+        emitln("%lu", do_static_expr(e));
     }
 }
 
@@ -1549,7 +1549,7 @@ void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mang
 
     /* allocation/initialization */
     if (initializer != NULL)
-        do_static_init(ty.decl_specs, ty.idl, initializer/*, FALSE*/);
+        do_static_init(ty.decl_specs, ty.idl, initializer);
     else
         emitln(".res %u", get_sizeof(&ty));
 
