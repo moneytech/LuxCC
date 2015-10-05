@@ -2,35 +2,12 @@
 #include <string.h>
 #include <getopt.h>
 #include <stdlib.h>
+#include <assert.h>
 #include "parser.h"
 #include "ic.h"
 #include "vm_cgen/vm_cgen.h"
 #include "x86_cgen/x86_cgen.h"
-
-/*
-Driver options
-    h -> print driver supported command-line options (with -v print help of called programs by the driver too)
-    v -> verbose
-    E -> preprocess only
-    S -> compile only
-    c -> compile and assemble only
-passed to cc
-    I
-    i
-    dump-tokens
-    analyze
-    quiet
-    show-stats
-    boring
-    target
-passed to ld
-    l
-    L
-    entry
-passed to all
-    o
-*/
-
+#include "util.h"
 
 unsigned warning_count, error_count;
 int disable_warnings;
@@ -39,188 +16,202 @@ int colored_diagnostics = 1;
 unsigned stat_number_of_pre_tokens;
 unsigned stat_number_of_c_tokens;
 unsigned stat_number_of_ast_nodes;
+static char *program_name;
 
-static void usage(FILE *f, char *program_name)
+static void usage(FILE *fp, int more_inf)
 {
-    fprintf(f, "USAGE: %s [OPTIONS...] <file>\n", program_name);
+    fprintf(fp, "USAGE: %s [ OPTIONS ] <file>\n", program_name);
+    if (more_inf)
+        fprintf(fp, "Type `%s -h' to see command-line options\n", program_name);
 }
 
 static void print_options(void)
 {
     printf(
     "\nOPTIONS:\n"
-    "  Short option name     Long option name        Description\n"
-    "  -E,                   --preprocess            Preprocess only\n"
-    "  -d,                   --dump-token            Show tokenized file\n"
-    "  -a,                   --analyze               Perform static analysis only\n"
-    "  -q,                   --quiet                 Disable all warnings\n"
-    "  -o<file>,             --output-file<file>     Write output to <file>\n"
-    "  -s,                   --show-stats            Show compilation stats\n"
-    "  -b,                   --boring                Print uncolored diagnostics\n"
-    "  -t<target>,           --target<mach>          Generate target code for machine <mach>\n"
-    "  -I<dir>,              --angle-include<dir>    Add <dir> to the list of directories searched for #include <...>\n"
-    "  -i<dir>,              --quote-include<dir>    Add <dir> to the list of directories searched for #include \"...\"\n"
-    "  -h,                   --help                  Print this help\n"
+    "  -p               Preprocess only\n"
+    "  -t               Show tokenized file\n"
+    "  -a               Perform static analysis only\n"
+    "  -q               Disable all warnings\n"
+    "  -o<file>         Write output to <file>\n"
+    "  -s               Show compilation stats\n"
+    "  -u               Print uncolored diagnostics\n"
+    "  -m<mach>         Generate target code for machine <mach>\n"
+    "  -I<dir>          Add <dir> to the list of directories searched for #include <...>\n"
+    "  -i<dir>          Add <dir> to the list of directories searched for #include \"...\"\n"
+    "  -h               Print this help\n"
     );
 }
 
-#define TARGET_X86      1
-#define TARGET_VM       2
-#define TARGET_DEFAULT  TARGET_X86
+static void missing_arg(char *opt)
+{
+    fprintf(stderr, "%s: option `%s' requires an argument\n", program_name, opt);
+    exit(EXIT_FAILURE);
+}
+
+static FILE *open_for_write(char *path)
+{
+    FILE *fp;
+
+    fp = (path == NULL) ? stdout : fopen(path, "wb");
+    if (fp == NULL) {
+        fprintf(stderr, "%s: cannot write to file `%s'\n", program_name, path);
+        exit(EXIT_FAILURE);
+    }
+    return fp;
+}
+
+enum {
+    OPT_PREPROCESS_ONLY = 0x01,
+    OPT_DUMP_TOKENS     = 0x02,
+    OPT_ANALYZE         = 0x04,
+    OPT_SHOW_STATS      = 0x08,
+    OPT_X86_TARGET      = 0x10,
+    OPT_VM_TARGET       = 0x20,
+};
 
 int main(int argc, char *argv[])
 {
-    static PreTokenNode *pre;
-    static TokenNode *tok;
-    // static ExternDecl *tree;
-
-    /*
-     * Handle command line options.
-     */
-    int option_index, c;
-    unsigned option_flags;
-    char *output_file_arg = NULL;
-    int target_machine_arg = TARGET_DEFAULT;
+    int i;
+    FILE *fp = NULL;
+    unsigned flags = 0;
+    char *outpath = NULL, *inpath = NULL;
+    PreTokenNode *pre;
+    TokenNode *tok;
     PreTokenNode dummy_node = { PRE_TOK_NL };
-    enum {
-        OPT_PREPROCESS_ONLY = 0x1,
-        OPT_DUMP_TOKENS     = 0x2,
-        OPT_ANALYZE         = 0x4,
-        OPT_SHOW_STATS      = 0x8
-    };
 
-    struct option compiler_options[] = {
-        { "preprocess",      no_argument,        NULL, 'E' },
-        { "dump-tokens",     no_argument,        NULL, 'd' },
-        { "analyze",         no_argument,        NULL, 'a' },
-        { "quiet",           no_argument,        NULL, 'q' },
-        { "output-file",     required_argument,  NULL, 'o' },
-        { "help",            no_argument,        NULL, 'h' },
-        { "show-stats",      no_argument,        NULL, 's' },
-        { "boring",          no_argument,        NULL, 'b' },
-        { "target",          required_argument,  NULL, 't' },
-        { "angle-include",   required_argument,  NULL, 'I' },
-        { "quote-include",   required_argument,  NULL, 'i' },
-        { NULL,              0,                  NULL,  0 }
-    };
+    program_name = argv[0];
+    if (argc == 1) {
+        usage(stderr, TRUE);
+        exit(EXIT_SUCCESS);
+    }
+    for (i = 1; i < argc; i++) {
+        if (argv[i][0] != '-') {
+            inpath = argv[i];
+            continue;
+        }
+        switch (argv[i][1]) {
+        case 'a':
+            flags |= OPT_ANALYZE;
+            break;
+        case 'h':
+            usage(stdout, FALSE);
+            print_options();
+            exit(EXIT_SUCCESS);
+        case 'I':
+            if (argv[i][2] != '\0')
+                add_angle_dir(argv[i]+2);
+            else if (argv[i+1] == NULL)
+                missing_arg(argv[i]);
+            else
+                add_angle_dir(argv[++i]);
+            break;
+        case 'i':
+            if (argv[i][2] != '\0')
+                add_quote_dir(argv[i]+2);
+            else if (argv[i+1] == NULL)
+                add_quote_dir(argv[i]);
+            else
+                add_quote_dir(argv[++i]);
+            break;
+        case 'm': {
+            char *targ;
 
-    option_flags = 0;
-    for (;;) {
-        option_index = 0;
-
-        c = getopt_long(argc, argv, "Edaqo:hsbt:I:i:", compiler_options, &option_index);
-        if (c == -1)
-            break; /* no more options */
-
-        switch (c) {
-            case 'E':
-                option_flags |= OPT_PREPROCESS_ONLY;
-                break;
-            case 'd':
-                option_flags |= OPT_DUMP_TOKENS;
-                break;
-            case 'a':
-                option_flags |= OPT_ANALYZE;
-                break;
-            case 's':
-                option_flags |= OPT_SHOW_STATS;
-                break;
-            case 'q':
-                disable_warnings = 1;
-                break;
-            case 'b':
-                colored_diagnostics = 0;
-                break;
-            case 'o':
-                output_file_arg = optarg;
-                break;
-            case 't':
-                if (strcmp(optarg, "x86") == 0)
-                    target_machine_arg = TARGET_X86;
-                else if (strcmp(optarg, "vm") == 0)
-                    target_machine_arg = TARGET_VM;
-                break;
-            case 'I':
-                add_angle_dir(optarg);
-                break;
-            case 'i':
-                add_quote_dir(optarg);
-                break;
-            case 'h':
-                usage(stdout, argv[0]);
-                print_options();
-                exit(EXIT_SUCCESS);
-            case '?':
-                /* by default opterr is true, getopt_long already printed a diagnostic */
-                // break;
-            default:
-                exit(EXIT_FAILURE);
+            if (argv[i][2] != '\0')
+                targ = argv[i]+2;
+            else if (argv[i+1] == NULL)
+                missing_arg(argv[i]);
+            else
+                targ = argv[++i];
+            if (equal(targ, "x86"))
+                flags |= OPT_X86_TARGET;
+            else if (equal(targ, "vm"))
+                flags |= OPT_VM_TARGET;
+        }
+            break;
+        case 'o':
+            if (argv[i][2] != '\0')
+                outpath = argv[i]+2;
+            else if (argv[i+1] == NULL)
+                missing_arg(argv[i]);
+            else
+                outpath = argv[++i];
+            break;
+        case 'p':
+            flags |= OPT_PREPROCESS_ONLY;
+            break;
+        case 'q':
+            disable_warnings = TRUE;
+            break;
+        case 's':
+            flags |= OPT_SHOW_STATS;
+            break;
+        case 't':
+            flags |= OPT_DUMP_TOKENS;
+            break;
+        case 'u':
+            colored_diagnostics = 0;
+            break;
+        case '\0': /* stray '-' */
+            break;
+        default:
+            fprintf(stderr, "%s: unknown option `%s'\n", program_name, argv[i]);
+            exit(EXIT_FAILURE);
         }
     }
 
-    if (optind >= argc) {
-        /* the input file is missing */
-        usage(stderr, argv[0]);
+    if (inpath == NULL) {
+        usage(stderr, TRUE);
         exit(EXIT_FAILURE);
     }
 
-    /*
-     * Here begins the processing of the file.
-     */
-    if (target_machine_arg == TARGET_X86)
-        install_macro(SIMPLE_MACRO, "__x86_32__", &dummy_node, NULL);
-    else if (target_machine_arg == TARGET_VM)
+    if (flags & OPT_VM_TARGET)
         install_macro(SIMPLE_MACRO, "__LuxVM__", &dummy_node, NULL);
+    else /* default target: x86 */
+        install_macro(SIMPLE_MACRO, "__x86_32__", &dummy_node, NULL);
 
-    pre = preprocess(argv[optind]);
-    if (option_flags & OPT_PREPROCESS_ONLY) {
+    pre = preprocess(inpath);
+    if (flags & OPT_PREPROCESS_ONLY) {
         PreTokenNode *p;
 
-        for (p = pre; p != NULL; p = p->next) {
+        fp = open_for_write(outpath);
+        for (p = pre; p != NULL; p = p->next)
             if (!p->deleted || p->token==PRE_TOK_NL)
-                printf("%s ", p->lexeme);
-        }
-        // exit(EXIT_SUCCESS);
+                fprintf(fp, "%s ", p->lexeme);
         goto done;
     }
 
-    tok = lexer(pre);
-    if (option_flags & OPT_DUMP_TOKENS) {
+    tok = tokenize(pre);
+    if (flags & OPT_DUMP_TOKENS) {
         TokenNode *p;
 
-        for (p = tok; p != NULL; p = p->next) {
-            printf("%s:%d:%-3d =>   token: %-15s lexeme: `%s'\n", p->src_file, p->src_line,
+        for (p = tok; p != NULL; p = p->next)
+            fprintf(fp, "%s:%d:%-3d =>   token: %-15s lexeme: `%s'\n", p->src_file, p->src_line,
             p->src_column, token_table[p->token*2], p->lexeme);
-        }
-        exit(EXIT_SUCCESS);
+        goto done;
     }
 
-    // tree = parser(tok);
-    parser(tok);
+    parse(tok); /* parse & analyze */
 
-    if (option_flags & OPT_ANALYZE)
-        exit(EXIT_SUCCESS);
+    if (flags & OPT_ANALYZE)
+        goto done;
 
     if (error_count == 0) {
-        FILE *fp;
-
-        fp = (output_file_arg == NULL) ? stdout : fopen(output_file_arg, "wb");
-        if (target_machine_arg == TARGET_X86)
-            x86_cgen(fp);
-        else if (target_machine_arg == TARGET_VM)
+        fp = open_for_write(outpath);
+        if (flags & OPT_VM_TARGET)
             vm_cgen(fp);
-        if (output_file_arg != NULL)
-            fclose(fp);
+        else
+            x86_cgen(fp);
     } else {
         return 1;
     }
 done:
-    if (option_flags & OPT_SHOW_STATS) {
+    if (fp!=NULL && fp!=stdout)
+        fclose(fp);
+    if (flags & OPT_SHOW_STATS) {
         printf("\n=> '%u' preprocessing tokens were created (aprox)\n", stat_number_of_pre_tokens);
         printf("=> '%u' C tokens were created (aprox)\n", stat_number_of_c_tokens);
         printf("=> '%u' AST nodes were created (aprox)\n", stat_number_of_ast_nodes);
     }
-    // printf("%d warning and %d error generated\n", warning_count, error_count);
-
-	return 0;
+    return 0;
 }

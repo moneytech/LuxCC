@@ -1954,7 +1954,7 @@ static void print_ast(ExternDecl *n);
 /*
  * Main function of the parser.
  */
-ExternDecl *parser(TokenNode *tokens)
+ExternDecl *parse(TokenNode *tokens)
 {
     ExternDecl *n;
 

@@ -474,7 +474,7 @@ static TokenNode *new_token(Token token, PreTokenNode *ptok)
  * of C tokens (roughly translation phases 5, 6, and part of 7 of the
  * standard).
  */
-TokenNode *lexer(PreTokenNode *pre_token_list)
+TokenNode *tokenize(PreTokenNode *pre_token_list)
 {
     TokenNode *first, *tok;
 

@@ -102,7 +102,7 @@ struct ExecNode {
     TokenNode *info;
 };
 
-ExternDecl *parser(TokenNode *tokens);
+ExternDecl *parse(TokenNode *tokens);
 
 TypeExp *new_type_exp_node(void);
 ExecNode *new_exec_node(void);

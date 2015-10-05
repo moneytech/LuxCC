@@ -32,28 +32,25 @@ void string_clear(String *s)
 int string_printf(String *s, char *fmt, ...)
 {
 	va_list args;
-    unsigned n, n2;
+    unsigned avail, n;
 
 	va_start(args, fmt);
-    n = s->buf_max-s->buf_next;
-    if ((n2=vsnprintf(s->buf+s->buf_next, n, fmt, args)) >= n) {
+    avail = s->buf_max-s->buf_next;
+    if ((n=vsnprintf(s->buf+s->buf_next, avail, fmt, args)) >= avail) {
         char *p;
 
-        s->buf_max = s->buf_max*2+n2;
-        if ((p=realloc(s->buf, s->buf_max)) == NULL) {
-            fprintf(stderr, "string_printf: out of memory\n");
-            free(s->buf);
-            exit(EXIT_FAILURE);
-        }
+        if ((p=realloc(s->buf, s->buf_max*2+n)) == NULL)
+            return -1;
+        s->buf_max = s->buf_max*2+n;
         s->buf = p;
 
         va_end(args);
         va_start(args, fmt);
         vsprintf(s->buf+s->buf_next, fmt, args);
     }
-    s->buf_next += n2;
+    s->buf_next += n;
 	va_end(args);
-    return n2;
+    return n;
 }
 
 void string_write(String *s, FILE *fp)
