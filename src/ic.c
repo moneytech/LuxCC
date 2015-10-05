@@ -61,6 +61,15 @@ static unsigned ic_func_first_instr;
 static unsigned exit_label;
 static Arena *temp_names_arena;
 
+extern char *cg_outpath;
+static FILE *cg_dotfile;
+
+extern char *cfg_outpath, *cfg_function_to_print;
+static FILE *cfg_dotfile;
+
+extern char *ic_outpath, *ic_function_to_print;
+static FILE *ic_file;
+
 /*
  * X86 stuff.
  */
@@ -370,6 +379,7 @@ static void ic_reset(void)
     local_offset = 0;
 }
 
+#if 0
 static void ic_free_all(void)
 {
     unsigned i;
@@ -396,6 +406,7 @@ static void ic_free_all(void)
     free(lab2instr);
     free(nid2sid_tab);
 }
+#endif
 
 /* Find address-taken variables in a single static initializer expression. */
 static void ic_find_atv_in_expr(ExecNode *e)
@@ -922,6 +933,7 @@ static int *visited, nunvisited;
 /* Call-Graph (CG) */
 /*                 */
 
+#if DEBUG
 static void print_CG_ordering(void)
 {
     unsigned i;
@@ -935,23 +947,25 @@ static void print_CG_ordering(void)
         printf("%u%s", cg_node(i).RPO, (i!=cg_nodes_counter-1)?", ":" ");
     printf("]\n");
 }
+#endif
 
 static void print_CG(void)
 {
     unsigned i;
 
-    printf("Program Call-Graph\n");
+#if DEBUG
     print_CG_ordering();
-    printf("digraph {\n");
+#endif
+    fprintf(cg_dotfile, "digraph {\n");
     for (i = 0; i < cg_nodes_counter; i++) {
         unsigned j;
 
-        printf("V%u[label=\"F%u %s\\n", i, i, cg_node(i).func_id);
-        printf("[%u, %u]\"];\n", cg_node(i).bb_i, cg_node(i).bb_f);
+        fprintf(cg_dotfile, "V%u[label=\"F%u %s\\n", i, i, cg_node(i).func_id);
+        fprintf(cg_dotfile, "[%u, %u]\"];\n", cg_node(i).bb_i, cg_node(i).bb_f);
         for (j = edge_iterate(&cg_node(i).out); j != -1; j = edge_iterate(NULL))
-            printf("V%u -> V%u;\n", i, j);
+            fprintf(cg_dotfile, "V%u -> V%u;\n", i, j);
     }
-    printf("}\n");
+    fprintf(cg_dotfile, "}\n");
 }
 
 static void number_subCG(unsigned n)
@@ -997,6 +1011,7 @@ static void number_CG(void)
 /* Control Flow Graph (CFG) */
 /*                          */
 
+#if DEBUG
 static void print_CFG_ordering(unsigned fn)
 {
     unsigned i;
@@ -1015,6 +1030,7 @@ static void print_CFG_ordering(unsigned fn)
         printf("%u%s", cfg_node(i).RPO, (i!=last_bb)?", ":" ");
     printf("]\n");
 }
+#endif
 
 /* emit a DOT definition of the CFG */
 static void print_CFG(unsigned fn)
@@ -1023,22 +1039,22 @@ static void print_CFG(unsigned fn)
 
     if (cg_node_is_empty(fn))
         return;
-
+#if DEBUG
     print_CFG_ordering(fn);
-
-    printf("digraph {\n");
+#endif
+    fprintf(cfg_dotfile, "digraph {\n");
     for (i = cg_node(fn).bb_i; i <= cg_node(fn).bb_f; i++) {
         unsigned j;
 
-        printf("V%u[label=\"B%u ", i, i);
+        fprintf(cfg_dotfile, "V%u[label=\"B%u ", i, i);
         for (j = cfg_node(i).leader; j <= cfg_node(i).last; j++)
-            printf("(%u)%s", j, (j!=cfg_node(i).last)?", ":"");
-        printf("\"];\n");
+            fprintf(cfg_dotfile, "(%u)%s", j, (j!=cfg_node(i).last)?", ":"");
+        fprintf(cfg_dotfile, "\"];\n");
 
         for (j = 0; j < cfg_node(i).out.n; j++)
-            printf("V%u -> V%u;\n", i, cfg_node(i).out.edges[j]);
+            fprintf(cfg_dotfile, "V%u -> V%u;\n", i, cfg_node(i).out.edges[j]);
     }
-    printf("}\n");
+    fprintf(cfg_dotfile, "}\n");
 }
 
 static void number_subCFG(unsigned n)
@@ -2676,14 +2692,14 @@ static void print_addr(unsigned addr)
 
     switch (address(addr).kind) {
     case IConstKind:
-        printf("%ld", address(addr).cont.val);
+        fprintf(ic_file, "%ld", address(addr).cont.val);
         break;
     case TempKind:
     case IdKind:
-        printf("%s", address_sid(addr));
+        fprintf(ic_file, "%s", address_sid(addr));
         break;
     case StrLitKind:
-        printf("\"%s\"", address(addr).cont.str);
+        fprintf(ic_file, "\"%s\"", address(addr).cont.str);
         break;
     }
 }
@@ -2691,16 +2707,16 @@ static void print_addr(unsigned addr)
 static void print_binop(Quad *i, char *op)
 {
     print_addr(i->tar);
-    printf(" = ");
+    fprintf(ic_file, " = ");
     print_addr(i->arg1);
-    printf(" %s ", op);
+    fprintf(ic_file, " %s ", op);
     print_addr(i->arg2);
 }
 
 static void print_unaop(Quad *i, char *op)
 {
     print_addr(i->tar);
-    printf(" = %s", op);
+    fprintf(ic_file, " = %s", op);
     print_addr(i->arg1);
 }
 
@@ -2718,7 +2734,7 @@ static void dump_ic(unsigned fn)
         Quad *p;
 
         p = &ic_instructions[i];
-        printf("(%d) ", i);
+        fprintf(ic_file, "(%d) ", i);
         switch (p->op) {
         case OpAdd: print_binop(p, "+");  break;
         case OpSub: print_binop(p, "-");  break;
@@ -2745,9 +2761,9 @@ static void dump_ic(unsigned fn)
         case OpSh:   print_unaop(p, "(short)");          break;
         case OpUSh:  print_unaop(p, "(unsigned short)"); break;
         case OpIndAsn:
-            printf("*");
+            fprintf(ic_file, "*");
             print_addr(p->arg1);
-            printf(" = ");
+            fprintf(ic_file, " = ");
             print_addr(p->arg2);
             break;
         case OpAsn:    print_unaop(p, "");  break;
@@ -2755,51 +2771,51 @@ static void dump_ic(unsigned fn)
         case OpInd:    print_unaop(p, "*"); break;
 
         case OpLab:
-            printf("L%ld:", address(p->tar).cont.val);
+            fprintf(ic_file, "L%ld:", address(p->tar).cont.val);
             break;
         case OpJmp:
-            printf("jmp L%ld", address(p->tar).cont.val);
+            fprintf(ic_file, "jmp L%ld", address(p->tar).cont.val);
             break;
         case OpSwitch:
-            printf("switch ");
+            fprintf(ic_file, "switch ");
             print_addr(p->arg1);
-            printf(" [");
+            fprintf(ic_file, " [");
             print_addr(p->arg2);
-            printf(" labels]");
+            fprintf(ic_file, " labels]");
             break;
         case OpCase:
-            printf("case ");
+            fprintf(ic_file, "case ");
             print_addr(p->tar);
-            printf(", L%ld, %ld", address(p->arg1).cont.val, address(p->arg2).cont.val);
+            fprintf(ic_file, ", L%ld, %ld", address(p->arg1).cont.val, address(p->arg2).cont.val);
             break;
         case OpCBr:
-            printf("cbr L%ld, ", address(p->tar).cont.val);
+            fprintf(ic_file, "cbr L%ld, ", address(p->tar).cont.val);
             print_addr(p->arg1);
-            printf(", L%ld", address(p->arg2).cont.val);
+            fprintf(ic_file, ", L%ld", address(p->arg2).cont.val);
             break;
 
         case OpArg:
-            printf("arg ");
+            fprintf(ic_file, "arg ");
             print_addr(p->arg1);
             break;
         case OpCall:
         case OpIndCall:
             if (p->tar) {
                 print_addr(p->tar);
-                printf(" = ");
+                fprintf(ic_file, " = ");
             }
             if (p->op == OpCall)
                 print_addr(p->arg1);
             else
-                printf("(*"), print_addr(p->arg1), printf(")");
-            printf("() ["); print_addr(p->arg2); printf(" arg]");
+                fprintf(ic_file, "(*"), print_addr(p->arg1), fprintf(ic_file, ")");
+            fprintf(ic_file, "() ["); print_addr(p->arg2); fprintf(ic_file, " arg]");
             break;
         case OpRet:
-            printf("ret ");
+            fprintf(ic_file, "ret ");
             print_addr(p->arg1);
             break;
         }
-        printf("\n");
+        fprintf(ic_file, "\n");
     }
 }
 
@@ -2834,11 +2850,23 @@ void ic_main(ExternId *func_def_list[])
     number_CG();
     // opt_main();
     for (i = 0; i < cg_nodes_counter; i++) {
-        // dump_ic(i);
-        // print_CFG(i);
+        if (ic_outpath!=NULL && equal(cg_node(i).func_id, ic_function_to_print)) {
+            ic_file = fopen(ic_outpath, "wb");
+            dump_ic(i);
+            fclose(ic_file);
+        }
+        if (cfg_outpath!=NULL && equal(cg_node(i).func_id, cfg_function_to_print)) {
+            cfg_dotfile = fopen(cfg_outpath, "wb");
+            print_CFG(i);
+            fclose(cfg_dotfile);
+        }
         dflow_Dom(i);
         dflow_LiveOut(i);
         // dflow_ReachIn(i, i == cg_nodes_counter-1);
     }
-    // print_CG();
+    if (cg_outpath != NULL) {
+        cg_dotfile = fopen(cg_outpath, "wb");
+        print_CG();
+        fclose(cg_dotfile);
+    }
 }

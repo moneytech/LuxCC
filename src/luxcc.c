@@ -12,35 +12,18 @@
 unsigned warning_count, error_count;
 int disable_warnings;
 int colored_diagnostics = 1;
+char *cg_outpath;
+char *cfg_outpath, *cfg_function_to_print;
+char *ic_outpath, *ic_function_to_print;
 
 unsigned stat_number_of_pre_tokens;
 unsigned stat_number_of_c_tokens;
 unsigned stat_number_of_ast_nodes;
 static char *program_name;
 
-static void usage(FILE *fp, int more_inf)
+static void usage(FILE *fp)
 {
     fprintf(fp, "USAGE: %s [ OPTIONS ] <file>\n", program_name);
-    if (more_inf)
-        fprintf(fp, "Type `%s -h' to see command-line options\n", program_name);
-}
-
-static void print_options(void)
-{
-    printf(
-    "\nOPTIONS:\n"
-    "  -p               Preprocess only\n"
-    "  -t               Show tokenized file\n"
-    "  -a               Perform static analysis only\n"
-    "  -q               Disable all warnings\n"
-    "  -o<file>         Write output to <file>\n"
-    "  -s               Show compilation stats\n"
-    "  -u               Print uncolored diagnostics\n"
-    "  -m<mach>         Generate target code for machine <mach>\n"
-    "  -I<dir>          Add <dir> to the list of directories searched for #include <...>\n"
-    "  -i<dir>          Add <dir> to the list of directories searched for #include \"...\"\n"
-    "  -h               Print this help\n"
-    );
 }
 
 static void missing_arg(char *opt)
@@ -49,16 +32,24 @@ static void missing_arg(char *opt)
     exit(EXIT_FAILURE);
 }
 
-static FILE *open_for_write(char *path)
+static char *replace_extension(char *fname, char *newext)
 {
-    FILE *fp;
+    char *p;
 
-    fp = (path == NULL) ? stdout : fopen(path, "wb");
-    if (fp == NULL) {
-        fprintf(stderr, "%s: cannot write to file `%s'\n", program_name, path);
-        exit(EXIT_FAILURE);
+    if ((p=strrchr(fname, '.')) == NULL) {
+        p = malloc(strlen(fname)+strlen(newext)+1);
+        strcpy(p, fname);
+        strcat(p, newext);
+    } else {
+        int n;
+
+        n = p-fname;
+        p = malloc(n+strlen(newext)+1);
+        strncpy(p, fname, n);
+        p[n] = '\0';
+        strcat(p, newext);
     }
-    return fp;
+    return p;
 }
 
 enum {
@@ -68,6 +59,8 @@ enum {
     OPT_SHOW_STATS      = 0x08,
     OPT_X86_TARGET      = 0x10,
     OPT_VM_TARGET       = 0x20,
+    OPT_PRINT_AST       = 0x40,
+    OPT_PRINT_CG        = 0x80,
 };
 
 int main(int argc, char *argv[])
@@ -82,7 +75,7 @@ int main(int argc, char *argv[])
 
     program_name = argv[0];
     if (argc == 1) {
-        usage(stderr, TRUE);
+        usage(stderr);
         exit(EXIT_SUCCESS);
     }
     for (i = 1; i < argc; i++) {
@@ -95,8 +88,8 @@ int main(int argc, char *argv[])
             flags |= OPT_ANALYZE;
             break;
         case 'h':
-            usage(stdout, FALSE);
-            print_options();
+            usage(stdout);
+            printf("Run the driver with the `-h' option for more info\n");
             exit(EXIT_SUCCESS);
         case 'I':
             if (argv[i][2] != '\0')
@@ -146,11 +139,33 @@ int main(int argc, char *argv[])
         case 's':
             flags |= OPT_SHOW_STATS;
             break;
-        case 't':
-            flags |= OPT_DUMP_TOKENS;
-            break;
         case 'u':
             colored_diagnostics = 0;
+            break;
+        case 'A':
+            flags |= OPT_PRINT_AST;
+            break;
+        case 'C':
+            flags |= OPT_PRINT_CG;
+            break;
+        case 'G':
+            if (argv[i][2] != '\0')
+                cfg_function_to_print = argv[i]+2;
+            else if (argv[i+1] == NULL)
+                missing_arg(argv[i]);
+            else
+                cfg_function_to_print = argv[++i];
+            break;
+        case 'N':
+            if (argv[i][2] != '\0')
+                ic_function_to_print = argv[i]+2;
+            else if (argv[i+1] == NULL)
+                missing_arg(argv[i]);
+            else
+                ic_function_to_print = argv[++i];
+            break;
+        case 'T':
+            flags |= OPT_DUMP_TOKENS;
             break;
         case '\0': /* stray '-' */
             break;
@@ -161,7 +176,7 @@ int main(int argc, char *argv[])
     }
 
     if (inpath == NULL) {
-        usage(stderr, TRUE);
+        usage(stderr);
         exit(EXIT_FAILURE);
     }
 
@@ -174,7 +189,7 @@ int main(int argc, char *argv[])
     if (flags & OPT_PREPROCESS_ONLY) {
         PreTokenNode *p;
 
-        fp = open_for_write(outpath);
+        fp = (outpath == NULL) ? stdout : fopen(outpath, "wb");
         for (p = pre; p != NULL; p = p->next)
             if (!p->deleted || p->token==PRE_TOK_NL)
                 fprintf(fp, "%s ", p->lexeme);
@@ -184,24 +199,49 @@ int main(int argc, char *argv[])
     tok = tokenize(pre);
     if (flags & OPT_DUMP_TOKENS) {
         TokenNode *p;
+        char *tok_outpath;
 
+        tok_outpath = replace_extension(inpath, ".tok");
+        fp = fopen(tok_outpath, "wb");
         for (p = tok; p != NULL; p = p->next)
             fprintf(fp, "%s:%d:%-3d =>   token: %-15s lexeme: `%s'\n", p->src_file, p->src_line,
             p->src_column, token_table[p->token*2], p->lexeme);
-        goto done;
+        free(tok_outpath);
+        fclose(fp);
     }
 
-    parse(tok); /* parse & analyze */
+    /* parse & analyze */
+    if (flags & OPT_PRINT_AST) {
+        char *ast_outpath;
 
+        ast_outpath = replace_extension(inpath, ".ast.dot");
+        parse(tok, ast_outpath);
+        free(ast_outpath);
+    } else {
+        parse(tok, NULL);
+    }
     if (flags & OPT_ANALYZE)
         goto done;
 
     if (error_count == 0) {
-        fp = open_for_write(outpath);
-        if (flags & OPT_VM_TARGET)
+        fp = (outpath == NULL) ? stdout : fopen(outpath, "wb");
+        if (flags & OPT_VM_TARGET) {
             vm_cgen(fp);
-        else
+        } else {
+            if (ic_function_to_print != NULL)
+                ic_outpath = replace_extension(inpath, ".ic");
+            if (cfg_function_to_print != NULL)
+                cfg_outpath = replace_extension(inpath, ".cfg.dot");
+            if (flags & OPT_PRINT_CG)
+                cg_outpath = replace_extension(inpath, ".cg.dot");
             x86_cgen(fp);
+            if (ic_function_to_print != NULL)
+                free(ic_outpath);
+            if (cfg_outpath != NULL)
+                free(cfg_outpath);
+            if (cg_outpath != NULL)
+                free(cg_outpath);
+        }
     } else {
         return 1;
     }

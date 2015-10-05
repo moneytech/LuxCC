@@ -1950,11 +1950,12 @@ ExecNode *argument_expression_list(void)
 }
 
 static void print_ast(ExternDecl *n);
+static FILE *dotfile;
 
 /*
  * Main function of the parser.
  */
-ExternDecl *parse(TokenNode *tokens)
+ExternDecl *parse(TokenNode *tokens, char *ast_outpath)
 {
     ExternDecl *n;
 
@@ -1965,7 +1966,11 @@ ExternDecl *parse(TokenNode *tokens)
     parser_str_arena = arena_new(1024, FALSE);
     n = translation_unit();
     stmt_done();
-    // print_ast(n), exit(0);
+    if (ast_outpath != NULL) {
+        dotfile = fopen(ast_outpath, "wb");
+        print_ast(n);
+        fclose(dotfile);
+    }
     return n;
 }
 
@@ -1992,17 +1997,17 @@ static void print_function_definition(Declaration *n);
 void print_vertex(int vertex, char *label)
 {
     if (label != NULL)
-        printf("V%d[label=\"%s\"];\n", vertex, label);
+        fprintf(dotfile, "V%d[label=\"%s\"];\n", vertex, label);
     else
-        printf("V%d;\n", vertex);
+        fprintf(dotfile, "V%d;\n", vertex);
 }
 
 void print_edge(int src_vertex, int dst_vertex, char *label)
 {
     if (label != NULL)
-        printf("V%d -> V%d [label=\" %s\"];\n", src_vertex, dst_vertex, label);
+        fprintf(dotfile, "V%d -> V%d [label=\" %s\"];\n", src_vertex, dst_vertex, label);
     else
-        printf("V%d -> V%d;\n", src_vertex, dst_vertex);
+        fprintf(dotfile, "V%d -> V%d;\n", src_vertex, dst_vertex);
 }
 
 void print_TypeExp_node(TypeExp *n)
@@ -2317,7 +2322,7 @@ void print_function_definition(Declaration *n)
 
 void print_ast(ExternDecl *n)
 {
-    printf("digraph {\n");
+    fprintf(dotfile, "digraph {\n");
     for (; n != NULL; n = n->sibling) {
         int tmp_vertex = ++vertex_counter;
 
@@ -2330,5 +2335,5 @@ void print_ast(ExternDecl *n)
         if (n->sibling != NULL)
             print_edge(tmp_vertex, vertex_counter+1, "sibling");
     }
-    printf("}\n");
+    fprintf(dotfile, "}\n");
 }
