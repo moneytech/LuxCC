@@ -195,6 +195,12 @@ void append_reloc(int segment, int offset, char *symbol)
     ++nreloc;
 }
 
+void err_no_input(void)
+{
+    fprintf(stderr, "%s: no input file\n", prog_name);
+    exit(1);
+}
+
 int main(int argc, char *argv[])
 {
     /*
@@ -231,24 +237,50 @@ int main(int argc, char *argv[])
 
     int i;
     FILE *fout;
+    char *outpath, *inpath;
 
     prog_name = argv[0];
-    if (argc==2 || argc==3) {
-        init((equal(argv[1], "-")) ? NULL : argv[1]);
-    } else {
-        printf("usage: %s <input-file> [ <output-file> ]\n", prog_name);
-        printf("notes: (1) if <input-file> is '-' (without quotes), the input is read from stdin\n");
-        printf("       (2) if <output-file> is missing, the output goes to stdout\n");
-        exit(0);
+    if (argc == 1)
+        err_no_input();
+    outpath = NULL;
+    for (i = 1; i < argc; i++) {
+        if (argv[i][0]!='-' || argv[i][1]=='\0') {
+            inpath = argv[i];
+            continue;
+        }
+        switch (argv[i][1]) {
+        case 'o':
+            if (argv[i][2] != '\0') {
+                outpath = argv[i]+2;
+            } else if (argv[i+1] == NULL) {
+                fprintf(stderr, "%s: option `o' requires an argument\n", prog_name);
+                exit(1);
+            } else {
+                outpath = argv[++i];
+            }
+            break;
+        case 'h':
+            printf("usage: %s [ options ] <input-file>\n"
+                   "  The available options are:\n"
+                   "    -o<file>    write output to <file>\n"
+                   "    -h          print this help\n"
+                   "\nnote: if the input file is - the program is read from the standard input\n", prog_name);
+            exit(0);
+            break;
+        default:
+            fprintf(stderr, "%s: unknown option `%s'\n", prog_name, argv[i]);
+            exit(1);
+        }
     }
+    if (inpath == NULL)
+        err_no_input();
+    init(equal(inpath, "-") ? NULL : inpath);
 
     curr_tok = get_token();
     program();
     match(TOK_EOF);
 
-    fout = (argc == 3) ? fopen(argv[2], "wb") : stdout;
-    /*if (fout == NULL)
-        TERMINATE("%s: error while trying to write to file `%s'", prog_name, argv[2]);*/
+    fout = (outpath != NULL) ? fopen(outpath, "wb") : stdout;
     fwrite(&nsym, sizeof(int), 1, fout);
     fwrite(&bss_size, sizeof(int), 1, fout);
     fwrite(&data_size, sizeof(int), 1, fout);
@@ -283,13 +315,8 @@ int main(int argc, char *argv[])
         fwrite(&relocation_table[i].offset, sizeof(int), 1, fout);
         fwrite(relocation_table[i].symbol, strlen(relocation_table[i].symbol)+1, 1, fout);
     }
-
-    fclose(fout);
-
-    // fprintf(stderr, "text_size=%d\n", text_size);
-    // fprintf(stderr, "data_size=%d\n", data_size);
-    // fprintf(stderr, "bss_size=%d\n", bss_size);
-    // fprintf(stderr, "nreloc=%d\n", nreloc);
+    if (fout != stdout)
+        fclose(fout);
 
     return 0;
 }

@@ -32,26 +32,6 @@ static void missing_arg(char *opt)
     exit(EXIT_FAILURE);
 }
 
-static char *replace_extension(char *fname, char *newext)
-{
-    char *p;
-
-    if ((p=strrchr(fname, '.')) == NULL) {
-        p = malloc(strlen(fname)+strlen(newext)+1);
-        strcpy(p, fname);
-        strcat(p, newext);
-    } else {
-        int n;
-
-        n = p-fname;
-        p = malloc(n+strlen(newext)+1);
-        strncpy(p, fname, n);
-        p[n] = '\0';
-        strcat(p, newext);
-    }
-    return p;
-}
-
 enum {
     OPT_PREPROCESS_ONLY = 0x01,
     OPT_DUMP_TOKENS     = 0x02,
@@ -103,7 +83,7 @@ int main(int argc, char *argv[])
             if (argv[i][2] != '\0')
                 add_quote_dir(argv[i]+2);
             else if (argv[i+1] == NULL)
-                add_quote_dir(argv[i]);
+                missing_arg(argv[i]);
             else
                 add_quote_dir(argv[++i]);
             break;
@@ -193,6 +173,7 @@ int main(int argc, char *argv[])
         for (p = pre; p != NULL; p = p->next)
             if (!p->deleted || p->token==PRE_TOK_NL)
                 fprintf(fp, "%s ", p->lexeme);
+        fprintf(fp, "\n");
         goto done;
     }
 
@@ -253,5 +234,5 @@ done:
         printf("=> '%u' C tokens were created (aprox)\n", stat_number_of_c_tokens);
         printf("=> '%u' AST nodes were created (aprox)\n", stat_number_of_ast_nodes);
     }
-    return 0;
+    return !!error_count;
 }

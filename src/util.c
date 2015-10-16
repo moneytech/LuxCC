@@ -1,6 +1,28 @@
 #include "util.h"
 #include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
 #include <sys/stat.h>
+
+char *replace_extension(char *fname, char *newext)
+{
+    char *p;
+
+    if ((p=strrchr(fname, '.')) == NULL) {
+        p = malloc(strlen(fname)+strlen(newext)+1);
+        strcpy(p, fname);
+        strcat(p, newext);
+    } else {
+        int n;
+
+        n = p-fname;
+        p = malloc(n+strlen(newext)+1);
+        strncpy(p, fname, n);
+        p[n] = '\0';
+        strcat(p, newext);
+    }
+    return p;
+}
 
 int file_exist(char *file_path)
 {
