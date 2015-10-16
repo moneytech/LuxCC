@@ -188,6 +188,12 @@ void append_data_reloc(int segment, int offset, char *symbol)
     ++ndreloc;
 }
 
+void err_no_input(void)
+{
+    fprintf(stderr, "%s: no input file\n", prog_name);
+    exit(1);
+}
+
 int main(int argc, char *argv[])
 {
     /*
@@ -223,16 +229,47 @@ int main(int argc, char *argv[])
 
     int i;
     FILE *fout;
-    char *out_file;
+    char *outpath;
+    char *infiles[64];
+    int ninf;
 
     prog_name = argv[0];
-    if (argc < 3) {
-        printf("usage: %s <output-file> <input-file> { <input-file> }\n", prog_name);
-        printf("e.g.:  %s prog.out f1.in f2.in f3.in\n", prog_name);
-        exit(0);
+    if (argc == 1)
+        err_no_input();
+    ninf = 1; /* infiles[0] == crt.o */
+    outpath = "a.out.vme";
+    for (i = 1; i < argc; i++) {
+        if (argv[i][0] != '-') {
+            infiles[ninf++] = argv[i];
+            continue;
+        }
+        switch (argv[i][1]) {
+        case 'o':
+            if (argv[i][2] != '\0') {
+                outpath = argv[i]+2;
+            } else if (argv[i+1] == NULL) {
+                fprintf(stderr, "%s: option `o' requires an argument\n", prog_name);
+                exit(1);
+            } else {
+                outpath = argv[++i];
+            }
+            break;
+        case 'h':
+            printf("usage: %s [ options ] <input-file> ...\n"
+                   "  The available options are:\n"
+                   "    -o<file>    write output to <file>\n"
+                   "    -h          print this help\n", prog_name);
+            exit(0);
+            break;
+        case '\0':
+            break;
+        default:
+            fprintf(stderr, "%s: unknown option `%s'\n", prog_name, argv[i]);
+            exit(1);
+        }
     }
-
-    init_local_table();
+    if (ninf == 1)
+        err_no_input();
 
     /*
      * crt.o must be the first file (crt.o's code must be physically at the
@@ -241,11 +278,10 @@ int main(int argc, char *argv[])
      * program's code.
      * crt.o has code to initialize some variables and call main.
      */
-    out_file = argv[1];
-    // argv[1] = "../../libsrc/crt.o";
-    // argv[1] = "libsrc/crt.o";
-    argv[1] = "/usr/local/lib/luxcc/crt.o";
-    for (i = 1; i < argc; i++) { /* object files */
+    init_local_table();
+    // infiles[0] = "/usr/local/lib/luxcc/crt.o";
+    infiles[0] = "libsrc/crt.o";
+    for (i = 0; i < ninf; i++) {
         FILE *fin;
         char name[MAX_SYM_LEN], *cp;
         int j;
@@ -256,8 +292,8 @@ int main(int argc, char *argv[])
         int curr_nreloc;
         int segment, offset, kind;
 
-        if ((fin=fopen(argv[i], "rb")) == NULL)
-            TERMINATE("%s: error reading file `%s'", prog_name, argv[i]);
+        if ((fin=fopen(infiles[i], "rb")) == NULL)
+            TERMINATE("%s: error reading file `%s'", prog_name, infiles[i]);
 
         /* header */
         fread(&nsym, sizeof(int), 1, fin);
@@ -275,7 +311,6 @@ int main(int argc, char *argv[])
             fread(&segment, sizeof(int), 1, fin);
             fread(&offset, sizeof(int), 1, fin);
             fread(&kind, sizeof(int), 1, fin);
-            /*printf("name=%s, segment=%d, offset=%d, kind=%d\n", name, segment, SEG_SIZ(segment)+offset, kind);*/
             if (kind == LOCAL_SYM)
                 define_local_symbol(name, segment, SEG_SIZ(segment)+offset);
             else
@@ -324,9 +359,6 @@ int main(int argc, char *argv[])
         fclose(fin);
     }
 
-    // fprintf(stderr, "ntreloc=%d\n", ntreloc);
-    // fprintf(stderr, "ndreloc=%d\n", ndreloc);
-
     /*
      * Try to fix the relocs that couldn't be fixed before
      * because they depended on not-yet-defined extern symbols.
@@ -353,11 +385,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    /*
-     * Write the final executable file.
-     */
-    if ((fout=fopen(out_file, "wb")) == NULL)
-        TERMINATE("%s: error while trying to write to file `%s'", prog_name, out_file);
+    /* Write the final executable file. */
+    fout = fopen(outpath, "wb");
     /* header */
     fwrite(&bss_size, sizeof(int), 1, fout);
     fwrite(&data_size, sizeof(int), 1, fout);
