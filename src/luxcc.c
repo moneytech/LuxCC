@@ -51,7 +51,12 @@ int main(int argc, char *argv[])
     char *outpath = NULL, *inpath = NULL;
     PreTokenNode *pre;
     TokenNode *tok;
-    PreTokenNode dummy_node = { PRE_TOK_NL };
+    PreTokenNode newline_node, one_node;
+    newline_node.token = PRE_TOK_NL;
+    newline_node.lexeme = "\n";
+    one_node.token = PRE_TOK_NUM;
+    one_node.lexeme = "1";
+    one_node.next = &newline_node;
 
     program_name = argv[0];
     if (argc == 1) {
@@ -66,6 +71,14 @@ int main(int argc, char *argv[])
         switch (argv[i][1]) {
         case 'a':
             flags |= OPT_ANALYZE;
+            break;
+        case 'D':
+            if (argv[i][2] != '\0')
+                install_macro(SIMPLE_MACRO, argv[i]+2, &one_node, NULL);
+            else if (argv[i+1] == NULL)
+                missing_arg(argv[i]);
+            else
+                install_macro(SIMPLE_MACRO, argv[++i], &one_node, NULL);
             break;
         case 'h':
             usage(stdout);
@@ -161,9 +174,9 @@ int main(int argc, char *argv[])
     }
 
     if (flags & OPT_VM_TARGET)
-        install_macro(SIMPLE_MACRO, "__LuxVM__", &dummy_node, NULL);
+        install_macro(SIMPLE_MACRO, "__LuxVM__", &newline_node, NULL);
     else /* default target: x86 */
-        install_macro(SIMPLE_MACRO, "__x86_32__", &dummy_node, NULL);
+        install_macro(SIMPLE_MACRO, "__x86_32__", &newline_node, NULL);
 
     pre = preprocess(inpath);
     if (flags & OPT_PREPROCESS_ONLY) {
