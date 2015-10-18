@@ -140,6 +140,7 @@ typedef enum {
     TOK_ENUM_CONST,
     TOK_INIT_LIST,
     TOK_FUNC_NAME,
+    TOK_STATIC_ASSERT,
 } Token;
 
 typedef struct TokenNode TokenNode;

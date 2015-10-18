@@ -26,7 +26,7 @@
                         "/usr/lib/i386-linux-gnu/crtn.o "\
                         "/lib/i386-linux-gnu/libc.so.6  "\
                         "/usr/lib/i386-linux-gnu/libc_nonshared.a"
-#define VM_LIBC         "libsrc/libc.o"
+#define VM_LIBC         "src/lib/libc.o"
 
 enum {
     DVR_HELP            = 0x01,

@@ -177,7 +177,8 @@ static int is_modif_struct_union(TypeExp *type)
     return TRUE;
 }
 
-static int is_modif_lvalue(ExecNode *e)
+// static int is_modif_lvalue(ExecNode *e)
+int is_modif_lvalue(ExecNode *e)
 {
     /*
      * 6.3.2.1#1

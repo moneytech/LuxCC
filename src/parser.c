@@ -10,6 +10,7 @@
 #include "stmt.h"
 #include "error.h"
 #include "arena.h"
+#include "sassert.h"
 
 extern unsigned stat_number_of_ast_nodes;
 extern char *current_function_name;
@@ -1128,6 +1129,52 @@ ExecNode *initializer_list(void)
 // =============================================================================
 
 /*
+ * static_assert = "__static_assert" "(" constant "," ssexpr ")" ";"
+ * ssexpr = assignment_expression |
+ *          assignment_expression "," type_name
+ */
+void do_static_assert(void)
+{
+    long c;
+    char *ep;
+    ExecNode *e;
+    Declaration *ty;
+    TokenNode *assert_tok;
+    int is_modif_lvalue(ExecNode *e);
+
+    assert_tok = curr_tok;
+    match(TOK_STATIC_ASSERT);
+    match(TOK_LPAREN);
+    c = strtol(get_lexeme(1), &ep, 0);
+    match(TOK_ICONST);
+    match(TOK_COMMA);
+
+    switch (c) {
+    case _ASSERT_TYPE:
+        e = assignment_expression();
+        match(TOK_COMMA);
+        ty = type_name();
+        if (!are_compatible(e->type.decl_specs, e->type.idl, ty->decl_specs, ty->idl, TRUE, FALSE)) {
+            curr_tok = assert_tok;
+            ERROR("static assertion failed: the types are different");
+        }
+        break;
+    case _ASSERT_IMMUTABLE:
+        e = assignment_expression();
+        if (is_modif_lvalue(e)) {
+            curr_tok = assert_tok;
+            ERROR("static assertion failed: the expression is not immutable");
+        }
+        break;
+    default:
+        break;
+    }
+
+    match(TOK_RPAREN);
+    match(TOK_SEMICOLON);
+}
+
+/*
  * statement = labeled_statement |
  *             compound_statement |
  *             expression_statement |
@@ -1137,7 +1184,11 @@ ExecNode *initializer_list(void)
  */
 ExecNode *statement(int in_loop, int in_switch)
 {
+start:
     switch (lookahead(1)) {
+    case TOK_STATIC_ASSERT:
+        do_static_assert();
+        goto start;
     case TOK_LBRACE:
         return compound_statement(TRUE, in_loop, in_switch);
     case TOK_IF:

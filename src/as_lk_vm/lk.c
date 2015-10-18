@@ -280,7 +280,7 @@ int main(int argc, char *argv[])
      */
     init_local_table();
     // infiles[0] = "/usr/local/lib/luxcc/crt.o";
-    infiles[0] = "libsrc/crt.o";
+    infiles[0] = "src/lib/crt.o";
     for (i = 0; i < ninf; i++) {
         FILE *fin;
         char name[MAX_SYM_LEN], *cp;
