@@ -13,7 +13,7 @@ $(PROG): $(OBJS) vm_cgen.o x86_cgen.o
 .c.o:
 	$(CC) $(CFLAGS) $*.c
 clean:
-	rm -f $(OBJS) $(PROG)
+	rm -f *.o $(PROG)
 depend:
 	makedepend -- $(CFLAGS) -- $(SRCS) -Y
 # DO NOT DELETE

@@ -16,8 +16,8 @@
 #define PATH_TO_X86_AS  "src/luxas/luxas"
 #define PATH_TO_X86_LD1 "src/luxld/luxld"
 #define PATH_TO_X86_LD2 "ld"
-#define PATH_TO_VM_AS   "src/as_lk_vm/as"
-#define PATH_TO_VM_LD   "src/as_lk_vm/lk"
+#define PATH_TO_VM_AS   "src/luxvm/luxvmas"
+#define PATH_TO_VM_LD   "src/luxvm/luxvmld"
 #define X86_LIBC1       "/usr/local/musl/lib/crt1.o "\
                         "/usr/local/musl/lib/crti.o "\
                         "/usr/local/musl/lib/libc.so"

@@ -4,7 +4,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <assert.h>
-#include "../as_lk_vm/vm.h"
+#include "../luxvm/vm.h"
 #include "../util.h"
 #include "../decl.h"
 #include "../expr.h"
