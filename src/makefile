@@ -1,15 +1,13 @@
 CC=gcc
-CFLAGS=-c -g -Wall -Wconversion -Wextra -Wno-switch -Wno-parentheses -Wno-missing-field-initializers \
--fwrapv -Wno-sign-conversion -Wno-unused-parameter -Wno-sign-compare -Wno-empty-body -Wno-conversion #-pg
+CFLAGS=-c -g -fwrapv -Wall -Wno-switch -Wno-parentheses
 PROG = luxcc
 OBJS = luxcc.o pre.o lexer.o parser.o util.o decl.o expr.o stmt.o ic.o arena.o error.o loc.o bset.o str.o dflow.o opt.o
 SRCS = luxcc.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c error.c loc.c bset.c str.c dflow.c opt.c
-LFLAGS = -lm
 
 all: $(PROG)
 
 $(PROG): $(OBJS) vm_cgen.o x86_cgen.o
-	$(CC) -o $(PROG) $(OBJS) vm_cgen.o x86_cgen.o $(LFLAGS) #-pg
+	$(CC) -o $(PROG) $(OBJS) vm_cgen.o x86_cgen.o
 .c.o:
 	$(CC) $(CFLAGS) $*.c
 clean:
