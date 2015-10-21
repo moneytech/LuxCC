@@ -12,31 +12,22 @@
 #include "../util.h"
 #include "../str.h"
 
-#define PATH_TO_CC      "src/luxcc"
-#define PATH_TO_X86_AS  "src/luxas/luxas"
-#define PATH_TO_X86_LD1 "src/luxld/luxld"
-#define PATH_TO_X86_LD2 "ld"
-#define PATH_TO_VM_AS   "src/luxvm/luxvmas"
-#define PATH_TO_VM_LD   "src/luxvm/luxvmld"
-#define X86_LIBC1       "/usr/local/musl/lib/crt1.o "\
-                        "/usr/local/musl/lib/crti.o "\
-                        "/usr/local/musl/lib/libc.so"
-#define X86_LIBC2       "/usr/lib/i386-linux-gnu/crt1.o "\
-                        "/usr/lib/i386-linux-gnu/crti.o "\
-                        "/usr/lib/i386-linux-gnu/crtn.o "\
-                        "/lib/i386-linux-gnu/libc.so.6  "\
-                        "/usr/lib/i386-linux-gnu/libc_nonshared.a"
-#define VM_LIBC         "src/lib/libc.o"
+#define PATH_TO_CC          "src/luxcc"
+#define PATH_TO_X86_AS      "src/luxas/luxas"
+#define PATH_TO_X86_LD      "src/luxld/luxld"
+#define PATH_TO_VM_AS       "src/luxvm/luxvmas"
+#define PATH_TO_VM_LD       "src/luxvm/luxvmld"
+#define PATH_TO_VM_LIBC1    "src/lib/libc.o"
+#define PATH_TO_VM_LIBC2    "/usr/local/lib/luxcc/libc.o"
+#define PATH_TO_LIBCONF1    "src/luxdvr/library_path.conf"
+#define PATH_TO_LIBCONF2    "/usr/local/lib/luxcc/library_path.conf"
+#define GNU_LD              "ld"
+/* musl's default installation path */
+#define PATH_TO_MUSL_LIBC   "/usr/local/musl/lib/crt1.o "\
+                            "/usr/local/musl/lib/crti.o "\
+                            "/usr/local/musl/lib/libc.so"
 
-enum {
-    DVR_HELP            = 0x01,
-    DVR_VERBOSE         = 0x02,
-    DVR_PREP_ONLY       = 0x04,
-    DVR_COMP_ONLY       = 0x08,
-    DVR_NOLINK          = 0x10,
-    DVR_ANALYZE_ONLY    = 0x20,
-};
-
+int musl_libc_is_installed;
 char *prog_name;
 char helpstr[] =
     "\nGeneral options:\n"
@@ -65,6 +56,25 @@ char helpstr[] =
     "  -L<dir>          Add <dir> to the list of directories searched for the -l options\n"
     "  -I<interp>       Set <interp> as the name of the dynamic linker\n"
 ;
+
+enum {
+    CC,
+    X86_AS,
+    X86_LD,
+    VM_AS,
+    VM_LD,
+    X86_LIBC,
+    VM_LIBC,
+};
+
+enum {
+    DVR_HELP            = 0x01,
+    DVR_VERBOSE         = 0x02,
+    DVR_PREP_ONLY       = 0x04,
+    DVR_COMP_ONLY       = 0x08,
+    DVR_NOLINK          = 0x10,
+    DVR_ANALYZE_ONLY    = 0x20,
+};
 
 typedef struct InFile InFile;
 struct InFile {
@@ -96,7 +106,109 @@ char *strbuf(String *s)
     return buf;
 }
 
-static void usage(int more_inf)
+int exec_cmd(char *cmd)
+{
+    int status;
+
+    if ((status=system(cmd)) == -1) {
+        fprintf(stderr, "%s: error: cannot execute `%s'\n", prog_name, cmd);
+        exit(1);
+    }
+    if (!WIFEXITED(status))
+        exit(1);
+    return WEXITSTATUS(status);
+}
+
+int is_in_path(char *exe)
+{
+    char cmd[64];
+
+    sprintf(cmd, "which %s >/dev/null", exe);
+    return (WEXITSTATUS(system(cmd)) == 0);
+}
+
+char *get_path(int file)
+{
+    char *p;
+
+    switch (file) {
+    case CC:
+        if (file_exist(PATH_TO_CC))
+            return PATH_TO_CC;
+        else if (is_in_path(p = "luxcc"))
+            return p;
+        break;
+
+    case X86_AS:
+        if (file_exist(PATH_TO_X86_AS))
+            return PATH_TO_X86_AS;
+        else if (is_in_path(p = "luxas"))
+            return p;
+        break;
+
+    case X86_LD:
+        if (musl_libc_is_installed) {
+            if (file_exist(PATH_TO_X86_LD))
+                return PATH_TO_X86_LD;
+            else if (is_in_path(p = "luxld"))
+                return p;
+            break;
+        } else {
+            return GNU_LD;
+        }
+
+    case VM_AS:
+        if (file_exist(PATH_TO_VM_AS))
+            return PATH_TO_VM_AS;
+        else if (is_in_path(p = "luxvmas"))
+            return p;
+        break;
+
+    case VM_LD:
+        if (file_exist(PATH_TO_VM_LD))
+            return PATH_TO_VM_LD;
+        else if (is_in_path(p = "luxvmld"))
+            return p;
+        break;
+
+    case X86_LIBC:
+        if (musl_libc_is_installed) {
+            return PATH_TO_MUSL_LIBC;
+        } else { /* get the paths from the .conf file */
+            FILE *fp;
+            char *cp;
+            static char lib_path[BUFSIZ];
+
+            if (file_exist(PATH_TO_LIBCONF1))
+                fp = fopen(PATH_TO_LIBCONF1, "rb");
+            else if (file_exist(PATH_TO_LIBCONF2))
+                fp = fopen(PATH_TO_LIBCONF2, "rb");
+            else
+                break;
+            cp = lib_path;
+            while (fgets(cp, 0x7FFFFFFF, fp) != NULL) {
+                cp += strlen(cp)-1;
+                *cp++ = ' ';
+            }
+            return lib_path;
+        }
+        break;
+
+    case VM_LIBC:
+        if (file_exist(PATH_TO_VM_LIBC1))
+            return PATH_TO_VM_LIBC1;
+        else if (file_exist(PATH_TO_VM_LIBC2))
+            return PATH_TO_VM_LIBC2;
+        break;
+    }
+
+    if (file==X86_LIBC || file==VM_LIBC)
+        p = "libc";
+    fprintf(stderr, "%s: cannot find `%s'\n", prog_name, p);
+    exit(1);
+}
+
+void usage(int more_inf)
 {
     printf("USAGE: %s [ OPTIONS ] <file> ...\n", prog_name);
     if (more_inf)
@@ -113,19 +225,6 @@ void missing_arg(char *opt)
 {
     fprintf(stderr, "%s: option `%s' requires an argument\n", prog_name, opt);
     exit(1);
-}
-
-int exec_cmd(char *cmd)
-{
-    int status;
-
-    if ((status=system(cmd)) == -1) {
-        fprintf(stderr, "%s: error: cannot execute `%s'\n", prog_name, cmd);
-        exit(1);
-    }
-    if (!WIFEXITED(status))
-        exit(1);
-    return WEXITSTATUS(status);
 }
 
 int main(int argc, char *argv[])
@@ -145,13 +244,16 @@ int main(int argc, char *argv[])
         exit(0);
     }
 
+    /* Use musl libc if it is installed (test for the default installation path). */
+    musl_libc_is_installed = file_exist("/usr/local/musl/lib/libc.so");
+
     driver_args = 0;
     outpath = alt_asm_tmp = NULL;
     c_files = asm_files = other_files = NULL;
     cc_cmd = string_new(32);
     as_cmd = string_new(32);
     ld_cmd = string_new(32);
-    string_printf(cc_cmd, PATH_TO_CC);
+    string_printf(cc_cmd, get_path(CC));
     target = 1;
 
     for (i = 1; i < argc; i++) {
@@ -331,22 +433,17 @@ err_1:
     }
 ok_1:
     if (target == 2) {
-        string_printf(as_cmd, PATH_TO_VM_AS);
+        string_printf(as_cmd, get_path(VM_AS));
         string_clear(ld_cmd);
-        string_printf(ld_cmd, PATH_TO_VM_LD);
+        string_printf(ld_cmd, get_path(VM_LD));
     } else {
         char *p;
 
-        string_printf(as_cmd, PATH_TO_X86_AS);
-        p = strdup(strbuf(ld_cmd));
-        if (file_exist("/usr/local/musl/lib/libc.so")) {
+        if (musl_libc_is_installed)
             string_printf(cc_cmd, " -D_MUSL_LIBC");
-            string_clear(ld_cmd);
-            string_printf(ld_cmd, "%s %s", PATH_TO_X86_LD1, p);
-        } else {
-            string_clear(ld_cmd);
-            string_printf(ld_cmd, "%s %s", PATH_TO_X86_LD2, p);
-        }
+        string_printf(as_cmd, get_path(X86_AS));
+        p = strdup(strbuf(ld_cmd));
+        string_printf(ld_cmd, "%s %s", get_path(X86_LD), p);
         free(p);
     }
 
@@ -494,12 +591,12 @@ ok_1:
             if (outpath != NULL)
                 string_printf(ld_cmd, " -o %s", outpath);
             if (target == 2) {
-                string_printf(ld_cmd, " %s", VM_LIBC);
+                string_printf(ld_cmd, " %s", get_path(VM_LIBC));
             } else {
-                if (file_exist("/usr/local/musl/lib/libc.so"))
-                    string_printf(ld_cmd, " %s", X86_LIBC1);
+                if (musl_libc_is_installed)
+                    string_printf(ld_cmd, " %s", get_path(X86_LIBC));
                 else
-                    string_printf(ld_cmd, " %s -I/lib/ld-linux.so.2", X86_LIBC2);
+                    string_printf(ld_cmd, " %s -I/lib/ld-linux.so.2", get_path(X86_LIBC));
             }
             exst = !!exec_cmd(strbuf(ld_cmd));
         }
