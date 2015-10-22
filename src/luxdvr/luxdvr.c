@@ -33,6 +33,7 @@
 #define PATH_TO_MUSL_LIBC   "/usr/local/musl/lib/libc.so"
 
 int musl_libc_is_installed;
+int verbose;
 char *prog_name;
 char helpstr[] =
     "\nGeneral options:\n"
@@ -40,6 +41,7 @@ char helpstr[] =
     "  -E               Preprocess only\n"
     "  -S               Compile but do not assemble\n"
     "  -c               Compile and assemble but do not link\n"
+    "  -v               Show invoked commands\n"
     "  -h               Print this help\n"
     "\nCompiler options:\n"
     "  -q               Disable all warnings\n"
@@ -74,11 +76,10 @@ enum {
 
 enum {
     DVR_HELP            = 0x01,
-    DVR_VERBOSE         = 0x02,
-    DVR_PREP_ONLY       = 0x04,
-    DVR_COMP_ONLY       = 0x08,
-    DVR_NOLINK          = 0x10,
-    DVR_ANALYZE_ONLY    = 0x20,
+    DVR_PREP_ONLY       = 0x02,
+    DVR_COMP_ONLY       = 0x04,
+    DVR_NOLINK          = 0x08,
+    DVR_ANALYZE_ONLY    = 0x10,
 };
 
 typedef struct InFile InFile;
@@ -114,6 +115,9 @@ char *strbuf(String *s)
 int exec_cmd(char *cmd)
 {
     int status;
+
+    if (verbose)
+        printf("%s\n", cmd);
 
     if ((status=system(cmd)) == -1) {
         fprintf(stderr, "%s: error: cannot execute `%s'\n", prog_name, cmd);
@@ -414,7 +418,7 @@ int main(int argc, char *argv[])
                     unknown_opt(argv[i]);
                 break;
             case 'v':
-                driver_args |= DVR_VERBOSE;
+                verbose = TRUE;
                 break;
             case '\0': /* stray '-' */
                 break;
