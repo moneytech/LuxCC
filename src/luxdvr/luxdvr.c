@@ -17,15 +17,20 @@
 #define PATH_TO_X86_LD      "src/luxld/luxld"
 #define PATH_TO_VM_AS       "src/luxvm/luxvmas"
 #define PATH_TO_VM_LD       "src/luxvm/luxvmld"
+#define GNU_LD              "ld"
+
+#define PATH_TO_VM_RUNC1    "src/lib/crt.o"
 #define PATH_TO_VM_LIBC1    "src/lib/libc.o"
+#define PATH_TO_VM_RUNC2    "/usr/local/lib/luxcc/crt.o"
 #define PATH_TO_VM_LIBC2    "/usr/local/lib/luxcc/libc.o"
+
 #define PATH_TO_LIBCONF1    "src/luxdvr/library_path.conf"
 #define PATH_TO_LIBCONF2    "/usr/local/lib/luxcc/library_path.conf"
-#define GNU_LD              "ld"
+
 /* musl's default installation path */
-#define PATH_TO_MUSL_LIBC   "/usr/local/musl/lib/crt1.o "\
-                            "/usr/local/musl/lib/crti.o "\
-                            "/usr/local/musl/lib/libc.so"
+#define PATH_TO_MUSL_RUNC   "/usr/local/musl/lib/crt1.o "\
+                            "/usr/local/musl/lib/crti.o"
+#define PATH_TO_MUSL_LIBC   "/usr/local/musl/lib/libc.so"
 
 int musl_libc_is_installed;
 char *prog_name;
@@ -173,7 +178,7 @@ char *get_path(int file)
 
     case X86_LIBC:
         if (musl_libc_is_installed) {
-            return PATH_TO_MUSL_LIBC;
+            return PATH_TO_MUSL_RUNC " " PATH_TO_MUSL_LIBC;
         } else { /* get the paths from the .conf file */
             FILE *fp;
             char *cp;
@@ -196,9 +201,9 @@ char *get_path(int file)
 
     case VM_LIBC:
         if (file_exist(PATH_TO_VM_LIBC1))
-            return PATH_TO_VM_LIBC1;
+            return PATH_TO_VM_RUNC1 " " PATH_TO_VM_LIBC1;
         else if (file_exist(PATH_TO_VM_LIBC2))
-            return PATH_TO_VM_LIBC2;
+            return PATH_TO_VM_RUNC2 " " PATH_TO_VM_LIBC2;
         break;
     }
 
@@ -244,8 +249,8 @@ int main(int argc, char *argv[])
         exit(0);
     }
 
-    /* Use musl libc if it is installed (test for the default installation path). */
-    musl_libc_is_installed = file_exist("/usr/local/musl/lib/libc.so");
+    /* use musl libc if it is installed */
+    musl_libc_is_installed = file_exist(PATH_TO_MUSL_LIBC);
 
     driver_args = 0;
     outpath = alt_asm_tmp = NULL;
@@ -436,6 +441,7 @@ ok_1:
         string_printf(as_cmd, get_path(VM_AS));
         string_clear(ld_cmd);
         string_printf(ld_cmd, get_path(VM_LD));
+        string_printf(ld_cmd, " %s", get_path(VM_LIBC));
     } else {
         char *p;
 
@@ -590,9 +596,7 @@ ok_1:
                 string_printf(ld_cmd, " %s", obj_tmps[i]);
             if (outpath != NULL)
                 string_printf(ld_cmd, " -o %s", outpath);
-            if (target == 2) {
-                string_printf(ld_cmd, " %s", get_path(VM_LIBC));
-            } else {
+            if (target == 1) {
                 if (musl_libc_is_installed)
                     string_printf(ld_cmd, " %s", get_path(X86_LIBC));
                 else

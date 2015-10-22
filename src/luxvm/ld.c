@@ -236,7 +236,7 @@ int main(int argc, char *argv[])
     prog_name = argv[0];
     if (argc == 1)
         err_no_input();
-    ninf = 1; /* infiles[0] == crt.o */
+    ninf = 0;
     outpath = "a.out.vme";
     for (i = 1; i < argc; i++) {
         if (argv[i][0] != '-') {
@@ -268,7 +268,7 @@ int main(int argc, char *argv[])
             exit(1);
         }
     }
-    if (ninf == 1)
+    if (ninf == 0)
         err_no_input();
 
     /*
@@ -279,8 +279,6 @@ int main(int argc, char *argv[])
      * crt.o has code to initialize some variables and call main.
      */
     init_local_table();
-    // infiles[0] = "/usr/local/lib/luxcc/crt.o";
-    infiles[0] = "src/lib/crt.o";
     for (i = 0; i < ninf; i++) {
         FILE *fin;
         char name[MAX_SYM_LEN], *cp;
