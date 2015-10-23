@@ -10,6 +10,8 @@
 #include "decl.h"
 #include "error.h"
 
+/*extern int targeting_arch64;*/
+
 /*
  * Print error and set to 'error' the type of
  * the node 'tok' (generally an operator node).
@@ -1820,10 +1822,10 @@ unsigned get_alignment(Declaration *ty)
         alignment = get_alignment(&new_ty);
         break;
     case TOK_STAR:
-        alignment = 4;
+    case TOK_LONG: case TOK_UNSIGNED_LONG:
+        alignment = /*targeting_arch64 ? 8 : */4;
         break;
     case TOK_ENUM:
-    case TOK_LONG: case TOK_UNSIGNED_LONG:
     case TOK_INT: case TOK_UNSIGNED:
         alignment = 4;
         break;
@@ -1833,9 +1835,8 @@ unsigned get_alignment(Declaration *ty)
     case TOK_CHAR: case TOK_SIGNED_CHAR: case TOK_UNSIGNED_CHAR:
         alignment = 1;
         break;
-    /*case TOK_ERROR: ???
-        alignment = 0;
-        break;*/
+    default:
+        assert(0);
     }
 
     return alignment;
@@ -1871,10 +1872,10 @@ unsigned get_sizeof(Declaration *ty)
         size = ty->idl->attr.e->attr.val*get_sizeof(&new_ty);
         break;
     case TOK_STAR:
-        size = 4;
+    case TOK_LONG: case TOK_UNSIGNED_LONG:
+        size = /*targeting_arch64 ? 8 :*/ 4;
         break;
     case TOK_ENUM:
-    case TOK_LONG: case TOK_UNSIGNED_LONG:
     case TOK_INT: case TOK_UNSIGNED:
         size = 4;
         break;

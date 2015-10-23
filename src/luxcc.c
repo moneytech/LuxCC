@@ -12,6 +12,7 @@
 unsigned warning_count, error_count;
 int disable_warnings;
 int colored_diagnostics = 1;
+/*int targeting_arch64;*/
 char *cg_outpath;
 char *cfg_outpath, *cfg_function_to_print;
 char *ic_outpath, *ic_function_to_print;

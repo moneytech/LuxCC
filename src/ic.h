@@ -141,13 +141,11 @@ extern CFGNode *cfg_nodes;
 extern unsigned cfg_nodes_counter;
 #define cfg_node(n) (cfg_nodes[n])
 
-#if 0
-struct ParamNid {
+/*struct ParamNid {
     char *sid;
     int nid;
     ParamNid *next;
-};
-#endif
+};*/
 
 /*
  * Call Graphs
@@ -156,12 +154,10 @@ struct CGNode { /* CG node == function */
     char *func_id;
     unsigned bb_i, bb_f;
     GraphEdge out;
-#if 0
-    ParamNid *pn;
-#endif
     BSet *modified_static_objects;
     unsigned size_of_local_area;
     unsigned PO, RPO;
+    /*ParamNid *pn;*/
 };
 extern CGNode *cg_nodes;
 extern unsigned cg_nodes_counter;
