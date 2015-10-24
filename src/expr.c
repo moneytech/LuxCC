@@ -10,7 +10,7 @@
 #include "decl.h"
 #include "error.h"
 
-/*extern int targeting_arch64;*/
+extern int targeting_arch64;
 
 /*
  * Print error and set to 'error' the type of
@@ -74,6 +74,7 @@ Token get_type_category(Declaration *d)
 int is_integer(Token ty)
 {
     switch (ty) {
+    case TOK_LONG_LONG: case TOK_UNSIGNED_LONG_LONG:
     case TOK_LONG: case TOK_UNSIGNED_LONG:
     case TOK_INT: case TOK_UNSIGNED:
     case TOK_SHORT: case TOK_UNSIGNED_SHORT:
@@ -237,7 +238,7 @@ Token get_promoted_type(Token int_ty)
 /*
  * Every integer type has an integer conversion rank.
  * Integer conversion ranks from highest to lowest
- * 1) long long int, unsigned long long int *
+ * 1) long long int, unsigned long long int
  * 2) long int, unsigned long int
  * 3) int, unsigned int
  * 4) short int, unsigned short int
@@ -248,6 +249,9 @@ Token get_promoted_type(Token int_ty)
 int get_rank(Token ty)
 {
     switch (ty) {
+    case TOK_LONG_LONG:
+    case TOK_UNSIGNED_LONG_LONG:
+        return 5;
     case TOK_LONG:
     case TOK_UNSIGNED_LONG:
         return 4;
@@ -275,6 +279,7 @@ int is_signed_int(Token ty)
     case TOK_SHORT:
     case TOK_INT:
     case TOK_LONG:
+    case TOK_LONG_LONG:
     case TOK_ENUM:
         return TRUE;
     default:
@@ -289,6 +294,7 @@ int is_unsigned_int(Token ty)
     case TOK_UNSIGNED_SHORT:
     case TOK_UNSIGNED:
     case TOK_UNSIGNED_LONG:
+    case TOK_UNSIGNED_LONG_LONG:
         return TRUE;
     default:
         return FALSE;
@@ -350,26 +356,45 @@ Token get_result_type(Token ty1, Token ty2)
      * the operand with unsigned integer type is converted to the type of the
      * operand with signed integer type.
      */
-    /* nothing of this applies with sizeof(int)==sizeof(long) */
+    if (targeting_arch64) { /* assume LP64 data model */
+        if (sign1) {
+            if (ty2 != TOK_UNSIGNED_LONG)
+                return ty1;
+        } else {
+            if (ty1 != TOK_UNSIGNED_LONG)
+                return ty2;
+        }
+    } else {
+        if (sign1) {
+            if (ty1 == TOK_LONG_LONG)
+                return ty1;
+        } else {
+            if (ty2 == TOK_LONG_LONG)
+                return ty2;
+        }
+    }
 
     /*
      * Otherwise, both operands are converted to the unsigned integer type
      * corresponding to the type of the operand with signed integer type.
      */
-    return TOK_UNSIGNED_LONG;
+    if (sign1)
+        return (ty1 == TOK_LONG) ? TOK_UNSIGNED_LONG : TOK_UNSIGNED_LONG_LONG;
+    else
+        return (ty2 == TOK_LONG) ? TOK_UNSIGNED_LONG : TOK_UNSIGNED_LONG_LONG;
 }
 
-/*
- * Note: the returned nodes aren't supposed to be modified.
- */
+/* [!] do not modify the returned nodes */
 TypeExp *get_type_node(Token ty)
 {
-    static TypeExp ty_char          = { TOK_CHAR };
-    static TypeExp ty_int           = { TOK_INT };
-    static TypeExp ty_unsigned      = { TOK_UNSIGNED };
-    static TypeExp ty_long          = { TOK_LONG };
-    static TypeExp ty_unsigned_long = { TOK_UNSIGNED_LONG };
-    static TypeExp ty_error         = { TOK_ERROR };
+    static TypeExp ty_char                  = { TOK_CHAR };
+    static TypeExp ty_int                   = { TOK_INT };
+    static TypeExp ty_unsigned              = { TOK_UNSIGNED };
+    static TypeExp ty_long                  = { TOK_LONG };
+    static TypeExp ty_unsigned_long         = { TOK_UNSIGNED_LONG };
+    static TypeExp ty_long_long             = { TOK_LONG_LONG };
+    static TypeExp ty_unsigned_long_long    = { TOK_UNSIGNED_LONG_LONG };
+    static TypeExp ty_error                 = { TOK_ERROR };
 
     switch (ty) {
     case TOK_CHAR:                  return &ty_char;
@@ -377,9 +402,10 @@ TypeExp *get_type_node(Token ty)
     case TOK_UNSIGNED:              return &ty_unsigned;
     case TOK_LONG:                  return &ty_long;
     case TOK_UNSIGNED_LONG:         return &ty_unsigned_long;
+    case TOK_LONG_LONG:             return &ty_long_long;
+    case TOK_UNSIGNED_LONG_LONG:    return &ty_unsigned_long_long;
     case TOK_ERROR:                 return &ty_error;
     }
-
     assert(0);
 }
 
@@ -451,22 +477,44 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
             int rank_d, rank_s;
 
             /*
-             * If the src expression is an integer constant,
-             * try to verify that the constant fits into the dest type.
-             * Emit a warning if it doesn't.
+             * If the src expression is an integer constant, try to verify that
+             * the constant fits into the dest type. Emit a warning if it doesn't.
              */
             if (e->kind.exp == IConstExp) {
-                long stored_val;
+                long long stored_val;
 
                 switch (cat_d) {
+                case TOK_UNSIGNED_LONG_LONG:
+                    return TRUE;
+                case TOK_LONG_LONG:
+                    if (e->attr.uval > LLONG_MAX) {
+                        stored_val = (long long)e->attr.uval;
+                        break;
+                    }
+                    return TRUE;
                 case TOK_UNSIGNED_LONG:
+                    if (targeting_arch64)
+                        return TRUE;
+                    /* fall-through */
                 case TOK_UNSIGNED:
+                    if (e->attr.uval > UINT_MAX) {
+                        stored_val = (unsigned)e->attr.uval;
+                        break;
+                    }
                     return TRUE;
                 case TOK_LONG:
+                    if (targeting_arch64) {
+                        if (e->attr.uval > LLONG_MAX) {
+                            stored_val = (long long)e->attr.uval;
+                            break;
+                        }
+                        return TRUE;
+                    }
+                    /* fall-through */
                 case TOK_INT:
                 case TOK_ENUM:
-                    if (e->attr.uval > LONG_MAX) {
-                        stored_val = (long)e->attr.uval;
+                    if (e->attr.uval > INT_MAX) {
+                        stored_val = (int)e->attr.uval;
                         break;
                     }
                     return TRUE;
@@ -498,18 +546,18 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
                 default:
                     assert(0);
                 }
-
-                WARNING(e, "implicit conversion from `%s' to `%s' changes value from %lu to %ld",
+                WARNING(e, "implicit conversion from `%s' to `%s' changes value from %llu to %lld",
                 tok2lex(cat_s), tok2lex(cat_d), e->attr.uval, stored_val);
-
                 return TRUE;
             }
 
-            /* consider int and long as having the same rank */
             rank_d = get_rank(cat_d);
-            rank_d = (rank_d==4)?3:rank_d;
             rank_s = get_rank(cat_s);
-            rank_s = (rank_s==4)?3:rank_s;
+            if (!targeting_arch64) {
+                /* consider int and long as having the same rank */
+                rank_d = (rank_d==4)?3:rank_d;
+                rank_s = (rank_s==4)?3:rank_s;
+            }
 
             /*
              * Emit a warning if the destination type is narrower than the source type.
@@ -1750,49 +1798,110 @@ decl_specs_qualif:
     }
 }
 
+static void analyze_iconst(ExecNode *e)
+{
+    Token ty, kind;
+    char *ep, *ic;
+    long long val;
+
+    kind = (Token)e->child[0];
+    ic = e->attr.str;
+    switch (kind) {
+    case TOK_ICONST_D:
+    case TOK_ICONST_DL:
+    case TOK_ICONST_DLL:
+        errno = 0;
+        val = strtoll(ic, &ep, 10);
+        if (errno == ERANGE) {
+            ty = TOK_LONG_LONG;
+            break;
+        }
+        if (val <= INT_MAX)
+            ty = (kind == TOK_ICONST_D)  ? TOK_INT
+               : (kind == TOK_ICONST_DL) ? TOK_LONG : TOK_LONG_LONG;
+        else if (targeting_arch64)
+            ty = TOK_LONG;
+        else
+            ty = TOK_LONG_LONG;
+        break;
+
+    case TOK_ICONST_DU:
+    case TOK_ICONST_DUL:
+    case TOK_ICONST_DULL:
+        errno = 0;
+        val = (long long)strtoull(ic, &ep, 10);
+        if (errno == ERANGE) {
+            ty = TOK_UNSIGNED_LONG_LONG;
+            break;
+        }
+        if ((unsigned long long)val <= UINT_MAX)
+            ty = (kind == TOK_ICONST_DU)  ? TOK_UNSIGNED
+               : (kind == TOK_ICONST_DUL) ? TOK_UNSIGNED_LONG : TOK_UNSIGNED_LONG_LONG;
+        else if (targeting_arch64)
+            ty = TOK_UNSIGNED_LONG;
+        else
+            ty = TOK_UNSIGNED_LONG_LONG;
+        break;
+
+    case TOK_ICONST_OH:
+    case TOK_ICONST_OHL:
+    case TOK_ICONST_OHLL:
+        errno = 0;
+        val = strtoll(ic, &ep, 0);
+        if (errno == ERANGE) {
+            ; /* fall-through */
+        } else {
+            if (val <= INT_MAX)
+                ty = (kind == TOK_ICONST_OH)  ? TOK_INT
+                   : (kind == TOK_ICONST_OHL) ? TOK_LONG : TOK_LONG_LONG;
+            else if ((unsigned long long)val <= UINT_MAX)
+                ty = (kind == TOK_ICONST_OH)  ? TOK_UNSIGNED
+                   : (kind == TOK_ICONST_OHL) ? TOK_UNSIGNED_LONG : TOK_UNSIGNED_LONG_LONG;
+            else if (targeting_arch64)
+                ty = TOK_LONG;
+            else
+                ty = TOK_LONG_LONG;
+            break;
+        }
+
+    case TOK_ICONST_OHU:
+    case TOK_ICONST_OHUL:
+    case TOK_ICONST_OHULL:
+        errno = 0;
+        val = (long long)strtoull(ic, &ep, 0);
+        if (errno == ERANGE) {
+            ty = TOK_UNSIGNED_LONG_LONG;
+            break;
+        } else {
+            if ((unsigned long long)val <= UINT_MAX)
+                ty = (kind == TOK_ICONST_OHU)  ? TOK_UNSIGNED
+                   : (kind == TOK_ICONST_OHUL) ? TOK_UNSIGNED_LONG : TOK_UNSIGNED_LONG_LONG;
+            else if (targeting_arch64)
+                ty = TOK_UNSIGNED_LONG;
+            else
+                ty = TOK_UNSIGNED_LONG_LONG;
+        }
+        break;
+    }
+    if (errno == ERANGE)
+        WARNING(e, "integer constant is too large for its type");
+    e->attr.val = val;
+    e->type.decl_specs = get_type_node(ty);
+}
+
 void analyze_primary_expression(ExecNode *e)
 {
     switch (e->kind.exp) {
     case IdExp:
-        /*
-         * Transform enumeration constants into simple integer constants.
-         */
+        /* convert the enumeration constant into a simple integer constant */
         if (e->type.idl!=NULL && e->type.idl->op==TOK_ENUM_CONST) {
             e->kind.exp = IConstExp;
             e->attr.val = e->type.idl->attr.e->attr.val;
             e->type.idl = NULL;
         }
         break;
-    case IConstExp: {
-        /*
-         * This code relies on the equality sizeof(int)==sizeof(long).
-         */
-        int len;
-        char *ep, *ic;
-
-        ic = e->attr.str;
-
-        /* check for unsigned suffix */
-        len = strlen(ic);
-        if (len>1 && (tolower(ic[len-1])=='u'||tolower(ic[len-2])=='u'))
-            goto unsigned_ty;
-
-        /* try int/long */
-        errno = 0;
-        e->attr.val = strtol(ic, &ep, 0);
-        if (errno == ERANGE)
-            goto unsigned_ty;
-        e->type.decl_specs = get_type_node(TOK_INT);
-        break;
-
-unsigned_ty:
-        /* try unsigned/unsigned long */
-        errno = 0;
-        e->attr.uval = strtoul(ic, &ep, 0);
-        if (errno == ERANGE) /* Note: strtoul() saturates its result (we end up with 0xFFFFFFFF) */
-            WARNING(e, "integer constant is too large for `unsigned long' type");
-        e->type.decl_specs = get_type_node(TOK_UNSIGNED);
-    }
+    case IConstExp:
+        analyze_iconst(e);
         break;
     case StrLitExp:
         e->type.decl_specs = get_type_node(TOK_CHAR);
@@ -1823,7 +1932,8 @@ unsigned get_alignment(Declaration *ty)
         break;
     case TOK_STAR:
     case TOK_LONG: case TOK_UNSIGNED_LONG:
-        alignment = /*targeting_arch64 ? 8 : */4;
+    case TOK_LONG_LONG: case TOK_UNSIGNED_LONG_LONG:
+        alignment = targeting_arch64 ? 8 : 4;
         break;
     case TOK_ENUM:
     case TOK_INT: case TOK_UNSIGNED:
@@ -1871,9 +1981,12 @@ unsigned get_sizeof(Declaration *ty)
         new_ty.idl = ty->idl->child;
         size = ty->idl->attr.e->attr.val*get_sizeof(&new_ty);
         break;
+    case TOK_LONG_LONG: case TOK_UNSIGNED_LONG_LONG:
+        size = 8;
+        break;
     case TOK_STAR:
     case TOK_LONG: case TOK_UNSIGNED_LONG:
-        size = /*targeting_arch64 ? 8 :*/ 4;
+        size = targeting_arch64 ? 8 : 4;
         break;
     case TOK_ENUM:
     case TOK_INT: case TOK_UNSIGNED:
@@ -1908,9 +2021,9 @@ unsigned get_sizeof(Declaration *ty)
  *    on the other hand, the following is OK
  *           int b = a+1 && 0; // always 0
  */
-long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
+long long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
 {
-    long resL, resR;
+    long long resL, resR;
 
     switch (e->kind.exp) {
     case OpExp:
@@ -1919,7 +2032,7 @@ long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
         switch (e->attr.op) {
         case TOK_SUBSCRIPT: {
             int pi, ii;
-            long indx, ptr;
+            long long indx, ptr;
 
             if (is_iconst)
                 break;
@@ -2033,14 +2146,23 @@ long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
                     return (VALUE(e) = (char)resL);
                 case TOK_UNSIGNED_CHAR:
                     return (VALUE(e) = (unsigned char)resL);
+                case TOK_INT:
+                    return (VALUE(e) = (int)resL);
+                case TOK_UNSIGNED:
+                    return (VALUE(e) = (unsigned)resL);
                 default: /* no conversion */
                     return (VALUE(e) = resL);
                 }
             } else {
+                /* make sure no address is truncated */
                 switch (dest_ty) {
                 case TOK_SHORT: case TOK_UNSIGNED_SHORT:
                 case TOK_CHAR: case TOK_SIGNED_CHAR: case TOK_UNSIGNED_CHAR:
-                    goto err; /* trying to truncate an address */
+                    goto err;
+                case TOK_INT: case TOK_UNSIGNED:
+                    if (targeting_arch64)
+                        goto err;
+                    break;
                 }
                 return resL;
             err:
@@ -2270,7 +2392,7 @@ long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
                 return (VALUE(e) = !!resR);
             }
         case TOK_CONDITIONAL: {
-            long cond;
+            long long cond;
 
             cond = eval_const_expr(e->child[0], FALSE, is_iconst);
             if (KIND(e->child[0]) == IConstExp)

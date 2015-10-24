@@ -107,7 +107,19 @@ const char *token_table[] = {
     "WHILE", "while",
     "ID", "identifier",
     "STRLIT", "string literal",
-    "ICONST", "integer constant",
+    // "ICONST", "integer constant",
+    "ICONST_D", "integer constant",
+    "ICONST_DL", "integer constant",
+    "ICONST_DLL", "integer constant",
+    "ICONST_DU", "integer constant",
+    "ICONST_DUL", "integer constant",
+    "ICONST_DULL", "integer constant",
+    "ICONST_OH", "integer constant",
+    "ICONST_OHL", "integer constant",
+    "ICONST_OHLL", "integer constant",
+    "ICONST_OHU", "integer constant",
+    "ICONST_OHUL", "integer constant",
+    "ICONST_OHULL", "integer constant",
     "ERROR", "error",
     "EOF", "end-of-file",
     "TYPEDEFNAME", "typedef-name",
@@ -128,6 +140,8 @@ const char *token_table[] = {
     "UNSIGNED_CHAR", "unsigned char",
     "UNSIGNED_SHORT", "unsigned short",
     "UNSIGNED_LONG", "unsigned long",
+    "LONG_LONG", "long long",
+    "UNSIGNED_LONG_LONG", "unsigned long long",
     "CONST_VOLATILE", "const volatile",
     "ENUM_CONST", "enumeration constant",
     "INIT_LIST", "initializer list",
@@ -343,9 +357,13 @@ static void convert_string(char *s)
     *dest = *src; /* copy '\0' */
 }
 
-/* check the validity of an integer constant */
-static void check_integer_constant(char *ic)
+static Token get_iconst_kind(char *ic)
 {
+    /*
+     * Note: for simplicity, ignore the case of suffixes
+     *       and accept 'Ll' and 'lL' as valid.
+     */
+
     enum {
         START,
         INDEC,
@@ -354,13 +372,17 @@ static void check_integer_constant(char *ic)
         INHEX2,
         INOCT,
         INLSUF,
+        INLLSUF,
+        INLLUSUF,
         INUSUF,
         INLUSUF,
         INULSUF,
+        INULLSUF,
         INERROR
     };
     char *c;
     int state;
+    Token tok;
 
     c = ic;
     state = START;
@@ -370,6 +392,7 @@ static void check_integer_constant(char *ic)
             state = (*c!='0')?INDEC:INZOH;
             break;
         case INDEC:
+            tok = TOK_ICONST_D;
             if (isdigit(*c))
                 ;
             else if (*c=='l' || *c=='L')
@@ -377,7 +400,7 @@ static void check_integer_constant(char *ic)
             else if (*c=='u' || *c=='U')
                 state = INUSUF;
             else if (*c=='\0')
-                return;
+                return tok;
             else
                 state = INERROR;
             break;
@@ -391,11 +414,12 @@ static void check_integer_constant(char *ic)
             else if (*c=='u' || *c=='U')
                 state = INUSUF;
             else if (*c=='\0')
-                return;
+                return TOK_ICONST_D;
             else
                 state = INERROR;
             break;
         case INHEX1:
+            tok = TOK_ICONST_OH;
             if (isxdigit(*c))
                 state = INHEX2;
             else
@@ -409,11 +433,12 @@ static void check_integer_constant(char *ic)
             else if (*c=='u' || *c=='U')
                 state = INUSUF;
             else if (*c == '\0')
-                return;
+                return tok;
             else
                 state = INERROR;
             break;
         case INOCT:
+            tok = TOK_ICONST_OH;
             if (isodigit(*c))
                 ;
             else if (*c=='l' || *c=='L')
@@ -421,32 +446,57 @@ static void check_integer_constant(char *ic)
             else if (*c=='u' || *c=='U')
                 state = INUSUF;
             else if (*c == '\0')
-                return;
+                return tok;
             else
                 state = INERROR;
             break;
         case INLSUF:
+            tok = (tok == TOK_ICONST_D) ? TOK_ICONST_DL : TOK_ICONST_OHL;
             if (*c=='u' || *c=='U')
                 state = INLUSUF;
+            else if (*c=='l' || *c=='L')
+                state = INLLSUF;
             else if (*c == '\0')
-                return;
+                return tok;
+            else
+                state = INERROR;
+            break;
+        case INLLSUF:
+            tok = (tok == TOK_ICONST_DL) ? TOK_ICONST_DLL : TOK_ICONST_OHLL;
+            if (*c=='u' || *c=='U')
+                state = INLLUSUF;
+            else if (*c == '\0')
+                return tok;
             else
                 state = INERROR;
             break;
         case INUSUF:
+            tok = (tok == TOK_ICONST_D) ? TOK_ICONST_DU : TOK_ICONST_OHU;
             if (*c=='l' || *c=='L')
-                state = INLUSUF;
+                state = INULSUF;
             else if (*c == '\0')
-                return;
+                return tok;
+            else
+                state = INERROR;
+            break;
+        case INULSUF:
+            tok = (tok == TOK_ICONST_DU) ? TOK_ICONST_DUL : TOK_ICONST_OHUL;
+            if (*c=='l' || *c=='L')
+                state = INULLSUF;
+            else if (*c == '\0')
+                return tok;
             else
                 state = INERROR;
             break;
         case INLUSUF:
-        case INULSUF:
+        case INLLUSUF:
+        case INULLSUF:
             if (*c != '\0')
                 state = INERROR;
+            else if (state == INLUSUF)
+                return (tok == TOK_ICONST_DL) ? TOK_ICONST_DUL : TOK_ICONST_OHUL;
             else
-                return;
+                return (tok==TOK_ICONST_DLL||tok==TOK_ICONST_DUL) ? TOK_ICONST_DULL : TOK_ICONST_OHULL;
             break;
         case INERROR:
             ERROR("invalid integer constant `%s'", ic);
@@ -505,8 +555,7 @@ TokenNode *tokenize(PreTokenNode *pre_token_list)
             break;
         }
         case PRE_TOK_NUM:
-            check_integer_constant(pre_tok->lexeme);
-            tok->next = new_token(TOK_ICONST, pre_tok);
+            tok->next = new_token(get_iconst_kind(pre_tok->lexeme), pre_tok);
             break;
         case PRE_TOK_ID:
             tok->next = new_token(TOK_ID, pre_tok);
@@ -530,7 +579,7 @@ TokenNode *tokenize(PreTokenNode *pre_token_list)
                     ++p;
                 }
             }
-            tok->next = new_token(TOK_ICONST, pre_tok);
+            tok->next = new_token(TOK_ICONST_D, pre_tok);
             tok->next->lexeme = arena_alloc(lexer_str_arena, strlen(buf)+1); /* replace prev lexeme */
             strcpy(tok->next->lexeme, buf);
         }

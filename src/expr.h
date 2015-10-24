@@ -18,7 +18,7 @@ void analyze_conditional_expression(ExecNode *e);
 void analyze_expression(ExecNode *e);
 
 int can_assign_to(Declaration *dest_ty, ExecNode *e);
-long eval_const_expr(ExecNode *e, int is_addr, int is_iconst);
+long long eval_const_expr(ExecNode *e, int is_addr, int is_iconst);
 int is_signed_int(Token ty);
 int is_unsigned_int(Token ty);
 int is_integer(Token ty);

@@ -89,16 +89,14 @@ struct ExecNode {
         struct {
             char *id;
             int scope;
-            char linkage;
-            char duration;
-            char is_param;
+            char linkage, duration, is_param;
         } var;
-        long val;
-        unsigned long uval;
+        long long val;
+        unsigned long long uval;
     } attr;
     Declaration type;
     int nreg; /* number of registers needed to evaluate the expression represented by this node */
-    int evaluated;
+    // int evaluated;
     TokenNode *info;
 };
 

@@ -81,26 +81,11 @@ static int is_sto_class_spec(Token t)
 static int is_type_spec(Token t)
 {
     switch (t) {
-    case TOK_VOID: case TOK_CHAR: case TOK_SHORT: case TOK_INT: case TOK_LONG:
-    case TOK_SIGNED: case TOK_UNSIGNED: case TOK_STRUCT: case TOK_UNION:
-    case TOK_ENUM: case TOK_TYPEDEFNAME:
-        return TRUE;
-    default:
-        return FALSE;
-    }
-}
-
-/*
- * Same as is_type_spec() but recognizes additional specifiers that appear
- * after analyze_decl_specs() processes the declaration specifiers list.
- */
-static int is_type_spec2(Token t)
-{
-    switch (t) {
     case TOK_VOID: case TOK_CHAR: case TOK_SIGNED_CHAR: case TOK_UNSIGNED_CHAR:
     case TOK_SHORT: case TOK_UNSIGNED_SHORT: case TOK_INT: case TOK_UNSIGNED:
     case TOK_LONG: case TOK_UNSIGNED_LONG: case TOK_STRUCT: case TOK_UNION:
     case TOK_ENUM: case TOK_TYPEDEFNAME: case TOK_ERROR:
+    case TOK_LONG_LONG: case TOK_UNSIGNED_LONG_LONG:
         return TRUE;
     default:
         return FALSE;
@@ -130,7 +115,7 @@ TypeExp *get_sto_class_spec(TypeExp *d)
 TypeExp *get_type_spec(TypeExp *d)
 {
     while (d != NULL) {
-        if (is_type_spec2(d->op))
+        if (is_type_spec(d->op))
             break;
         d = d->child;
     }
@@ -434,191 +419,199 @@ void set_attributes(ExecNode *e, Symbol *sym)
 void analyze_decl_specs(TypeExp *d)
 {
     enum {
-        START,
-        CHAR,
-        SIZE, SIGN, INT,
-        CHAR_SIGN, SIGN_CHAR,
-        SIZE_SIGN, SIZE_INT, SIGN_SIZE, SIGN_INT, INT_SIGN, INT_SIZE,
-        END
+        CHAR        = 0x00001,
+        INT         = 0x00002,
+        VOID        = 0x00004,
+        STRUCT      = 0x00008,
+        UNION       = 0x00010,
+        ENUM        = 0x00020,
+        TYPEDEFNAME = 0x00040,
+        SHORT       = 0x00080,
+        LONG        = 0x00100,
+        LONG_LONG   = 0x00200,
+        UNSIGNED    = 0x00400,
+        SIGNED      = 0x00800,
+        VOLATILE    = 0x01000,
+        CONST       = 0x02000,
+        TYPEDEF     = 0x04000,
+        EXTERN      = 0x08000,
+        STATIC      = 0x10000,
+        AUTO        = 0x20000,
+        REGISTER    = 0x40000,
     };
-    int state;
-    TypeExp *scs; /* storage class specifier */
-    TypeExp *first_tq; /* first type qualifier */
-    TypeExp *first_ts; /* first type specifier */
-    TypeExp *temp, *prev;
+#define SIGN_MASK (UNSIGNED+SIGNED)
+#define SIZE_MASK (SHORT+LONG+LONG_LONG)
+#define TYPE_MASK (VOID+STRUCT+UNION+ENUM+TYPEDEFNAME)
+#define QUAL_MASK (VOLATILE+CONST)
+#define STOC_MASK (TYPEDEF+EXTERN+STATIC+AUTO+REGISTER)
 
-    temp = d;
-    scs = NULL;
-    first_tq = NULL;
-    state = START;
-    while (TRUE) {
-        while (d!=NULL && !is_type_spec(d->op)) {
-            int del_node = FALSE;
+    TypeExp *p;
+    unsigned tymsk = 0;
 
-            if (is_sto_class_spec(d->op)) {
-                if (scs == NULL)
-                    scs = d;
-                else
-                    ERROR(d, "more than one storage class specifier");
-            } else if (is_type_qualifier(d->op)) {
-                /*
-                 * type qualifier nodes are merged into a single node.
-                 */
-                if (first_tq == NULL) {
-                    first_tq = d;
-                } else {
-                    if (first_tq->op != d->op)
-                        first_tq->op = TOK_CONST_VOLATILE;
-                    del_node = TRUE;
-                }
+    for (p = d; p != NULL; p = p->child) {
+        switch (p->op) {
+        case TOK_CHAR:
+        case TOK_INT:
+            if ((tymsk & INT+CHAR+TYPE_MASK) != 0)
+                goto too_many_tyspe;
+            tymsk |= (p->op == TOK_CHAR) ? CHAR : INT;
+            break;
+
+        case TOK_VOID:
+        case TOK_STRUCT:
+        case TOK_UNION:
+        case TOK_ENUM:
+        case TOK_TYPEDEFNAME:
+            if ((tymsk & TYPE_MASK+SIGN_MASK+SIZE_MASK+INT+CHAR) != 0)
+                goto too_many_tyspe;
+            switch (p->op) {
+            case TOK_VOID:          tymsk |= VOID;          break;
+            case TOK_STRUCT:        tymsk |= STRUCT;        break;
+            case TOK_UNION:         tymsk |= UNION;         break;
+            case TOK_ENUM:          tymsk |= ENUM;          break;
+            case TOK_TYPEDEFNAME:   tymsk |= TYPEDEFNAME;   break;
             }
-            if (del_node) {
-                /* delete a type qualifier node */
-                prev->child = d->child;
-                d = prev->child;
+            break;
+
+        case TOK_SHORT:
+            if ((tymsk & SIZE_MASK+TYPE_MASK+CHAR) != 0)
+                goto too_many_tyspe;
+            tymsk |= SHORT;
+            break;
+        case TOK_LONG:
+            if ((tymsk & LONG_LONG+TYPE_MASK+CHAR) != 0) {
+                goto too_many_tyspe;
+            } else if ((tymsk&LONG) != 0) {
+                tymsk &= ~LONG;
+                tymsk |= LONG_LONG;
             } else {
-                prev = d;
-                d = d->child;
+                tymsk |= LONG;
             }
+            break;
+
+        case TOK_UNSIGNED:
+        case TOK_SIGNED:
+            if ((tymsk & SIGN_MASK+TYPE_MASK) != 0)
+                goto too_many_tyspe;
+            tymsk |= (p->op == TOK_UNSIGNED) ? UNSIGNED : SIGNED;
+            break;
+
+        case TOK_VOLATILE:
+            tymsk |= VOLATILE;
+            break;
+        case TOK_CONST:
+            tymsk |= CONST;
+            break;
+
+        case TOK_TYPEDEF:
+        case TOK_EXTERN:
+        case TOK_STATIC:
+        case TOK_AUTO:
+        case TOK_REGISTER:
+            if ((tymsk&STOC_MASK) != 0)
+                ERROR(p, "more than one storage class specifier");
+            switch (p->op) {
+            case TOK_TYPEDEF:   tymsk |= TYPEDEF;   break;
+            case TOK_EXTERN:    tymsk |= EXTERN;    break;
+            case TOK_STATIC:    tymsk |= STATIC;    break;
+            case TOK_AUTO:      tymsk |= AUTO;      break;
+            case TOK_REGISTER:  tymsk |= REGISTER;  break;
+            }
+            break;
         }
+    }
 
-        if (d == NULL) {
-            if (state==START) {
-                d = temp;
-                ERROR(d, "missing type specifier");
-            } else {
-                return;
-            }
-        }
+    if ((tymsk&STOC_MASK) != 0) {
+        d->op = get_sto_class_spec(d)->op;
+        d = d->child;
+    }
+    switch (tymsk & QUAL_MASK) {
+    case VOLATILE:
+        d->op = TOK_VOLATILE;
+        d = d->child;
+        break;
+    case CONST:
+        d->op = TOK_CONST;
+        d = d->child;
+        break;
+    case CONST+VOLATILE:
+        d->op = TOK_CONST_VOLATILE;
+        d = d->child;
+        break;
+    default:
+        break;
+    }
+    switch (tymsk & TYPE_MASK+SIGN_MASK+SIZE_MASK+INT+CHAR) {
+    case CHAR:
+    case CHAR+SIGNED:
+        d->op = TOK_CHAR;
+        break;
+    case CHAR+UNSIGNED:
+        d->op = TOK_UNSIGNED_CHAR;
+        break;
+    case SHORT:
+    case SHORT+INT:
+    case SHORT+SIGNED:
+    case SHORT+SIGNED+INT:
+        d->op = TOK_SHORT;
+        break;
+    case SHORT+UNSIGNED:
+    case SHORT+UNSIGNED+INT:
+        d->op = TOK_UNSIGNED_SHORT;
+        break;
+    case INT:
+    case SIGNED+INT:
+        d->op = TOK_INT;
+        break;
+    case UNSIGNED:
+    case UNSIGNED+INT:
+        d->op = TOK_UNSIGNED;
+        break;
+    case LONG:
+    case LONG+INT:
+    case LONG+SIGNED:
+    case LONG+SIGNED+INT:
+        d->op = TOK_LONG;
+        break;
+    case LONG+UNSIGNED:
+    case LONG+UNSIGNED+INT:
+        d->op = TOK_UNSIGNED_LONG;
+        break;
+    case LONG_LONG:
+    case LONG_LONG+INT:
+    case LONG_LONG+SIGNED:
+    case LONG_LONG+SIGNED+INT:
+        d->op = TOK_LONG_LONG;
+        break;
+    case LONG_LONG+UNSIGNED:
+    case LONG_LONG+UNSIGNED+INT:
+        d->op = TOK_UNSIGNED_LONG_LONG;
+        break;
+    case VOID:
+        d->op = TOK_VOID;
+        break;
+    case STRUCT:
+        d->op = TOK_STRUCT;
+        break;
+    case UNION:
+        d->op = TOK_UNION;
+        break;
+    case ENUM:
+        d->op = TOK_ENUM;
+        break;
+    case TYPEDEFNAME:
+        d->op = TOK_TYPEDEFNAME;
+        break;
+    case 0:
+        ERROR(d, "missing type specifier");
+    default:
+        assert(0);
+    }
+    d->child = NULL;
+    return;
 
-        switch (state) {
-        case START:
-            switch (d->op) {
-            case TOK_CHAR:
-                state = CHAR;
-                break;
-            case TOK_SHORT:
-            case TOK_LONG:
-                state = SIZE;
-                break;
-            case TOK_SIGNED:
-            case TOK_UNSIGNED:
-                state = SIGN;
-                if (d->op == TOK_SIGNED)
-                    d->op = TOK_INT;
-                break;
-            case TOK_INT:
-                state = INT;
-                break;
-            case TOK_VOID:
-            case TOK_UNION:
-            case TOK_STRUCT:
-            case TOK_ENUM:
-            case TOK_TYPEDEFNAME:
-                state = END;
-                break;
-            }
-            first_ts = prev = d;
-            d = d->child;
-            continue;
-        /*
-         * Types that can be denoted in different ways are brought
-         * to a single common form. For example `short', `signed short',
-         * and `signed short int' are converted to simply `short'.
-         * The single type specifier left is one of:
-         *      void,
-         *      char, signed char, unsigned char,
-         *      short, unsigned short,
-         *      int, unsigned,
-         *      long, unsigned long
-         *      union,
-         *      struct,
-         *      enum,
-         *      typedef-name
-         */
-        case CHAR:
-            if (d->op==TOK_SIGNED || d->op==TOK_UNSIGNED) {
-                state = END;
-                first_ts->op = (d->op==TOK_SIGNED)?TOK_SIGNED_CHAR:TOK_UNSIGNED_CHAR;
-            } else {
-                ERROR(d, "more than one type specifier");
-            }
-            break;
-        case SIZE:
-            if (d->op==TOK_SIGNED || d->op==TOK_UNSIGNED) {
-                state = SIZE_SIGN;
-                if (d->op == TOK_UNSIGNED)
-                    first_ts->op = (first_ts->op==TOK_SHORT)?TOK_UNSIGNED_SHORT:TOK_UNSIGNED_LONG;
-            } else if (d->op == TOK_INT) {
-                state = SIZE_INT;
-            } else {
-                ERROR(d, "more than one type specifier");
-            }
-            break;
-        case SIGN:
-            if (d->op==TOK_SHORT || d->op==TOK_LONG) {
-                state = SIGN_SIZE;
-                if (first_ts->op == TOK_UNSIGNED)
-                    first_ts->op = (d->op==TOK_SHORT)?TOK_UNSIGNED_SHORT:TOK_UNSIGNED_LONG;
-                else
-                    first_ts->op = d->op;
-            } else if (d->op == TOK_INT) {
-                state = SIGN_INT;
-            } else if (d->op == TOK_CHAR) {
-                state = END;
-                first_ts->op = (first_ts->op==TOK_UNSIGNED)?TOK_UNSIGNED_CHAR:TOK_SIGNED_CHAR;
-            } else {
-                ERROR(d, "more than one type specifier");
-            }
-            break;
-        case INT:
-            if (d->op==TOK_SIGNED || d->op==TOK_UNSIGNED) {
-                state = INT_SIGN;
-                if (d->op == TOK_UNSIGNED)
-                    first_ts->op = TOK_UNSIGNED;
-            } else if (d->op==TOK_SHORT || d->op==TOK_LONG) {
-                state = INT_SIZE;
-                first_ts->op = d->op;
-            } else {
-                ERROR(d, "more than one type specifier");
-            }
-            break;
-        case SIZE_SIGN:
-        case SIGN_SIZE:
-            if (d->op == TOK_INT)
-                state = END;
-            else
-                ERROR(d, "more than one type specifier");
-            break;
-        case SIZE_INT:
-        case INT_SIZE:
-            if (d->op==TOK_SIGNED || d->op==TOK_UNSIGNED) {
-                state = END;
-                if (d->op == TOK_UNSIGNED)
-                    first_ts->op = (first_ts->op==TOK_SHORT)?TOK_UNSIGNED_SHORT:TOK_UNSIGNED_LONG;
-            } else {
-                ERROR(d, "more than one type specifier");
-            }
-            break;
-        case SIGN_INT:
-        case INT_SIGN:
-            if (d->op==TOK_SHORT || d->op==TOK_LONG) {
-                state = END;
-                if (first_ts->op == TOK_UNSIGNED)
-                    first_ts->op = (d->op==TOK_SHORT)?TOK_UNSIGNED_SHORT:TOK_UNSIGNED_LONG;
-                else
-                    first_ts->op = d->op;
-            } else {
-                ERROR(d, "more than one type specifier");
-            }
-            break;
-        case END:
-            ERROR(d, "more than one type specifier");
-            break;
-        } /* switch (state) */
-        prev->child = d->child;
-        d = prev->child;
-    } /* while (TRUE) */
+too_many_tyspe:
+    ERROR(p, "more than one type specifier");
 }
 
 int is_typedef_name(char *id)
@@ -1753,7 +1746,7 @@ char *stringify_type_exp(Declaration *d, int show_decayed)
                     strcpy(temp, "*");
             } else {
                 if (e->attr.e != NULL)
-                    sprintf(temp, "[%ld]", e->attr.e->attr.val);
+                    sprintf(temp, "[%lld]", e->attr.e->attr.val);
                 else
                     strcpy(temp, "[]");
             }

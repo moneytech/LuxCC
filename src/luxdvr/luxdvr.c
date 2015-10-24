@@ -272,6 +272,7 @@ int main(int argc, char *argv[])
 
             newf = malloc(sizeof(InFile));
             newf->path = argv[i];
+            newf->next = NULL;
             if ((p=strrchr(argv[i], '.')) == NULL)
                 other_files = add_file(other_files, newf);
             else if (equal(p, ".c"))

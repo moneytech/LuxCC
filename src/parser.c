@@ -1146,7 +1146,7 @@ void do_static_assert(void)
     match(TOK_STATIC_ASSERT);
     match(TOK_LPAREN);
     c = strtol(get_lexeme(1), &ep, 0);
-    match(TOK_ICONST);
+    match(TOK_ICONST_D);
     match(TOK_COMMA);
 
     switch (c) {
@@ -1955,10 +1955,14 @@ ExecNode *primary_expression(void)
         break;
     }
 #undef NON_FATAL_ERROR
-    case TOK_ICONST:
+    case TOK_ICONST_D:      case TOK_ICONST_DL:     case TOK_ICONST_DLL:
+    case TOK_ICONST_DU:     case TOK_ICONST_DUL:    case TOK_ICONST_DULL:
+    case TOK_ICONST_OH:     case TOK_ICONST_OHL:    case TOK_ICONST_OHLL:
+    case TOK_ICONST_OHU:    case TOK_ICONST_OHUL:   case TOK_ICONST_OHULL:
         n = new_pri_exp_node(IConstExp);
         n->attr.str = get_lexeme(1);
-        match(TOK_ICONST);
+        n->child[0] = (ExecNode *)curr_tok->token;
+        match(curr_tok->token);
         break;
     case TOK_STRLIT:
         n = new_pri_exp_node(StrLitExp);
@@ -2247,7 +2251,7 @@ void print_ExecNode_node(ExecNode *n)
                 return;
             } /* switch (n->attr.op) */
         case IConstExp:
-            sprintf(buf, "ExecNode\\n(%lu)", n->attr.uval);
+            sprintf(buf, "ExecNode\\n(%llu)", n->attr.uval);
             print_vertex(++vertex_counter, buf);
             return;
         case StrLitExp:
