@@ -58,7 +58,7 @@ typedef enum {
 typedef enum {
     IfStmt, WhileStmt, DoStmt, ForStmt, BreakStmt, ContinueStmt,
     ReturnStmt, ExpStmt, CmpndStmt, SwitchStmt, CaseStmt, DefaultStmt,
-    LabelStmt, GotoStmt
+    LabelStmt, GotoStmt, AsmStmt,
 } StmtKind;
 
 typedef enum {

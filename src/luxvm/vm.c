@@ -6,6 +6,7 @@
 #include <getopt.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <assert.h>
 #include "as.h"
 #include "operations.h"
 #include "../util.h"
@@ -15,35 +16,46 @@ char *prog_name;
 typedef unsigned char uchar;
 typedef unsigned short ushort;
 
-#define MAX_STACK_SIZE  32768
-// #define MAX_TEXT_SIZE   1024
-int *stack, *data, *bss;
-// uchar text[MAX_TEXT_SIZE];
+#define DEFAULT_STACK_SIZE  32768
+long *stack, *data, *bss;
 uchar *text;
-int text_size, data_size, bss_size;
+long text_size, data_size, bss_size;
 
 int vm_argc;
 char **vm_argv;
 
-void do_libcall(int *sp, int *bp, int c)
+int cmp_int(const void *p1, const void *p2)
 {
-    int a;
-    int *p;
+    long v1 = *(long *)p1;
+    long v2 = *(long *)p2;
+
+    if (v1 < v2)
+        return -1;
+    else if (v1 == v2)
+        return 0;
+    else
+        return 1;
+}
+
+void do_libcall(long *sp, long *bp, long c)
+{
+    long a;
+    long *p;
 
     switch (c) {
     case 0: /* getvars */
         p = (void *)bp[-3];
-        p[0] = (int)stdin;
-        p[1] = (int)stdout;
-        p[2] = (int)stderr;
+        p[0] = (long)stdin;
+        p[1] = (long)stdout;
+        p[2] = (long)stderr;
         p[3] = vm_argc;
-        p[4] = (int)vm_argv;
-        p[5] = (int)&optarg;
-        p[6] = (int)&optind;
+        p[4] = (long)vm_argv;
+        p[5] = (long)&optarg;
+        p[6] = (long)&optind;
         sp[0] = 0;
         break;
     case 1: /* malloc */
-        sp[0] = (int)malloc(bp[-3]);
+        sp[0] = (long)malloc(bp[-3]);
         break;
     case 2: /* free */
         free((void *)bp[-3]);
@@ -55,7 +67,7 @@ void do_libcall(int *sp, int *bp, int c)
     case 4: /* realloc */
         p = (void *)bp[-3];
         a = bp[-4];
-        sp[0] = (int)realloc(p, a);
+        sp[0] = (long)realloc(p, a);
         break;
     case 5: /* fputc */
         sp[0] = fputc(bp[-3], (FILE *)bp[-4]);
@@ -73,7 +85,7 @@ void do_libcall(int *sp, int *bp, int c)
         sp[0] = ferror((FILE *)bp[-3]);
         break;
     case 10: /* fopen */
-        sp[0] = (int)fopen((char *)bp[-3], (char *)bp[-4]);
+        sp[0] = (long)fopen((char *)bp[-3], (char *)bp[-4]);
         break;
     case 11: /* fclose */
         sp[0] = fclose((FILE *)bp[-3]);
@@ -93,7 +105,7 @@ void do_libcall(int *sp, int *bp, int c)
         (const struct option *)bp[-6], (int *)bp[-7]);
         break;
     case 16: /* fgets */
-        sp[0] = (int)fgets((char *)bp[-3], bp[-4], (FILE *)bp[-5]);
+        sp[0] = (long)fgets((char *)bp[-3], bp[-4], (FILE *)bp[-5]);
         break;
     case 17:
         sp[0] = stat((char *)bp[-3], (struct stat *)bp[-4]);
@@ -105,19 +117,17 @@ void do_libcall(int *sp, int *bp, int c)
         sp[0] = isatty(bp[-3]);
         break;
     default:
-        fprintf(stderr, "libcall %d not implemented\n", c);
+        fprintf(stderr, "libcall %ld not implemented\n", c);
         break;
     }
 }
 
-int cmp_int(const void *p1, const void *p2);
-
-int *exec(void)
+long *exec(void)
 {
     uchar *ip, *ip1;
-    int *sp, *bp;
+    long *sp, *bp;
+    long a, b;
     int opcode;
-    int a, b;
 
     ip = text;
     sp = stack;
@@ -140,14 +150,14 @@ int *exec(void)
                 sp[0] = *((ushort *)sp[0]);
                 break;
             case OpLdDW:
-                sp[0] = *((int *)sp[0]);
+                sp[0] = *((long *)sp[0]);
                 break;
             case OpLdN: {
-                int n;
+                long n;
                 uchar *src, *dest;
 
-                n = *(int *)ip;
-                ip += 4;
+                n = *(long *)ip;
+                ip += sizeof(long);
                 src = (uchar *)sp[0];
                 dest = (uchar *)sp;
                 while (n-- > 0)
@@ -157,15 +167,15 @@ int *exec(void)
 
                 /* memory write */
             case OpStB:
-                *((char *)sp[0]) = sp[-1];
+                *((char *)sp[0]) = (char)sp[-1];
                 --sp;
                 break;
             case OpStW:
-                *((short *)sp[0]) = sp[-1];
+                *((short *)sp[0]) = (short)sp[-1];
                 --sp;
                 break;
             case OpStDW:
-                *((int *)sp[0]) = sp[-1];
+                *((long *)sp[0]) = sp[-1];
                 --sp;
                 break;
             /*case OpStN: {
@@ -182,27 +192,27 @@ int *exec(void)
                 break;
             }*/
             case OpMemCpy:
-                memmove((void *)sp[-1], (const void *)sp[0], *(int *)ip);
-                ip += 4;
+                memmove((void *)sp[-1], (const void *)sp[0], *(long *)ip);
+                ip += sizeof(long);
                 --sp;
                 break;
 
             case OpFill:
-                memset((void *)sp[-1], sp[0], *(int *)ip);
-                ip += 4;
+                memset((void *)sp[-1], sp[0], *(long *)ip);
+                ip += sizeof(long);
                 --sp;
                 break;
 
                 /* load immediate pointers */
             case OpLdBP:
                 ++sp;
-                sp[0] = (int)bp + *(int *)ip;
-                ip += 4;
+                sp[0] = (long)bp + *(long *)ip;
+                ip += sizeof(long);
                 break;
             case OpLdI:
                 ++sp;
-                sp[0] = *(int *)ip;
-                ip += 4;
+                sp[0] = *(long *)ip;
+                ip += sizeof(long);
                 break;
 
                 /* arithmetic */
@@ -223,7 +233,7 @@ int *exec(void)
                 --sp;
                 break;
             case OpUDiv:
-                sp[-1] = (unsigned)sp[-1]/(unsigned)sp[0];
+                sp[-1] = (unsigned long)sp[-1]/(unsigned long)sp[0];
                 --sp;
                 break;
             case OpSMod:
@@ -231,7 +241,7 @@ int *exec(void)
                 --sp;
                 break;
             case OpUMod:
-                sp[-1] = (unsigned)sp[-1]%(unsigned)sp[0];
+                sp[-1] = (unsigned long)sp[-1]%(unsigned long)sp[0];
                 --sp;
                 break;
             case OpNeg:
@@ -246,7 +256,7 @@ int *exec(void)
                 --sp;
                 break;
             case OpULT:
-                sp[-1] = (unsigned)sp[-1]<(unsigned)sp[0];
+                sp[-1] = (unsigned long)sp[-1]<(unsigned long)sp[0];
                 --sp;
                 break;
             case OpSLET:
@@ -254,7 +264,7 @@ int *exec(void)
                 --sp;
                 break;
             case OpULET:
-                sp[-1] = (unsigned)sp[-1]<=(unsigned)sp[0];
+                sp[-1] = (unsigned long)sp[-1]<=(unsigned long)sp[0];
                 --sp;
                 break;
             case OpSGT:
@@ -262,7 +272,7 @@ int *exec(void)
                 --sp;
                 break;
             case OpUGT:
-                sp[-1] = (unsigned)sp[-1]>(unsigned)sp[0];
+                sp[-1] = (unsigned long)sp[-1]>(unsigned long)sp[0];
                 --sp;
                 break;
             case OpSGET:
@@ -270,7 +280,7 @@ int *exec(void)
                 --sp;
                 break;
             case OpUGET:
-                sp[-1] = (unsigned)sp[-1]>=(unsigned)sp[0];
+                sp[-1] = (unsigned long)sp[-1]>=(unsigned long)sp[0];
                 --sp;
                 break;
             case OpEQ:
@@ -302,7 +312,7 @@ int *exec(void)
                 --sp;
                 break;
             case OpSRL:
-                sp[-1] = (unsigned)sp[-1] >> sp[0];
+                sp[-1] = (unsigned long)sp[-1] >> sp[0];
                 --sp;
                 break;
             case OpSRA:
@@ -325,11 +335,11 @@ int *exec(void)
 
                 /* subroutines */
             case OpCall:
-                a = *(int *)ip; /* size of param area */
-                ip += 4;
+                a = *(long *)ip; /* size of param area */
+                ip += sizeof(long);
                 ip1 = (uchar *)sp[0];
-                sp[0] = (int)ip;
-                sp[1] = (int)bp;
+                sp[0] = (long)ip;
+                sp[1] = (long)bp;
                 sp[2] = a;
                 sp += 2;
                 ip = ip1;
@@ -339,38 +349,38 @@ int *exec(void)
                 a = sp[0]; /* return value */
                 sp = bp;
                 ip = (uchar *)sp[-2];
-                bp = (int *)sp[-1];
+                bp = (long *)sp[-1];
                 b = sp[0]; /* size of param area */
-                sp = (int *)((long)sp-8-b); /* old bp + ret addr == 8 */
+                sp = (long *)((long)sp-sizeof(long)*2-b); /* sizeof(long)*2: old bp + ret addr */
                 sp[0] = a;
                 break;
 
                 /* jumps */
             case OpJmp:
-                ip1 = (uchar *)(*(int *)ip);
+                ip1 = (uchar *)(*(long *)ip);
                 ip = ip1;
                 break;
             case OpJmpF:
-                ip1 = (uchar *)(*(int *)ip);
-                ip += 4;
+                ip1 = (uchar *)(*(long *)ip);
+                ip += sizeof(long);
                 if (!sp[0])
                     ip = ip1;
                 --sp;
                 break;
             case OpJmpT:
-                ip1 = (uchar *)(*(int *)ip);
-                ip += 4;
+                ip1 = (uchar *)(*(long *)ip);
+                ip += sizeof(long);
                 if (sp[0])
                     ip = ip1;
                 --sp;
                 break;
 
             case OpSwitch: {
-                int val, count;
-                int *tab, *p, *p_end, *res;
+                long val, count;
+                long *tab, *p, *p_end, *res;
 
                 val = sp[-1];
-                tab = (int *)sp[0];
+                tab = (long *)sp[0];
                 sp -= 2;
 
                 p = tab;
@@ -385,17 +395,17 @@ int *exec(void)
             }
 
             case OpLibCall:
-                a = *(int *)ip;
-                ip += 4;
+                a = *(long *)ip;
+                ip += sizeof(long);
                 ++sp;
                 do_libcall(sp, bp, a);
                 break;
 
                 /* stack management */
             case OpAddSP:
-                a = *(int *)ip;
-                ip += 4;
-                sp = (int *)((int)sp+a);
+                a = *(long *)ip;
+                ip += sizeof(long);
+                sp = (long *)((long)sp+a);
                 break;
             case OpDup:
                 ++sp;
@@ -408,6 +418,10 @@ int *exec(void)
                 sp[0]  ^= sp[-1];
                 sp[-1] ^= sp[0];
                 sp[0]  ^= sp[-1];
+                break;
+            case OpPushSP:
+                ++sp;
+                sp[0] = (long)(sp-1);
                 break;
 
             case OpNop:
@@ -424,18 +438,18 @@ void load_code(char *file_path)
 {
     int i;
     FILE *fp;
-    int ndreloc, ntreloc;
+    long ndreloc, ntreloc;
 
     if ((fp=fopen(file_path, "rb")) == NULL)
         TERMINATE("%s: error reading file `%s'", prog_name, file_path);
 
     /* header */
-    fread(&bss_size, sizeof(int), 1, fp);
+    fread(&bss_size, sizeof(long), 1, fp);
     bss = calloc(1, bss_size);
-    fread(&data_size, sizeof(int), 1, fp);
-    fread(&text_size, sizeof(int), 1, fp);
-    fread(&ndreloc, sizeof(int), 1, fp);
-    fread(&ntreloc, sizeof(int), 1, fp);
+    fread(&data_size, sizeof(long), 1, fp);
+    fread(&text_size, sizeof(long), 1, fp);
+    fread(&ndreloc, sizeof(long), 1, fp);
+    fread(&ntreloc, sizeof(long), 1, fp);
 
     /* data&text */
     data = malloc(data_size);
@@ -443,100 +457,36 @@ void load_code(char *file_path)
     text = malloc(text_size);
     fread(text, text_size, 1, fp);
 
-    // fprintf(stderr, "data_size=%d\n", data_size);
-    // fprintf(stderr, "text_size=%d\n", text_size);
-
     /* data relocation table */
     for (i = 0; i < ndreloc; i++) {
-        int base;
-        int segment, offset;
+        long base;
+        long segment, offset;
 
-        fread(&segment, sizeof(int), 1, fp);
-        fread(&offset, sizeof(int), 1, fp);
-        base = (segment==TEXT_SEG)?(int)text:(segment==DATA_SEG)?(int)data:(int)bss;
-        *(int *)((char *)data+offset) += base;
+        fread(&segment, sizeof(long), 1, fp);
+        fread(&offset, sizeof(long), 1, fp);
+        base = (segment==TEXT_SEG)?(long)text:(segment==DATA_SEG)?(long)data:(long)bss;
+        *(long *)((char *)data+offset) += base;
     }
 
     /* text relocation table */
     for (i = 0; i < ntreloc; i++) {
-        int base;
-        int segment, offset;
+        long base;
+        long segment, offset;
 
-        fread(&segment, sizeof(int), 1, fp);
-        fread(&offset, sizeof(int), 1, fp);
-        base = (segment==TEXT_SEG)?(int)text:(segment==DATA_SEG)?(int)data:(int)bss;
-        *(int *)&text[offset] += base;
+        fread(&segment, sizeof(long), 1, fp);
+        fread(&offset, sizeof(long), 1, fp);
+        base = (segment==TEXT_SEG)?(long)text:(segment==DATA_SEG)?(long)data:(long)bss;
+        *(long *)&text[offset] += base;
     }
 
     fclose(fp);
 }
 
-void disassemble_data(uchar *text, int text_size);
-void disassemble_text(uchar *text, int text_size);
-
-int main(int argc,char *argv[])
+void disassemble_text(uchar *text, long text_size)
 {
-    /*
-                [ Program image ]
-        Code
-    +-------------------------------------------------+ <-text
-    | Text                                            |
-    +-------------------------------------------------+
+    uchar *p, *lim;
 
-    +-------------------------------------------------+ <-bss
-    | Bss                                             |
-    +-------------------------------------------------+
-
-    +-------------------------------------------------+ <-data
-    | Data                                            |
-    +-------------------------------------------------+
-
-    +-------------------------------------------------+ <-stack
-    | Stack                                           |
-    +-------------------------------------------------+
-    */
-    int *sp;
-
-    prog_name = argv[0];
-    if (argc < 2) {
-        printf("usage: %s <program>\n", prog_name);
-        exit(0);
-    }
-
-    load_code(argv[1]);
-    /*printf("Bss:\n");
-    disassemble_data(bss, bss_size);
-    printf("Data:\n");
-    disassemble_data(data, data_size);
-    printf("Code:\n");
-    disassemble_text(text, text_size);*/
-
-    stack = malloc(MAX_STACK_SIZE*sizeof(int));
-
-    vm_argc = argc-1;
-    vm_argv = argv+1;
-
-    sp = exec();
-    // printf("result ==>%d\n", *sp);
-    // printf("result ==>%s\n", *sp);
-    // printf("stack[7](%p)=%d (%x)\n", &stack[7], stack[7], stack[7]);
-    // printf("stack[6](%p)=%d (%x)\n", &stack[6], stack[6], stack[6]);
-    // printf("stack[5](%p)=%d (%x)\n", &stack[5], stack[5], stack[5]);
-    // printf("stack[4](%p)=%d (%x)\n", &stack[4], stack[4], stack[4]);
-    // printf("stack[3](%p)=%d (%x)\n", &stack[3], stack[3], stack[3]);
-    // printf("stack[2](%p)=%d (%x)\n", &stack[2], stack[2], stack[2]);
-    // printf("stack[1](%p)=%d (%x)\n", &stack[1], stack[1], stack[1]);
-    // printf("stack[0](%p)=%d (%x)\n", &stack[0], stack[0], stack[0]);
-
-    return *sp;
-}
-
-
-void disassemble_text(uchar *text, int text_size)
-{
-    uchar *p;
-
-    for (p = text; p < text+text_size;) {
+    for (p = text, lim = text+text_size; p < lim;) {
         printf("(%p) ", p);
         switch (*p++) {
         case OpHalt:    printf("halt\n");   break;
@@ -545,12 +495,12 @@ void disassemble_text(uchar *text, int text_size)
         case OpLdW:     printf("ldw\n");    break;
         case OpLdUW:    printf("lduw\n");   break;
         case OpLdDW:    printf("lddw\n");   break;
-        case OpLdN:     printf("ldn ");     printf("%x\n", *(int *)p); p+=4; break;
+        case OpLdN:     printf("ldn ");     printf("%lx\n", *(long *)p); p+=sizeof(long); break;
         case OpStB:     printf("stb\n");    break;
         case OpStW:     printf("stw\n");    break;
         case OpStDW:    printf("stdw\n");   break;
-        case OpStN:     printf("stn ");     printf("%x\n", *(int *)p); p+=4; break;
-        case OpMemCpy:  printf("memcpy ");  printf("%x\n", *(int *)p); p+=4; break;
+        case OpStN:     printf("stn ");     printf("%lx\n", *(long *)p); p+=sizeof(long); break;
+        case OpMemCpy:  printf("memcpy ");  printf("%lx\n", *(long *)p); p+=sizeof(long); break;
         case OpAdd:     printf("add\n");    break;
         case OpSub:     printf("sub\n");    break;
         case OpMul:     printf("mul\n");    break;
@@ -581,45 +531,124 @@ void disassemble_text(uchar *text, int text_size)
         case OpDW2UB:   printf("dw2ub\n");  break;
         case OpDW2W:    printf("dw2w\n");   break;
         case OpDW2UW:   printf("dw2uw\n");  break;
-        case OpLdI:     printf("ldi ");     printf("%x\n", *(int *)p); p+=4; break;
-        case OpLdBP:    printf("ldbp ");    printf("%x\n", *(int *)p); p+=4; break;
-        case OpJmpF:    printf("jmpf ");    printf("%x\n", *(int *)p); p+=4; break;
-        case OpJmpT:    printf("jmpt ");    printf("%x\n", *(int *)p); p+=4; break;
-        case OpJmp:     printf("jmp ");     printf("%x\n", *(int *)p); p+=4; break;
-        case OpCall:    printf("call ");    printf("%x\n", *(int *)p); p+=4; break;
-        case OpFill:    printf("fill ");    printf("%x\n", *(int *)p); p+=4; break;
+        case OpLdI:     printf("ldi ");     printf("%lx\n", *(long *)p); p+=sizeof(long); break;
+        case OpLdBP:    printf("ldbp ");    printf("%lx\n", *(long *)p); p+=sizeof(long); break;
+        case OpJmpF:    printf("jmpf ");    printf("%lx\n", *(long *)p); p+=sizeof(long); break;
+        case OpJmpT:    printf("jmpt ");    printf("%lx\n", *(long *)p); p+=sizeof(long); break;
+        case OpJmp:     printf("jmp ");     printf("%lx\n", *(long *)p); p+=sizeof(long); break;
+        case OpCall:    printf("call ");    printf("%lx\n", *(long *)p); p+=sizeof(long); break;
+        case OpFill:    printf("fill ");    printf("%lx\n", *(long *)p); p+=sizeof(long); break;
         case OpRet:     printf("ret\n");    break;
         case OpDup:     printf("dup\n");    break;
         case OpPop:     printf("pop\n");    break;
-        case OpAddSP:   printf("addsp ");   printf("%x\n", *(int *)p); p+=4; break;
+        case OpAddSP:   printf("addsp ");   printf("%lx\n", *(long *)p); p+=sizeof(long); break;
         case OpNop:     printf("nop\n");    break;
         case OpSwap:    printf("swap\n");   break;
         case OpSwitch:  printf("switch\n"); break;
-        case OpLibCall: printf("libcall "); printf("%x\n", *(int *)p); p+=4; break;
+        case OpLibCall: printf("libcall "); printf("%lx\n", *(long *)p); p+=sizeof(long); break;
+        case OpPushSP:  printf("pushsp\n"); break;
         }
     }
 }
 
-void disassemble_data(uchar *data, int data_size)
+void disassemble_data(long *data, long data_size)
 {
-    uchar *p;
+    uchar *p, *lim;
 
-    for (p = data; p < data+data_size;) {
+    for (p = (uchar *)data, lim = (uchar *)data+data_size; p < lim;) {
         printf("(%p) ", p);
-        printf("%x\n", *(int *)p);
-        p += 4;
+        printf("%lx\n", *(long *)p);
+        p += sizeof(long);
     }
 }
 
-int cmp_int(const void *p1, const void *p2)
+int main(int argc,char *argv[])
 {
-    int v1 = *(int *)p1;
-    int v2 = *(int *)p2;
+    /*
+                [ Program image ]
+        Code
+    +-------------------------------------------------+ <-text
+    | Text                                            |
+    +-------------------------------------------------+
 
-    if (v1 < v2)
-        return -1;
-    else if (v1 == v2)
-        return 0;
-    else
-        return 1;
+    +-------------------------------------------------+ <-bss
+    | Bss                                             |
+    +-------------------------------------------------+
+
+    +-------------------------------------------------+ <-data
+    | Data                                            |
+    +-------------------------------------------------+
+
+    +-------------------------------------------------+ <-stack
+    | Stack                                           |
+    +-------------------------------------------------+
+    */
+    int i;
+    long *sp;
+    int disas;
+    char *infile;
+    long stack_size;
+
+    prog_name = argv[0];
+    if (argc == 1) {
+        printf("usage: %s <program>\n", prog_name);
+        exit(0);
+    }
+    infile = NULL;
+    disas = FALSE;
+    stack_size = DEFAULT_STACK_SIZE;
+    for (i = 1; i < argc; i++) {
+        if (argv[i][0] != '-') {
+            infile = argv[i];
+            continue;
+        }
+        switch (argv[i][1]) {
+        case 's':
+            if (argv[i][2] != '\0') {
+                stack_size = atol(argv[i]+2);
+            } else if (argv[i+1] == NULL) {
+                fprintf(stderr, "%s: option `s' requires an argument\n", prog_name);
+                exit(1);
+            } else {
+                stack_size = atol(argv[++i]);
+            }
+            break;
+        case 'd':
+            disas = TRUE;
+            break;
+        case 'h':
+            printf("usage: %s [ options ] <program>\n"
+                   "  The available options are:\n"
+                   "    -s<size>    specify stack size\n"
+                   "    -d          disassemble code and data after loading\n"
+                   "    -h          print this help\n", prog_name);
+            exit(0);
+            break;
+        case '\0':
+            break;
+        default:
+            fprintf(stderr, "%s: unknown option `%s'\n", prog_name, argv[i]);
+            exit(1);
+        }
+    }
+    if (infile == NULL) {
+        printf("usage: %s [ options ] <program>\n", prog_name);
+        exit(0);
+    }
+
+    load_code(argv[1]);
+    if (disas) {
+        printf("Bss:\n");
+        disassemble_data(bss, bss_size);
+        printf("Data:\n");
+        disassemble_data(data, data_size);
+        printf("Code:\n");
+        disassemble_text(text, text_size);
+    }
+    stack = malloc(stack_size*sizeof(long));
+    vm_argc = argc-1;
+    vm_argv = argv+1;
+    sp = exec();
+
+    return (int)*sp;
 }

@@ -597,6 +597,10 @@ ok_1:
             string_set_pos(as_cmd, apos);
         }
         if (exst == 0) {
+            InFile *fp;
+
+            for (fp = other_files; fp != NULL; fp = fp->next)
+                string_printf(ld_cmd, " %s", fp->path);
             for (i = 0; i < ntmp; i++)
                 string_printf(ld_cmd, " %s", obj_tmps[i]);
             if (outpath != NULL)

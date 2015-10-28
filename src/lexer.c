@@ -147,12 +147,14 @@ const char *token_table[] = {
     "INIT_LIST", "initializer list",
     "FUNC_NAME", "__func__",
     "STATIC_ASSERT", "__static_assert",
+    "ASM", "__asm",
 };
 
 static const struct Keyword {
     char *str;
     Token tok;
 } keywords_table[] = { /* sorted for bsearch() */
+    {"__asm", TOK_ASM},
     {"__func__", TOK_FUNC_NAME},
     {"__static_assert", TOK_STATIC_ASSERT},
     {"auto", TOK_AUTO},

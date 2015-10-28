@@ -1175,6 +1175,24 @@ void do_static_assert(void)
 }
 
 /*
+ * "__asm" "(" string-literal ")" ";"
+ */
+ExecNode *asm_statement(void)
+{
+    ExecNode *n;
+
+    match(TOK_ASM);
+    match(TOK_LPAREN);
+    n = new_stmt_node(AsmStmt);
+    if (lookahead(1) == TOK_STRLIT)
+        n->attr.str = get_lexeme(1);
+    match(TOK_STRLIT);
+    match(TOK_RPAREN);
+    match(TOK_SEMICOLON);
+    return n;
+}
+
+/*
  * statement = labeled_statement |
  *             compound_statement |
  *             expression_statement |
@@ -1186,6 +1204,8 @@ ExecNode *statement(int in_loop, int in_switch)
 {
 start:
     switch (lookahead(1)) {
+    case TOK_ASM:
+        return asm_statement();
     case TOK_STATIC_ASSERT:
         do_static_assert();
         goto start;

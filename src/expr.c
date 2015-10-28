@@ -2146,9 +2146,9 @@ long long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
                     return (VALUE(e) = (char)resL);
                 case TOK_UNSIGNED_CHAR:
                     return (VALUE(e) = (unsigned char)resL);
-                case TOK_INT:
+                case TOK_INT: case TOK_ENUM:
                     return (VALUE(e) = (int)resL);
-                case TOK_UNSIGNED:
+                case TOK_UNSIGNED: case TOK_STAR:
                     return (VALUE(e) = (unsigned)resL);
                 default: /* no conversion */
                     return (VALUE(e) = resL);

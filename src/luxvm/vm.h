@@ -82,8 +82,8 @@ enum {
     OpDW2UW,
     OpLdI,
     OpLdBP,
-    OpJmpF, /* jump if TOS == 0 */
-    OpJmpT, /* jump if TOS != 0 */
+    OpJmpF,
+    OpJmpT,
     OpJmp,
     OpSwitch,
     OpCall,
@@ -92,6 +92,7 @@ enum {
     OpPop,
     OpAddSP,
     OpSwap,
+    OpPushSP,
     OpLibCall,
     OpFill,
     OpNop,

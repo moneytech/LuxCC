@@ -15,6 +15,28 @@
 
 #define MAX_STRLIT  1024
 
+extern int include_liblux;
+static char *liblux_functions[] = {
+    "__lux_sx",
+    "__lux_sto64",
+    "__lux_add64",
+    "__lux_sub64",
+    "__lux_neg64",
+    "__lux_ucmp64",
+    "__lux_scmp64",
+    "__lux_shl64",
+    "__lux_ushr64",
+    "__lux_sshr64",
+    "__lux_mul64",
+    "__lux_udiv64",
+    "__lux_umod64",
+    "__lux_sdiv64",
+    "__lux_smod64",
+    "__lux_and64",
+    "__lux_or64",
+    "__lux_xor64",
+};
+
 static FILE *output_file;
 static char *curr_func_name;
 static unsigned temp_struct_size;
@@ -27,6 +49,7 @@ static int size_of_local_area = 0;
 static int local_offset = VM_LOCAL_START;
 /* Return type of the current function being processed. */
 static Declaration ret_ty;
+static Declaration int_ty;
 
 static String *output_buffer;
 #define emit(...)   (string_printf(output_buffer, __VA_ARGS__))
@@ -75,6 +98,7 @@ static void case_statement(ExecNode *s);
 static void default_statement(ExecNode *s);
 static void expression_statement(ExecNode *s);
 static void label_statement(ExecNode *s);
+static void asm_statement(ExecNode *s);
 static void statement(ExecNode *s);
 static void expression(ExecNode *e, int is_addr);
 static void expr_convert(ExecNode *e, Declaration *dest);
@@ -156,7 +180,15 @@ void statement(ExecNode *s)
     case LabelStmt:
         label_statement(s);
         break;
+    case AsmStmt:
+        asm_statement(s);
+        break;
     }
+}
+
+void asm_statement(ExecNode *s)
+{
+    emit("%s", s->attr.str);
 }
 
 static void do_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, int offset)
@@ -383,6 +415,15 @@ static unsigned new_label(void)
     return label_count++;
 }
 
+static void controlling_expression(ExecNode *e)
+{
+    Token cat;
+
+    expression(e, FALSE);
+    if ((cat=get_type_category(&e->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG)
+        emitln("or;");
+}
+
 void if_statement(ExecNode *s)
 {
     /*
@@ -395,7 +436,7 @@ void if_statement(ExecNode *s)
     unsigned L1, L2;
 
     /* e */
-    expression(s->child[0], FALSE);
+    controlling_expression(s->child[0]);
     L1 = L2 = new_label();
     emit_jmpf(L1);
     /* stmt1 */
@@ -423,7 +464,7 @@ void while_statement(ExecNode *s)
     L2 = new_label();
     /* e */
     emit_lab(L1);
-    expression(s->child[0], FALSE);
+    controlling_expression(s->child[0]);
     emit_jmpf(L2);
     /* stmt */
     push_break_target(L2), push_continue_target(L1);
@@ -453,7 +494,7 @@ void do_statement(ExecNode *s)
     pop_break_target(), pop_continue_target();
     /* e */
     emit_lab(L2);
-    expression(s->child[0], FALSE);
+    controlling_expression(s->child[0]);
     emit_jmpf(L3);
     emit_jmp(L1);
     emit_lab(L3);
@@ -482,7 +523,7 @@ void for_statement(ExecNode *s)
     /* e2 */
     emit_lab(L1);
     if (s->child[0] != NULL) {
-        expression(s->child[0], FALSE);
+        controlling_expression(s->child[0]);
         emit_jmpf(L3);
     }
     /* stmt */
@@ -528,8 +569,10 @@ void return_statement(ExecNode *s)
 
         expr_convert(s->child[0], &ret_ty);
 
-        /* take care of structs/unions returned by value */
-        if ((cat=get_type_category(&ret_ty))==TOK_STRUCT || cat==TOK_UNION) {
+        /* take care of long longs, structs, and unions returned by value */
+        if ((cat=get_type_category(&ret_ty))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+            emitln("pushsp;");
+        } else if (cat==TOK_STRUCT || cat==TOK_UNION) {
             unsigned size;
 
             size = get_sizeof(&ret_ty);
@@ -574,8 +617,6 @@ void return_statement(ExecNode *s)
             return value (__temp_struct).
             Seems like C11 has addressed this issue with the inclusion of objects with
             'temporary lifetime'.
-            More about all this here:
-            https://stackoverflow.com/questions/7963813/printing-a-member-of-a-returned-struct.
              */
             if (size > temp_struct_size)
                 temp_struct_size = size;
@@ -591,14 +632,19 @@ void return_statement(ExecNode *s)
 
 void expression_statement(ExecNode *s)
 {
+    Token cat;
+
     if (s->child[0] == NULL)
         return;
 
     expression(s->child[0], FALSE);
-    /*if (get_type_category(&s->child[0]->type) != TOK_VOID)*/
+    emitln("pop;");
+    if ((cat=get_type_category(&s->child[0]->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG)
         emitln("pop;");
+
 }
 
+// TOFIX: long long
 /*
  * Switch statement.
  * TOIMPROVE:
@@ -753,7 +799,7 @@ void default_statement(ExecNode *s)
 
 /*
  * Generate code for expression `e'.
- * Cast the result (dword on top of the stack) to type `dest'.
+ * Cast the result (dword or qword on top of the stack) to type `dest'.
  */
 void expr_convert(ExecNode *e, Declaration *dest)
 {
@@ -767,23 +813,58 @@ void expr_convert(ExecNode *e, Declaration *dest)
     switch (cat_dest) {
     case TOK_CHAR:
     case TOK_SIGNED_CHAR:
-        if (cat_src!=TOK_CHAR && cat_src!=TOK_SIGNED_CHAR)
+        if (cat_src==TOK_LONG_LONG || cat_src==TOK_UNSIGNED_LONG_LONG) {
+            emitln("pop;");
             emitln("dw2b;");
+        } else if (cat_src!=TOK_CHAR && cat_src!=TOK_SIGNED_CHAR) {
+            emitln("dw2b;");
+        }
         break;
     case TOK_UNSIGNED_CHAR:
-        if (cat_src != TOK_UNSIGNED_CHAR)
+        if (cat_src==TOK_LONG_LONG || cat_src==TOK_UNSIGNED_LONG_LONG) {
+            emitln("pop;");
             emitln("dw2ub;");
+        } else if (cat_src != TOK_UNSIGNED_CHAR) {
+            emitln("dw2ub;");
+        }
         break;
     case TOK_SHORT:
-        if (cat_src != TOK_CHAR
+        if (cat_src==TOK_LONG_LONG || cat_src==TOK_UNSIGNED_LONG_LONG) {
+            emitln("pop;");
+            emitln("dw2w;");
+        } else if (cat_src != TOK_CHAR
         &&  cat_src != TOK_SIGNED_CHAR
         &&  cat_src != TOK_UNSIGNED_CHAR
-        &&  cat_src != TOK_SHORT)
+        &&  cat_src != TOK_SHORT) {
             emitln("dw2w;");
+        }
         break;
     case TOK_UNSIGNED_SHORT:
-        if (cat_src!=TOK_UNSIGNED_CHAR && cat_src!=TOK_UNSIGNED_SHORT)
+        if (cat_src==TOK_LONG_LONG || cat_src==TOK_UNSIGNED_LONG_LONG) {
+            emitln("pop;");
             emitln("dw2uw;");
+        } else if (cat_src!=TOK_UNSIGNED_CHAR && cat_src!=TOK_UNSIGNED_SHORT) {
+            emitln("dw2uw;");
+        }
+        break;
+    case TOK_INT: case TOK_UNSIGNED:
+    case TOK_LONG: case TOK_UNSIGNED_LONG:
+    case TOK_ENUM: case TOK_STAR:
+        if (cat_src==TOK_LONG_LONG || cat_src==TOK_UNSIGNED_LONG_LONG)
+            emitln("pop;");
+        break;
+    case TOK_LONG_LONG:
+    case TOK_UNSIGNED_LONG_LONG:
+        if (cat_src!=TOK_LONG_LONG && cat_src!=TOK_UNSIGNED_LONG_LONG) {
+            if (is_unsigned_int(cat_src)) {
+                emitln("ldi 0;");
+            } else {
+                /* note: pointers are sign extended in order to match gcc's behaviour */
+                emitln("dup;");
+                emitln("ldi __lux_sx;");
+                emitln("call 4;");
+            }
+        }
         break;
     default: /* no conversion required */
         break;
@@ -842,14 +923,31 @@ unsigned function_argument(ExecNode *arg, DeclList *param)
     return arg_area_size;
 }
 
+void load_llong_retval(void)
+{
+    emitln("ldi %u;", -4);
+    emitln("add;");
+    emitln("dup;");
+    emitln("ldi 4;");
+    emitln("add;");
+    emitln("pop;");
+    emitln("lddw;");
+    emitln("addsp 4;");
+    emitln("lddw;");
+}
+
 void expression(ExecNode *e, int is_addr)
 {
+    Token cat;
+
     switch (e->kind.exp) {
     case OpExp:
         switch (e->attr.op) {
         case TOK_COMMA:
             expression(e->child[0], FALSE);
             emitln("pop;");
+            if ((cat=get_type_category(&e->child[0]->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG)
+                emitln("pop;");
             expression(e->child[1], FALSE);
             break;
         case TOK_ASSIGN:
@@ -900,7 +998,7 @@ void expression(ExecNode *e, int is_addr)
             L1 = new_label();
             L2 = new_label();
             /* e1 */
-            expression(e->child[0], FALSE);
+            controlling_expression(e->child[0]);
             emit_jmpf(L1);
             /* e2 */
             expression(e->child[1], FALSE);
@@ -918,9 +1016,9 @@ void expression(ExecNode *e, int is_addr)
             L1 = new_label();
             L2 = new_label();
 
-            expression(e->child[0], FALSE);
+            controlling_expression(e->child[0]);
             emit_jmpt(L1);
-            expression(e->child[1], FALSE);
+            controlling_expression(e->child[1]);
             emit_jmpt(L1);
             emitln("ldi 0;");
             emit_jmp(L2);
@@ -935,9 +1033,9 @@ void expression(ExecNode *e, int is_addr)
             L1 = new_label();
             L2 = new_label();
 
-            expression(e->child[0], FALSE);
+            controlling_expression(e->child[0]);
             emit_jmpf(L1);
-            expression(e->child[1], FALSE);
+            controlling_expression(e->child[1]);
             emit_jmpf(L1);
             emitln("ldi 1;");
             emit_jmp(L2);
@@ -948,78 +1046,192 @@ void expression(ExecNode *e, int is_addr)
         }
 
 #define BIN_OPS() expression(e->child[0], FALSE), expression(e->child[1], FALSE)
+#define LL_BIN_OPS() expr_convert(e->child[1], &e->type), expr_convert(e->child[0], &e->type)
         case TOK_BW_OR:
-            BIN_OPS();
-            emitln("or;");
+            if ((cat=get_type_category(&e->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                LL_BIN_OPS();
+                emitln("ldi __lux_or64;");
+                emitln("call 16;");
+                load_llong_retval();
+            } else {
+                BIN_OPS();
+                emitln("or;");
+            }
             break;
         case TOK_BW_XOR:
-            BIN_OPS();
-            emitln("xor;");
+            if ((cat=get_type_category(&e->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                LL_BIN_OPS();
+                emitln("ldi __lux_xor64;");
+                emitln("call 16;");
+                load_llong_retval();
+            } else {
+                BIN_OPS();
+                emitln("xor;");
+            }
             break;
         case TOK_BW_AND:
-            BIN_OPS();
-            emitln("and;");
+            if ((cat=get_type_category(&e->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                LL_BIN_OPS();
+                emitln("ldi __lux_and64;");
+                emitln("call 16;");
+                load_llong_retval();
+            } else {
+                BIN_OPS();
+                emitln("and;");
+            }
             break;
 
         case TOK_EQ:
-            BIN_OPS();
-            emitln("eq;");
+            if ((cat=get_type_category(&e->child[0]->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                expr_convert(e->child[1], &e->child[0]->type);
+                expression(e->child[0], FALSE);
+            } else if ((cat=get_type_category(&e->child[1]->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                expression(e->child[1], FALSE);
+                expr_convert(e->child[0], &e->child[1]->type);
+            } else {
+                BIN_OPS();
+                emitln("eq;");
+                break;
+            }
+            emitln("ldi __lux_ucmp64;");
+            emitln("call 16;");
+            emitln("ldi 1;");
+            emitln("and;");
             break;
         case TOK_NEQ:
-            BIN_OPS();
-            emitln("neq;");
+            if ((cat=get_type_category(&e->child[0]->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                expr_convert(e->child[1], &e->child[0]->type);
+                expression(e->child[0], FALSE);
+            } else if ((cat=get_type_category(&e->child[1]->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                expression(e->child[1], FALSE);
+                expr_convert(e->child[0], &e->child[1]->type);
+            } else {
+                BIN_OPS();
+                emitln("neq;");
+                break;
+            }
+            emitln("ldi __lux_ucmp64;");
+            emitln("call 16;");
+            emitln("ldi 1;");
+            emitln("and;");
+            emitln("ldi 1;");
+            emitln("xor;");
             break;
+
         case TOK_LT:
         case TOK_GT:
         case TOK_LET:
         case TOK_GET: {
+            char sc;
             Token cat1, cat2;
 
-            BIN_OPS();
             cat1 = get_type_category(&e->child[0]->type);
             cat2 = get_type_category(&e->child[1]->type);
-            if (is_integer(cat1) && is_integer(cat2)) {
-                if (is_unsigned_int(get_promoted_type(cat1))
-                || is_unsigned_int(get_promoted_type(cat2)))
-                    goto relational_unsigned;
-                else
-                    goto relational_signed;
-            } else { /* at least one of the operands has pointer type */
-                goto relational_unsigned;
+
+            if (cat1==TOK_LONG_LONG || cat1==TOK_UNSIGNED_LONG_LONG) {
+                expr_convert(e->child[1], &e->child[0]->type);
+                expression(e->child[0], FALSE);
+            } else if (cat2==TOK_LONG_LONG || cat2==TOK_UNSIGNED_LONG_LONG) {
+                expression(e->child[1], FALSE);
+                expr_convert(e->child[0], &e->child[1]->type);
+            } else {
+                BIN_OPS();
+                if (is_integer(cat1) && is_integer(cat2)) {
+                    if (is_unsigned_int(get_promoted_type(cat1))
+                    || is_unsigned_int(get_promoted_type(cat2)))
+                        sc = 'u';
+                    else
+                        sc = 's';
+                } else { /* at least one of the operands has pointer type */
+                    sc = 'u';
+                }
+                switch (e->attr.op) {
+                case TOK_LT:
+                    emitln("%clt;", sc);
+                    break;
+                case TOK_GT:
+                    emitln("%cgt;", sc);
+                    break;
+                case TOK_LET:
+                    emitln("%clet;", sc);
+                    break;
+                case TOK_GET:
+                    emitln("%cget;", sc);
+                    break;
+                }
+                break;
             }
-relational_signed:
+            sc = (cat1==TOK_UNSIGNED_LONG_LONG || cat2==TOK_UNSIGNED_LONG_LONG) ? 'u' : 's';
+            emitln("ldi __lux_%ccmp64;", sc);
+            emitln("call 16;");
             switch (e->attr.op) {
-            case TOK_LT: emitln("slt;"); break;
-            case TOK_GT: emitln("sgt;"); break;
-            case TOK_LET: emitln("slet;"); break;
-            case TOK_GET: emitln("sget;"); break;
+            case TOK_LT:
+                emitln("ldi 4;");
+                emitln("and;");
+                break;
+            case TOK_GT:
+                emitln("ldi 2;");
+                emitln("and;");
+                break;
+            case TOK_LET:
+                emitln("ldi 2;");
+                emitln("and;");
+                emitln("ldi 2;");
+                emitln("xor;");
+                break;
+            case TOK_GET:
+                emitln("ldi 4;");
+                emitln("and;");
+                emitln("ldi 4;");
+                emitln("xor;");
+                break;
             }
-            break;
-relational_unsigned:
-            switch (e->attr.op) {
-            case TOK_LT: emitln("ult;"); break;
-            case TOK_GT: emitln("ugt;"); break;
-            case TOK_LET: emitln("ulet;"); break;
-            case TOK_GET: emitln("uget;"); break;
-            }
-            break;
+            emitln("not;");
+            emitln("not;");
         }
+            break;
 
         case TOK_LSHIFT:
-            BIN_OPS();
-            emitln("sll;");
+            if ((cat=get_type_category(&e->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                expr_convert(e->child[1], &int_ty);
+                expression(e->child[0], FALSE);
+                emitln("ldi __lux_shl64;");
+                emitln("call 16;");
+                load_llong_retval();
+            } else {
+                BIN_OPS();
+                emitln("sll;");
+            }
             break;
-        case TOK_RSHIFT:
-            BIN_OPS();
-            if (is_unsigned_int(get_type_category(&e->type)))
-                emitln("srl;");
-            else
-                emitln("sra;");
+        case TOK_RSHIFT: {
+            int unsig;
+
+            cat = get_type_category(&e->type);
+            unsig = is_unsigned_int(cat);
+            if (cat==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                expr_convert(e->child[1], &int_ty);
+                expression(e->child[0], FALSE);
+                emitln("ldi __lux_%cshl64;", unsig ? 'u' : 's');
+                emitln("call 16;");
+                load_llong_retval();
+            } else {
+                BIN_OPS();
+                emitln("sr%c;", unsig ? 'l' : 'a');
+            }
+        }
             break;
 
         case TOK_PLUS:
-            if (is_integer(get_type_category(&e->type))) {
-                BIN_OPS();
+            if (is_integer(cat=get_type_category(&e->type))) {
+                if (cat==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                    LL_BIN_OPS();
+                    emitln("ldi __lux_add64;");
+                    emitln("call 16;");
+                    load_llong_retval();
+                } else {
+                    BIN_OPS();
+                    emitln("add;");
+                }
             } else {
                 int i, j;
                 Declaration ty;
@@ -1032,23 +1244,30 @@ relational_unsigned:
                 ty.idl = e->child[j]->type.idl->child;
 
                 expression(e->child[j], FALSE);
-                expression(e->child[i], FALSE);
+                expr_convert(e->child[i], &e->type);
                 emitln("ldi %u;", get_sizeof(&ty));
                 emitln("mul;");
+                emitln("add;");
             }
-            emitln("add;");
             break;
         case TOK_MINUS:
-            if (is_integer(get_type_category(&e->child[0]->type))) {
-                BIN_OPS();
-                emitln("sub;");
+            if (is_integer(cat=get_type_category(&e->child[0]->type))) {
+                if (cat==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                    LL_BIN_OPS();
+                    emitln("ldi __lux_sub64;");
+                    emitln("call 16;");
+                    load_llong_retval();
+                } else {
+                    BIN_OPS();
+                    emitln("sub;");
+                }
             } else {
                 Declaration ty;
 
                 ty.decl_specs = e->child[0]->type.decl_specs;
                 ty.idl = e->child[0]->type.idl->child;
                 expression(e->child[0], FALSE);
-                expression(e->child[1], FALSE);
+                expr_convert(e->child[1], &int_ty);
                 if (is_integer(get_type_category(&e->child[1]->type))) {
                     /* pointer - integer */
                     emitln("ldi %u;", get_sizeof(&ty));
@@ -1064,22 +1283,47 @@ relational_unsigned:
             break;
 
         case TOK_MUL:
-            BIN_OPS();
-            emitln("mul;");
+            if ((cat=get_type_category(&e->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                LL_BIN_OPS();
+                emitln("ldi __lux_mul64;");
+                emitln("call 16;");
+                load_llong_retval();
+            } else {
+                BIN_OPS();
+                emitln("mul;");
+            }
             break;
-        case TOK_DIV:
-            BIN_OPS();
-            if (is_unsigned_int(get_type_category(&e->type)))
-                emitln("udiv;");
-            else
-                emitln("sdiv;");
+        case TOK_DIV: {
+            int unsig;
+
+            cat = get_type_category(&e->type);
+            unsig = is_unsigned_int(cat);
+            if (cat==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                LL_BIN_OPS();
+                emitln("ldi __lux_%cdiv64;", unsig ? 'u' : 's');
+                emitln("call 16;");
+                load_llong_retval();
+            } else {
+                BIN_OPS();
+                emitln("%cdiv;", unsig ? 'u' : 's');
+            }
+        }
             break;
-        case TOK_REM:
-            BIN_OPS();
-            if (is_unsigned_int(get_type_category(&e->type)))
-                emitln("umod;");
-            else
-                emitln("smod;");
+        case TOK_REM: {
+            int unsig;
+
+            cat = get_type_category(&e->type);
+            unsig = is_unsigned_int(cat);
+            if (cat==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                LL_BIN_OPS();
+                emitln("ldi __lux_%cmod64;", unsig ? 'u' : 's');
+                emitln("call 16;");
+                load_llong_retval();
+            } else {
+                BIN_OPS();
+                emitln("%cmod;", unsig ? 'u' : 's');
+            }
+        }
             break;
 
         case TOK_CAST:
@@ -1088,47 +1332,71 @@ relational_unsigned:
 
         case TOK_PRE_INC:
         case TOK_PRE_DEC:
-            expression(e->child[0], TRUE);
-            emitln("dup;");
-            emitln("dup;");
-            load(e);
-            if (is_integer(get_type_category(&e->type))) {
+            if ((cat=get_type_category(&e->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
                 emitln("ldi 1;");
-            } else { /* pointer */
-                Declaration pointed_to_ty;
+                emitln("ldi 0;");
+                expression(e->child[0], FALSE);
+                emitln("ldi __lux_%s64;", (e->attr.op == TOK_PRE_INC) ? "add" : "sub");
+                emitln("call 16;");
+                load_llong_retval();
+                expression(e->child[0], TRUE);
+                store(&e->type);
+            } else {
+                expression(e->child[0], TRUE);
+                emitln("dup;");
+                emitln("dup;");
+                load(e);
+                if (is_integer(get_type_category(&e->type))) {
+                    emitln("ldi 1;");
+                } else { /* pointer */
+                    Declaration pointed_to_ty;
 
-                pointed_to_ty.decl_specs = e->type.decl_specs;
-                pointed_to_ty.idl = e->type.idl->child;
-                emitln("ldi %u;", get_sizeof(&pointed_to_ty));
+                    pointed_to_ty.decl_specs = e->type.decl_specs;
+                    pointed_to_ty.idl = e->type.idl->child;
+                    emitln("ldi %u;", get_sizeof(&pointed_to_ty));
+                }
+                (e->attr.op == TOK_PRE_INC) ? emitln("add;") : emitln("sub;");
+                emitln("swap;");
+                store(&e->type);
+                emitln("pop;");
+                /* reload incremented/decremented value */
+                load(e);
             }
-            (e->attr.op == TOK_PRE_INC) ? emitln("add;") : emitln("sub;");
-            emitln("swap;");
-            store(&e->type);
-            emitln("pop;");
-            /* reload incremented/decremented value */
-            load(e);
             break;
         case TOK_POS_INC:
         case TOK_POS_DEC:
-            expression(e->child[0], TRUE);
-            emitln("dup;");
-            load(e);
-            emitln("swap;");
-            emitln("dup;");
-            load(e);
-            if (is_integer(get_type_category(&e->type))) {
+            if ((cat=get_type_category(&e->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                expression(e->child[0], FALSE);
                 emitln("ldi 1;");
-            } else { /* pointer */
-                Declaration pointed_to_ty;
+                emitln("ldi 0;");
+                expression(e->child[0], FALSE);
+                emitln("ldi __lux_%s64;", (e->attr.op == TOK_POS_INC) ? "add" : "sub");
+                emitln("call 16;");
+                load_llong_retval();
+                expression(e->child[0], TRUE);
+                store(&e->type);
+                emitln("addsp %u;", -8);
+            } else {
+                expression(e->child[0], TRUE);
+                emitln("dup;");
+                load(e);
+                emitln("swap;");
+                emitln("dup;");
+                load(e);
+                if (is_integer(get_type_category(&e->type))) {
+                    emitln("ldi 1;");
+                } else { /* pointer */
+                    Declaration pointed_to_ty;
 
-                pointed_to_ty.decl_specs = e->type.decl_specs;
-                pointed_to_ty.idl = e->type.idl->child;
-                emitln("ldi %u;", get_sizeof(&pointed_to_ty));
+                    pointed_to_ty.decl_specs = e->type.decl_specs;
+                    pointed_to_ty.idl = e->type.idl->child;
+                    emitln("ldi %u;", get_sizeof(&pointed_to_ty));
+                }
+                (e->attr.op == TOK_POS_INC) ? emitln("add;") : emitln("sub;");
+                emitln("swap;");
+                store(&e->type);
+                emitln("pop;");
             }
-            (e->attr.op == TOK_POS_INC) ? emitln("add;") : emitln("sub;");
-            emitln("swap;");
-            store(&e->type);
-            emitln("pop;");
             break;
         case TOK_ADDRESS_OF:
             expression(e->child[0], TRUE);
@@ -1143,15 +1411,29 @@ relational_unsigned:
             expression(e->child[0], FALSE);
             break;
         case TOK_UNARY_MINUS:
-            expression(e->child[0], FALSE);
-            emitln("neg;");
+            if ((cat=get_type_category(&e->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                expr_convert(e->child[0], &e->type);
+                emitln("ldi __lux_neg64;");
+                emitln("call 8;");
+                load_llong_retval();
+            } else {
+                expression(e->child[0], FALSE);
+                emitln("neg;");
+            }
             break;
         case TOK_COMPLEMENT:
             expression(e->child[0], FALSE);
             emitln("cmpl;");
+            if ((cat=get_type_category(&e->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+                emitln("pop;");
+                emitln("cmpl;");
+                emitln("addsp 4;");
+            }
             break;
         case TOK_NEGATION:
             expression(e->child[0], FALSE);
+            if ((cat=get_type_category(&e->child[0]->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG)
+                emitln("or;");
             emitln("not;");
             break;
 
@@ -1159,11 +1441,11 @@ relational_unsigned:
             if (is_pointer(get_type_category(&e->child[0]->type))) {
                 /* a[i] */
                 expression(e->child[0], FALSE);
-                expression(e->child[1], FALSE);
+                expr_convert(e->child[1], &int_ty);
             } else {
                 /* i[a] */
                 expression(e->child[1], FALSE);
-                expression(e->child[0], FALSE);
+                expr_convert(e->child[0], &int_ty);
             }
             emitln("ldi %u;", get_sizeof(&e->type));
             emitln("mul;");
@@ -1177,6 +1459,8 @@ relational_unsigned:
             arg_siz = function_argument(e->child[1], e->locals);
             expression(e->child[0], FALSE);
             emitln("call %u;", arg_siz);
+            if ((cat=get_type_category(&e->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG)
+                load_llong_retval();
             break;
         }
         case TOK_DOT:
@@ -1203,7 +1487,12 @@ relational_unsigned:
         } /* switch (e->attr.op) */
         break;
     case IConstExp:
-        emitln("ldi %lu;", e->attr.uval);
+        if ((cat=get_type_category(&e->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+            emitln("ldi %u;", ((unsigned *)&e->attr.uval)[0]);
+            emitln("ldi %u;", ((unsigned *)&e->attr.uval)[1]);
+        } else {
+            emitln("ldi %u;", (unsigned)e->attr.uval);
+        }
         break;
     case StrLitExp:
         emitln("ldi @S%u;", new_string_literal(e->attr.str));
@@ -1238,6 +1527,12 @@ void store(Declaration *dest_ty)
     case TOK_FUNCTION:  /* ? */
         emitln("stdw;");
         break;
+    case TOK_LONG_LONG:
+    case TOK_UNSIGNED_LONG_LONG:
+        emitln("ldi __lux_sto64;");
+        emitln("call 12;");
+        load_llong_retval();
+        break;
     case TOK_STRUCT:
     case TOK_UNION:
         emitln("swap;");
@@ -1265,6 +1560,16 @@ void load(ExecNode *e)
     case TOK_INT:
     case TOK_UNSIGNED:
     case TOK_ENUM:
+        emitln("lddw;");
+        break;
+    case TOK_LONG_LONG:
+    case TOK_UNSIGNED_LONG_LONG:
+        emitln("dup;");
+        emitln("ldi 4;");
+        emitln("add;");
+        emitln("pop;");
+        emitln("lddw;");
+        emitln("addsp 4;");
         emitln("lddw;");
         break;
     case TOK_SHORT:
@@ -1630,10 +1935,18 @@ void vm_cgen(FILE *outf)
     location_init();
     output_file = outf;
     output_buffer = string_new(4096);
+    int_ty.decl_specs = get_type_node(TOK_INT);
+    int_ty.idl = NULL;
 
 #if 0
     emitln(".extern malloc"); /* for return of structs */
 #endif
+    if (include_liblux) {
+        int i;
+
+        for (i = 0; i < NELEMS(liblux_functions); i++)
+            emitln(".extern %s", liblux_functions[i]);
+    }
     for (ed = get_external_declarations(); ed != NULL; ed = ed->next) {
         if (ed->status == REFERENCED) {
             TypeExp *scs;
