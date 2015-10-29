@@ -18,6 +18,10 @@ static TokenNode *curr_tok;
 static Arena *parser_str_arena;
 /*static */Arena *parser_node_arena;
 
+/* objects used to convert "()" into "(void)" */
+static Declaration void_ty;
+static DeclList void_param;
+
 #define ERROR(...) emit_error(TRUE, curr_tok->src_file, curr_tok->src_line, curr_tok->src_column, __VA_ARGS__)
 
 TypeExp *new_type_exp_node(void)
@@ -913,7 +917,14 @@ TypeExp *direct_declarator_postfix(void)
     } else /*if (lookahead(1) == TOK_LPAREN)*/ {
         n->op = TOK_FUNCTION;
         match(TOK_LPAREN);
-        n->attr.dl = parameter_type_list();
+        if (lookahead(1) != TOK_RPAREN) {
+            n->attr.dl = parameter_type_list();
+        } else {
+            /* fake a "(void)" */
+            push_scope();
+            n->attr.dl = &void_param;
+            pop_scope();
+        }
         match(TOK_RPAREN);
     }
     return n;
@@ -2034,6 +2045,8 @@ ExternDecl *parse(TokenNode *tokens, char *ast_outpath)
 {
     ExternDecl *n;
 
+    void_ty.decl_specs = get_type_node(TOK_VOID);
+    void_param.decl = &void_ty;
     curr_tok = tokens;
     decl_init();
     stmt_init();

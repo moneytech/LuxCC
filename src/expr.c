@@ -395,6 +395,7 @@ TypeExp *get_type_node(Token ty)
     static TypeExp ty_long_long             = { TOK_LONG_LONG };
     static TypeExp ty_unsigned_long_long    = { TOK_UNSIGNED_LONG_LONG };
     static TypeExp ty_error                 = { TOK_ERROR };
+    static TypeExp ty_void                  = { TOK_VOID };
 
     switch (ty) {
     case TOK_CHAR:                  return &ty_char;
@@ -405,6 +406,7 @@ TypeExp *get_type_node(Token ty)
     case TOK_LONG_LONG:             return &ty_long_long;
     case TOK_UNSIGNED_LONG_LONG:    return &ty_unsigned_long_long;
     case TOK_ERROR:                 return &ty_error;
+    case TOK_VOID:                  return &ty_void;
     }
     assert(0);
 }

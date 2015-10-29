@@ -510,12 +510,15 @@ void for_statement(ExecNode *s)
      *      stmt;
      */
 
+    Token cat;
     unsigned L1, L2, L3;
 
     /* e1 */
     if (s->child[1] != NULL) {
         expression(s->child[1], FALSE);
         emitln("pop;");
+        if ((cat=get_type_category(&s->child[1]->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG)
+            emitln("pop;");
     }
 
     L1 = new_label();
@@ -538,6 +541,8 @@ void for_statement(ExecNode *s)
         emit_lab(L2);
         expression(s->child[2], FALSE);
         emitln("pop;");
+        if ((cat=get_type_category(&s->child[2]->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG)
+            emitln("pop;");
     }
     emit_jmp(L1);
     emit_lab(L3);
@@ -657,7 +662,6 @@ void expression_statement(ExecNode *s)
 
 }
 
-// TOFIX: long long
 /*
  * Switch statement.
  * TOIMPROVE:
