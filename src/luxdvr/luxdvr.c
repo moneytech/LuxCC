@@ -20,6 +20,7 @@
 #define GNU_LD              "ld"
 
 #define PATH_TO_VM_RUNC1    "src/lib/crt.o"
+#define PATH_TO_VM_RUNC1_2  "src/lib/liblux.o"
 #define PATH_TO_VM_LIBC1    "src/lib/libc.o"
 #define PATH_TO_VM_RUNC2    "/usr/local/lib/luxcc/crt.o"
 #define PATH_TO_VM_LIBC2    "/usr/local/lib/luxcc/libc.o"
@@ -205,7 +206,7 @@ char *get_path(int file)
 
     case VM_LIBC:
         if (file_exist(PATH_TO_VM_LIBC1))
-            return PATH_TO_VM_RUNC1 " " PATH_TO_VM_LIBC1;
+            return PATH_TO_VM_RUNC1 " " PATH_TO_VM_RUNC1_2 " " PATH_TO_VM_LIBC1;
         else if (file_exist(PATH_TO_VM_LIBC2))
             return PATH_TO_VM_RUNC2 " " PATH_TO_VM_LIBC2;
         break;

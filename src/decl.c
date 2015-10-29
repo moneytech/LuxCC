@@ -1350,12 +1350,18 @@ scalar:
         }
         if (get_type_category(&e->type) == TOK_ERROR)
             return;
-        if (is_const_expr)
-            (void)eval_const_expr(e, FALSE, FALSE);
-
-        /* the same rules as for simple assignment apply */
         dest_ty.decl_specs = ds;
         dest_ty.idl = dct;
+        if (is_const_expr) {
+            Token cat;
+
+            if ((cat=get_type_category(&dest_ty))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG)
+                (void)eval_const_expr(e, FALSE, TRUE);
+            else
+                (void)eval_const_expr(e, FALSE, FALSE);
+        }
+
+        /* the same rules as for simple assignment apply */
         if (!can_assign_to(&dest_ty, e))
             ERROR(e, "initializing `%s' with an expression of incompatible type `%s'",
             stringify_type_exp(&dest_ty, FALSE), stringify_type_exp(&e->type, FALSE));

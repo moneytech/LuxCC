@@ -562,6 +562,12 @@ void disassemble_data(long *data, long data_size)
     }
 }
 
+void vm_usage(void)
+{
+    printf("usage: %s [options] <program>\n", prog_name);
+    exit(0);
+}
+
 int main(int argc,char *argv[])
 {
     /*
@@ -590,17 +596,15 @@ int main(int argc,char *argv[])
     long stack_size;
 
     prog_name = argv[0];
-    if (argc == 1) {
-        printf("usage: %s <program>\n", prog_name);
-        exit(0);
-    }
+    if (argc == 1)
+        vm_usage();
     infile = NULL;
     disas = FALSE;
     stack_size = DEFAULT_STACK_SIZE;
     for (i = 1; i < argc; i++) {
         if (argv[i][0] != '-') {
             infile = argv[i];
-            continue;
+            break;
         }
         switch (argv[i][1]) {
         case 's':
@@ -631,10 +635,8 @@ int main(int argc,char *argv[])
             exit(1);
         }
     }
-    if (infile == NULL) {
-        printf("usage: %s [ options ] <program>\n", prog_name);
-        exit(0);
-    }
+    if (infile == NULL)
+        vm_usage();
 
     load_code(argv[1]);
     if (disas) {
@@ -646,8 +648,8 @@ int main(int argc,char *argv[])
         disassemble_text(text, text_size);
     }
     stack = malloc(stack_size*sizeof(long));
-    vm_argc = argc-1;
-    vm_argv = argv+1;
+    vm_argc = argc-i;
+    vm_argv = argv+i;
     sp = exec();
 
     return (int)*sp;

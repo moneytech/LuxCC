@@ -2010,7 +2010,7 @@ unsigned get_sizeof(Declaration *ty)
 /*
  * Try to evaluate e as a constant expression.
  * is_addr indicates if e is &'s operand.
- * is_iconst indicates if e is an integer constant expression.
+ * is_iconst indicates if e must be an integer constant expression.
  *
  * A few notes:
  *  - Addresses always evaluate to true.

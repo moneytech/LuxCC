@@ -162,7 +162,7 @@ int main(int argc, char *argv[])
         case 'T':
             flags |= OPT_DUMP_TOKENS;
             break;
-        case 'z':
+        case 'z': /* only used when compiling liblux */
             include_liblux = 0;
             break;
         case '\0': /* stray '-' */

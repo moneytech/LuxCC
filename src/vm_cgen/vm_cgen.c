@@ -334,6 +334,7 @@ static void do_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, int offset)
         /*
          * Scalar.
          */
+        Token cat;
         Declaration dest_ty;
 scalar:
         if (e->kind.exp==OpExp && e->attr.op==TOK_INIT_LIST)
@@ -344,6 +345,8 @@ scalar:
         emitln("ldbp %u;", offset);
         store(&dest_ty);
         emitln("pop;");
+        if ((cat=get_type_category(&dest_ty))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG)
+            emitln("pop;");
     }
 }
 
@@ -571,6 +574,16 @@ void return_statement(ExecNode *s)
 
         /* take care of long longs, structs, and unions returned by value */
         if ((cat=get_type_category(&ret_ty))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
+            /*
+                +----------+
+                |    P     |
+                +----------+ <- TOS
+                |  LL H.O  |
+                +----------+ <- P
+                |  LL L.O  |
+                +----------+
+            The caller is in charge of using P to load the long long value (below P).
+             */
             emitln("pushsp;");
         } else if (cat==TOK_STRUCT || cat==TOK_UNION) {
             unsigned size;
@@ -1211,7 +1224,7 @@ void expression(ExecNode *e, int is_addr)
             if (cat==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG) {
                 expr_convert(e->child[1], &int_ty);
                 expression(e->child[0], FALSE);
-                emitln("ldi __lux_%cshl64;", unsig ? 'u' : 's');
+                emitln("ldi __lux_%cshr64;", unsig ? 'u' : 's');
                 emitln("call 16;");
                 load_llong_retval();
             } else {
@@ -1603,7 +1616,7 @@ void load_addr(ExecNode *e)
     }
 }
 
-static unsigned long do_static_expr(ExecNode *e)
+static unsigned long long do_static_expr(ExecNode *e)
 {
     switch (e->kind.exp) {
     case OpExp:
@@ -1819,8 +1832,18 @@ scalar:
             emitln(".align 4");
             emit(".dword ");
             break;
+        case TOK_LONG_LONG:
+        case TOK_UNSIGNED_LONG_LONG: {
+            unsigned long long v;
+
+            v = do_static_expr(e);
+            emitln(".align 4");
+            emitln(".dword %u", ((unsigned *)&v)[0]);
+            emitln(".dword %u", ((unsigned *)&v)[1]);
         }
-        emitln("%lu", do_static_expr(e));
+            return;
+        }
+        emitln("%lu", (unsigned long)do_static_expr(e));
     }
 }
 

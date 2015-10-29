@@ -14,9 +14,8 @@
         - I haven't been able to link against glibc. The reason being that in the version of the
           library installed on my machine (EGLIBC 2.15) some of the files that are part of the
           C runtime library use relocations that I don't support (R_386_GOT32/PLT32/GOTPC/GOTOFF).
-          I believe those are relocation types used with the creation of shared libraries.
-          I don't know why they are there. Anyway, maybe it will work with other versions. I don't
-          know.
+          I believe those are relocation types used in the creation of shared libraries. I don't
+          know why they are there. Anyway, maybe it will work with other versions.
         - On the other hand, I have been able to link against musl (http://www.musl-libc.org/)
           shared library and C runtime objects without any problem.
 */
