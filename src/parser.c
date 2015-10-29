@@ -869,7 +869,8 @@ TypeExp *direct_declarator(DeclaratorCategory dc)
         n->str = get_lexeme(1);
         match(TOK_ID);
     } else if (lookahead(1)==TOK_LPAREN
-    && ((la2=lookahead(2))==TOK_LPAREN
+    && (la2=lookahead(2))!=TOK_RPAREN
+    && (la2==TOK_LPAREN
     || la2==TOK_LBRACKET
     || la2==TOK_STAR
     || la2==TOK_ID && (dc==CONCRETE_DECLARATOR || !is_typedef_name(get_lexeme(2))))) {

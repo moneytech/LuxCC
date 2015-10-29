@@ -448,6 +448,7 @@ void analyze_decl_specs(TypeExp *d)
     TypeExp *p;
     unsigned tymsk = 0;
 
+    assert(d != NULL);
     for (p = d; p != NULL; p = p->child) {
         switch (p->op) {
         case TOK_CHAR:
@@ -521,22 +522,23 @@ void analyze_decl_specs(TypeExp *d)
         }
     }
 
+    p = d;
     if ((tymsk&STOC_MASK) != 0) {
-        d->op = get_sto_class_spec(d)->op;
-        d = d->child;
+        p->op = get_sto_class_spec(p)->op;
+        p = p->child;
     }
     switch (tymsk & QUAL_MASK) {
     case VOLATILE:
-        d->op = TOK_VOLATILE;
-        d = d->child;
+        p->op = TOK_VOLATILE;
+        p = p->child;
         break;
     case CONST:
-        d->op = TOK_CONST;
-        d = d->child;
+        p->op = TOK_CONST;
+        p = p->child;
         break;
     case CONST+VOLATILE:
-        d->op = TOK_CONST_VOLATILE;
-        d = d->child;
+        p->op = TOK_CONST_VOLATILE;
+        p = p->child;
         break;
     default:
         break;
@@ -544,70 +546,70 @@ void analyze_decl_specs(TypeExp *d)
     switch (tymsk & TYPE_MASK+SIGN_MASK+SIZE_MASK+INT+CHAR) {
     case CHAR:
     case CHAR+SIGNED:
-        d->op = TOK_CHAR;
+        p->op = TOK_CHAR;
         break;
     case CHAR+UNSIGNED:
-        d->op = TOK_UNSIGNED_CHAR;
+        p->op = TOK_UNSIGNED_CHAR;
         break;
     case SHORT:
     case SHORT+INT:
     case SHORT+SIGNED:
     case SHORT+SIGNED+INT:
-        d->op = TOK_SHORT;
+        p->op = TOK_SHORT;
         break;
     case SHORT+UNSIGNED:
     case SHORT+UNSIGNED+INT:
-        d->op = TOK_UNSIGNED_SHORT;
+        p->op = TOK_UNSIGNED_SHORT;
         break;
     case INT:
     case SIGNED+INT:
-        d->op = TOK_INT;
+        p->op = TOK_INT;
         break;
     case UNSIGNED:
     case UNSIGNED+INT:
-        d->op = TOK_UNSIGNED;
+        p->op = TOK_UNSIGNED;
         break;
     case LONG:
     case LONG+INT:
     case LONG+SIGNED:
     case LONG+SIGNED+INT:
-        d->op = TOK_LONG;
+        p->op = TOK_LONG;
         break;
     case LONG+UNSIGNED:
     case LONG+UNSIGNED+INT:
-        d->op = TOK_UNSIGNED_LONG;
+        p->op = TOK_UNSIGNED_LONG;
         break;
     case LONG_LONG:
     case LONG_LONG+INT:
     case LONG_LONG+SIGNED:
     case LONG_LONG+SIGNED+INT:
-        d->op = TOK_LONG_LONG;
+        p->op = TOK_LONG_LONG;
         break;
     case LONG_LONG+UNSIGNED:
     case LONG_LONG+UNSIGNED+INT:
-        d->op = TOK_UNSIGNED_LONG_LONG;
+        p->op = TOK_UNSIGNED_LONG_LONG;
         break;
     case VOID:
-        d->op = TOK_VOID;
+        p->op = TOK_VOID;
         break;
     case STRUCT:
-        d->op = TOK_STRUCT;
+        p->op = TOK_STRUCT;
         break;
     case UNION:
-        d->op = TOK_UNION;
+        p->op = TOK_UNION;
         break;
     case ENUM:
-        d->op = TOK_ENUM;
+        p->op = TOK_ENUM;
         break;
     case TYPEDEFNAME:
-        d->op = TOK_TYPEDEFNAME;
+        p->op = TOK_TYPEDEFNAME;
         break;
     case 0:
         ERROR(d, "missing type specifier");
     default:
         assert(0);
     }
-    d->child = NULL;
+    p->child = NULL;
     return;
 
 too_many_tyspe:
