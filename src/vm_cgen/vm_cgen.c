@@ -1219,7 +1219,7 @@ void expression(ExecNode *e, int is_addr)
                 expr_convert(e->child[1], &int_ty);
                 expression(e->child[0], FALSE);
                 emitln("ldi __lux_shl64;");
-                emitln("call 16;");
+                emitln("call 12;");
                 load_llong_retval();
             } else {
                 BIN_OPS();
@@ -1235,7 +1235,7 @@ void expression(ExecNode *e, int is_addr)
                 expr_convert(e->child[1], &int_ty);
                 expression(e->child[0], FALSE);
                 emitln("ldi __lux_%cshr64;", unsig ? 'u' : 's');
-                emitln("call 16;");
+                emitln("call 12;");
                 load_llong_retval();
             } else {
                 BIN_OPS();
