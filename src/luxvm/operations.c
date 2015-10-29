@@ -74,6 +74,7 @@ static Operation operations[] = {
 
     { "fill",   OpFill,     1 },
     { "switch", OpSwitch,   0 },
+    { "switch2",OpSwitch2,  0 },
     { "libcall",OpLibCall,  1 },
     { "pushsp", OpPushSP,   0 },
 };

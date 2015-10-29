@@ -24,10 +24,25 @@ long text_size, data_size, bss_size;
 int vm_argc;
 char **vm_argv;
 
+/* search function used with `switch' */
 int cmp_int(const void *p1, const void *p2)
 {
     long v1 = *(long *)p1;
     long v2 = *(long *)p2;
+
+    if (v1 < v2)
+        return -1;
+    else if (v1 == v2)
+        return 0;
+    else
+        return 1;
+}
+
+/* search function used with `switch2' */
+int cmp_int2(const void *p1, const void *p2)
+{
+    long long v1 = *(long long *)p1;
+    long long v2 = *(long long *)p2;
 
     if (v1 < v2)
         return -1;
@@ -393,6 +408,25 @@ long *exec(void)
                     ip = (uchar *)*(p_end+(res-tab));
                 break;
             }
+            case OpSwitch2: {
+                long long val, count;
+                long long *tab, *p, *res;
+                long *p_end;
+
+                val = *(long long *)&sp[-2];
+                tab = (long long *)sp[0];
+                sp -= 3;
+
+                p = tab;
+                count = *p++;
+                p_end = (long *)(tab+count);
+
+                if ((res=bsearch(&val, p, count-1, sizeof(*p), cmp_int2)) == NULL)
+                    ip = (uchar *)*p_end; /* default */
+                else
+                    ip = (uchar *)*(p_end+(res-tab));
+            }
+                break;
 
             case OpLibCall:
                 a = *(long *)ip;
@@ -545,6 +579,7 @@ void disassemble_text(uchar *text, long text_size)
         case OpNop:     printf("nop\n");    break;
         case OpSwap:    printf("swap\n");   break;
         case OpSwitch:  printf("switch\n"); break;
+        case OpSwitch2: printf("switch2\n");break;
         case OpLibCall: printf("libcall "); printf("%lx\n", *(long *)p); p+=sizeof(long); break;
         case OpPushSP:  printf("pushsp\n"); break;
         }
@@ -564,7 +599,7 @@ void disassemble_data(long *data, long data_size)
 
 void vm_usage(void)
 {
-    printf("usage: %s [options] <program>\n", prog_name);
+    printf("usage: %s [vm-options] <program> [program-options]\n", prog_name);
     exit(0);
 }
 

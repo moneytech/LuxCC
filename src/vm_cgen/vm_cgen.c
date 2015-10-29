@@ -670,7 +670,8 @@ void expression_statement(ExecNode *s)
 typedef struct SwitchLabel SwitchLabel;
 static struct SwitchLabel {
     unsigned lab;
-    int val, is_default;
+    long long val;
+    int is_default;
     SwitchLabel *next;
 } *switch_labels[MAX_SWITCH_NEST][HASH_SIZE];
 static int switch_nesting_level = -1;
@@ -694,7 +695,7 @@ static int cmp_switch_label(const void *p1, const void *p2)
         return 1;
 }
 
-static void install_switch_label(int val, int is_default, unsigned lab)
+static void install_switch_label(long long val, int is_default, unsigned lab)
 {
     unsigned h;
     SwitchLabel *np;
@@ -710,9 +711,12 @@ static void install_switch_label(int val, int is_default, unsigned lab)
 
 void switch_statement(ExecNode *s)
 {
-    int i, st_size;
+    Token cat;
     unsigned ST, EXIT;
+    int i, st_size, is_ll;
     SwitchLabel *search_table[MAX_CASE_LABELS], *np;
+
+    is_ll = ((cat=get_type_category(&s->child[0]->type))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG);
 
     /*
      * Controlling expression.
@@ -720,7 +724,7 @@ void switch_statement(ExecNode *s)
     ST = new_label();
     expression(s->child[0], FALSE);
     emitln("ldi @T%u;", ST);
-    emitln("switch;");
+    emitln("%s;", is_ll ? "switch2" : "switch");
 
     /*
      * Body.
@@ -755,6 +759,8 @@ void switch_statement(ExecNode *s)
     if (st_size == 0) {
         /* if there are no labels at all, the body of the switch is skipped */
         emitln(".dword 1");
+        if (is_ll)
+            emitln(".dword 0");
         emitln(".dword @L%u", EXIT);
         emitln(".text");
         return;
@@ -770,8 +776,12 @@ void switch_statement(ExecNode *s)
         emitln(".dword %u", st_size);
         i = 1;
     }
+    if (is_ll)
+        emitln(".dword 0");
     while (i < st_size) {
-        emitln(".dword %u", search_table[i]->val);
+        emitln(".dword %u", ((unsigned *)&search_table[i]->val)[0]);
+        if (is_ll)
+            emitln(".dword %u", ((unsigned *)&search_table[i]->val)[1]);
         ++i;
     }
 

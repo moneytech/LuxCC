@@ -86,6 +86,7 @@ enum {
     OpJmpT,
     OpJmp,
     OpSwitch,
+    OpSwitch2,
     OpCall,
     OpRet,
     OpDup,

@@ -12,7 +12,7 @@ void analyze_jump_statement(ExecNode *s, int in_loop, int in_switch);
 void set_return_type(TypeExp *ds, TypeExp *dct);
 void empty_label_table(void);
 void resolve_gotos(void);
-void increase_switch_nesting_level(void);
+void increase_switch_nesting_level(ExecNode *e);
 int decrease_switch_nesting_level(void);
 
 #endif

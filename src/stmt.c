@@ -34,14 +34,15 @@ static struct UnresolvedGoto {
 } *unresolved_gotos_list;
 
 static struct SwitchLabel {
-    int val;
+    long long val;
     int is_default;
     SwitchLabel *next;
 } *switch_labels[MAX_SWITCH_NEST][HASH_SIZE];
 static int switch_nesting_level = -1;
 static int switch_case_counter[MAX_SWITCH_NEST];
+static Token switch_contr_expr_types[MAX_SWITCH_NEST];
 static Arena *switch_arena[MAX_SWITCH_NEST];
-static int install_switch_label(long val, int is_default);
+static int install_switch_label(long long val, int is_default);
 
 static struct LabelName {
     char *name;
@@ -78,7 +79,7 @@ void stmt_done(void)
     arena_destroy(label_names_arena);
 }
 
-int install_switch_label(long val, int is_default)
+int install_switch_label(long long val, int is_default)
 {
     SwitchLabel *np;
     unsigned long h;
@@ -108,12 +109,13 @@ int install_switch_label(long val, int is_default)
     }
 }
 
-void increase_switch_nesting_level(void)
+void increase_switch_nesting_level(ExecNode *e)
 {
     ++switch_nesting_level;
     if (switch_nesting_level >= MAX_SWITCH_NEST)
         TERMINATE("error: too many nested switch statements (>= %d)", MAX_SWITCH_NEST);
     switch_case_counter[switch_nesting_level] = 1;
+    switch_contr_expr_types[switch_nesting_level] = get_type_category(&e->type);
 }
 
 int decrease_switch_nesting_level(void)
@@ -147,7 +149,6 @@ int install_label_name(char *name)
 
     if (np == NULL) {
         np = arena_alloc(label_names_arena, sizeof(LabelName));
-        // np->name = strdup(name);
         np->name = name;
         np->next = label_names[h];
         label_names[h] = np;
@@ -221,7 +222,8 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
      * switch statement).
      */
     case CaseStmt: {
-        Token ty;
+        long long val;
+        Token ty, cty;
 
         ++switch_case_counter[switch_nesting_level];
 
@@ -232,9 +234,14 @@ void analyze_labeled_statement(ExecNode *s, int in_switch)
             return;
         if (!is_integer(ty))
             ERROR_R(s->child[0], "case label expression has non-integer type");
-        s->child[0]->attr.val = eval_const_expr(s->child[0], FALSE, TRUE);
 
-        if (!install_switch_label(s->child[0]->attr.val, FALSE))
+        val = eval_const_expr(s->child[0], FALSE, TRUE);
+        cty = switch_contr_expr_types[switch_nesting_level];
+        if (cty!=TOK_LONG_LONG && cty!=TOK_UNSIGNED_LONG_LONG)
+            val = (int)val;
+        s->child[0]->attr.val = val;
+
+        if (!install_switch_label(val, FALSE))
             ERROR(s, "duplicate case value `%ld'", s->child[0]->attr.val);
     }
         break;

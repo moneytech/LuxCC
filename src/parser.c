@@ -1370,7 +1370,7 @@ ExecNode *selection_statement(int in_loop, int in_switch)
         match(TOK_LPAREN);
         n->child[0] = expression();
         match(TOK_RPAREN);
-        increase_switch_nesting_level();
+        increase_switch_nesting_level(n->child[0]);
         n->child[1] = statement(in_loop, TRUE);
         n->attr.val = decrease_switch_nesting_level();
         break;

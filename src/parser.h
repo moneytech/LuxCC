@@ -96,7 +96,6 @@ struct ExecNode {
     } attr;
     Declaration type;
     int nreg; /* number of registers needed to evaluate the expression represented by this node */
-    // int evaluated;
     TokenNode *info;
 };
 
