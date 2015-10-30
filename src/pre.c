@@ -639,7 +639,7 @@ static void uninstall_macro(char *name)
     free(np);
 }
 
-static Macro *lookup(char *name)
+static Macro *lookup_macro(char *name)
 {
 	Macro *np;
 
@@ -715,6 +715,21 @@ static void control_line(int skip);
 static void pp_tokens(int skip);
 static void preprocessing_token(int skip);
 
+static long long pre_eval_expr(void);
+static long long pre_eval_cond_expr(void);
+static long long pre_eval_OR_expr(void);
+static long long pre_eval_AND_expr(void);
+static long long pre_eval_bwOR_expr(void);
+static long long pre_eval_bwXOR_expr(void);
+static long long pre_eval_bwAND_expr(void);
+static long long pre_eval_equ_expr(void);
+static long long pre_eval_rel_expr(void);
+static long long pre_eval_shi_expr(void);
+static long long pre_eval_add_expr(void);
+static long long pre_eval_mul_expr(void);
+static long long pre_eval_una_expr(void);
+static long long pre_eval_pri_expr(void);
+
 /*
  * preprocessing_file = [ group ] end_of_file
  */
@@ -778,7 +793,7 @@ void if_section(int skip)
  */
 int if_group(int skip)
 {
-    int cond_res;
+    long long cond_res;
 
     /*
      * group_part() confirmed either #if, #ifdef or #ifndef
@@ -786,29 +801,14 @@ int if_group(int skip)
     match2(PRE_TOK_PUNCTUATOR); /* # */
     if (equal(get_lexeme(1), "if")) {
         match2(PRE_TOK_ID);
-        /*
-         * The only constant expressions supported
-         * are decimal numbers or macro names that
-         * expand directly into decimal numbers.
-         */
-        if (lookahead(1) == PRE_TOK_ID) {
-            Macro *m;
-
-            if ((m=lookup(get_lexeme(1))) != NULL)
-                cond_res = atoi(m->rep->lexeme);
-            else
-                cond_res = 0; /* undefined macro names evaluate to zero */
-        } else {
-            cond_res = atoi(get_lexeme(1));
-        }
-        match2(lookahead(1)); /* id or number */
+        cond_res = pre_eval_expr();
     } else if (equal(get_lexeme(1), "ifdef")) {
         match2(PRE_TOK_ID);
-        cond_res = (lookup(get_lexeme(1))!=NULL)?1:0;
+        cond_res = (lookup_macro(get_lexeme(1)) != NULL);
         match2(PRE_TOK_ID);
     } else { /* ifndef */
         match2(PRE_TOK_ID);
-        cond_res = (lookup(get_lexeme(1))==NULL)?1:0;
+        cond_res = (lookup_macro(get_lexeme(1)) == NULL);
         match2(PRE_TOK_ID);
     }
     match2(PRE_TOK_NL);
@@ -820,7 +820,7 @@ int if_group(int skip)
     if (is_group_part())
         group(skip);
 
-    return cond_res;
+    return !!cond_res;
 }
 
 /*
@@ -843,33 +843,21 @@ int elif_groups(int skip)
  */
 int elif_group(int skip)
 {
-    int cond_res;
+    long long cond_res;
 
     /*
      * if_section()/elif_groups() confirmed # and elif
      */
     match2(PRE_TOK_PUNCTUATOR);
     match2(PRE_TOK_ID);
-
-    /* condition */
-    if (lookahead(1) == PRE_TOK_ID) {
-        Macro *m;
-
-        if ((m=lookup(get_lexeme(1))) != NULL)
-            cond_res = atoi(m->rep->lexeme);
-        else
-            cond_res = 0; /* undefined macro names evaluate to zero */
-    } else {
-        cond_res = atoi(get_lexeme(1));
-    }
-    match2(lookahead(1)); /* id or number */
+    cond_res = pre_eval_expr();
     match2(PRE_TOK_NL);
 
     skip = (cond_res==0)?1:skip;
     if (is_group_part())
         group(skip);
 
-    return cond_res;
+    return !!cond_res;
 }
 
 /*
@@ -1103,7 +1091,7 @@ void preprocessing_token(int skip)
             curr_tok->lexeme = dup_lexeme(n);
             curr_tok->token = PRE_TOK_NUM;
             match(lookahead(1));
-        } else if ((m=lookup(get_lexeme(1))) != NULL) {
+        } else if ((m=lookup_macro(get_lexeme(1))) != NULL) {
             DEBUG_PRINTF("found macro `%s'\n", get_lexeme(1));
             if (m->kind == SIMPLE_MACRO)
                 expand_simple_macro(m);
@@ -1421,4 +1409,291 @@ PreTokenNode *preprocess(char *source_file)
     token_list = curr_tok = tokenize();
     preprocessing_file();
     return token_list;
+}
+
+/*                                 */
+/* Expression evaluation functions */
+/*                                 */
+
+long long pre_eval_expr(void)
+{
+    return pre_eval_cond_expr();
+}
+
+long long pre_eval_cond_expr(void)
+{
+    long long r;
+
+    r = pre_eval_OR_expr();
+    if (equal(get_lexeme(1), "?")) {
+        long long e1, e2;
+
+        match2(PRE_TOK_PUNCTUATOR);
+        /* [ TOFIX ] both expressions will be evaluated! */
+        e1 = pre_eval_expr();
+        if (!equal(get_lexeme(1), ":"))
+            ERROR("expecting `:'; got `%s'", curr_tok->lexeme);
+        match2(PRE_TOK_PUNCTUATOR);
+        e2 = pre_eval_cond_expr();
+        r = r ? e1 : e2;
+    }
+    return r;
+}
+
+long long pre_eval_OR_expr(void)
+{
+    long long r;
+
+    /* [ TOFIX ] both expressions will be evaluated! */
+    r = pre_eval_AND_expr();
+    while (equal(get_lexeme(1), "||")) {
+        long long r2;
+
+        match2(PRE_TOK_PUNCTUATOR);
+        r2 = pre_eval_AND_expr();
+        r = r||r2;
+    }
+    return r;
+}
+
+long long pre_eval_AND_expr(void)
+{
+    long long r;
+
+    /* [ TOFIX ] both expressions will be evaluated! */
+    r = pre_eval_bwOR_expr();
+    while (equal(get_lexeme(1), "&&")) {
+        long long r2;
+
+        match2(PRE_TOK_PUNCTUATOR);
+        r2 = pre_eval_bwOR_expr();
+        r = r&&r2;
+    }
+    return r;
+}
+
+long long pre_eval_bwOR_expr(void)
+{
+    long long r;
+
+    r = pre_eval_bwXOR_expr();
+    while (equal(get_lexeme(1), "|")) {
+        match2(PRE_TOK_PUNCTUATOR);
+        r = r|pre_eval_bwXOR_expr();
+    }
+    return r;
+}
+
+long long pre_eval_bwXOR_expr(void)
+{
+    long long r;
+
+    r = pre_eval_bwAND_expr();
+    while (equal(get_lexeme(1), "^")) {
+        match2(PRE_TOK_PUNCTUATOR);
+        r = r^pre_eval_bwAND_expr();
+    }
+    return r;
+}
+
+long long pre_eval_bwAND_expr(void)
+{
+    long long r;
+
+    r = pre_eval_equ_expr();
+    while (equal(get_lexeme(1), "&")) {
+        match2(PRE_TOK_PUNCTUATOR);
+        r = r&pre_eval_equ_expr();
+    }
+    return r;
+}
+
+long long pre_eval_equ_expr(void)
+{
+    long long r;
+
+    r = pre_eval_rel_expr();
+    while (lookahead(1) == PRE_TOK_PUNCTUATOR) {
+        char *s;
+
+        s = get_lexeme(1);
+        if (equal(s, "==")) {
+            match2(PRE_TOK_PUNCTUATOR);
+            r = r==pre_eval_rel_expr();
+        } else if (equal(s, "!=")) {
+            match2(PRE_TOK_PUNCTUATOR);
+            r = r!=pre_eval_rel_expr();
+        } else {
+            break;
+        }
+    }
+    return r;
+}
+
+long long pre_eval_rel_expr(void)
+{
+    long long r;
+
+    r = pre_eval_shi_expr();
+    while (lookahead(1) == PRE_TOK_PUNCTUATOR) {
+        char *s;
+
+        s = get_lexeme(1);
+        if (equal(s, "<")) {
+            match2(PRE_TOK_PUNCTUATOR);
+            r = r<pre_eval_shi_expr();
+        } else if (equal(s, ">")) {
+            match2(PRE_TOK_PUNCTUATOR);
+            r = r>pre_eval_shi_expr();
+        } else if (equal(s, "<=")) {
+            match2(PRE_TOK_PUNCTUATOR);
+            r = r<=pre_eval_shi_expr();
+        } else if (equal(s, ">=")) {
+            match2(PRE_TOK_PUNCTUATOR);
+            r = r>=pre_eval_shi_expr();
+        } else {
+            break;
+        }
+    }
+    return r;
+}
+
+long long pre_eval_shi_expr(void)
+{
+    long long r;
+
+    r = pre_eval_add_expr();
+    while (lookahead(1) == PRE_TOK_PUNCTUATOR) {
+        char *s;
+
+        s = get_lexeme(1);
+        if (equal(s, "<<")) {
+            match2(PRE_TOK_PUNCTUATOR);
+            r = r<<pre_eval_add_expr();
+        } else if (equal(s, ">>")) {
+            match2(PRE_TOK_PUNCTUATOR);
+            r = r>>pre_eval_add_expr();
+        } else {
+            break;
+        }
+    }
+    return r;
+}
+
+long long pre_eval_add_expr(void)
+{
+    long long r;
+
+    r = pre_eval_mul_expr();
+    while (lookahead(1) == PRE_TOK_PUNCTUATOR) {
+        char *s;
+
+        s = get_lexeme(1);
+        if (equal(s, "+")) {
+            match2(PRE_TOK_PUNCTUATOR);
+            r = r+pre_eval_mul_expr();
+        } else if (equal(s, "-")) {
+            match2(PRE_TOK_PUNCTUATOR);
+            r = r-pre_eval_mul_expr();
+        } else {
+            break;
+        }
+    }
+    return r;
+}
+
+long long pre_eval_mul_expr(void)
+{
+    long long r;
+
+    r = pre_eval_una_expr();
+    while (lookahead(1) == PRE_TOK_PUNCTUATOR) {
+        char *s;
+
+        s = get_lexeme(1);
+        if (equal(s, "*")) {
+            match2(PRE_TOK_PUNCTUATOR);
+            r = r*pre_eval_una_expr();
+        } else if (equal(s, "/")) {
+            match2(PRE_TOK_PUNCTUATOR);
+            r = r/pre_eval_una_expr();
+        } else {
+            break;
+        }
+    }
+    return r;
+}
+
+long long pre_eval_una_expr(void)
+{
+    char *s;
+    long long r;
+
+    s = get_lexeme(1);
+    if (equal(s, "defined")) {
+        match2(PRE_TOK_ID);
+        if (equal(get_lexeme(1), "(")) { /* "defined" "(" identifier ")" */
+            match2(PRE_TOK_PUNCTUATOR);
+            if (lookahead(1) == PRE_TOK_ID)
+                r = (lookup_macro(get_lexeme(1)) != NULL);
+            match2(PRE_TOK_ID);
+            if (!equal(get_lexeme(1), ")"))
+                ERROR("expecting `)'; got `%s'", curr_tok->lexeme);
+            match2(PRE_TOK_PUNCTUATOR);
+        } else { /* "defined" identifier */
+            if (lookahead(1) == PRE_TOK_ID)
+                r = (lookup_macro(get_lexeme(1)) != NULL);
+            match2(PRE_TOK_ID);
+        }
+        return r;
+    } else if (s[1] != '\0') {
+        return pre_eval_pri_expr();
+    }
+    switch (s[0]) {
+    case '+':
+    case '-':
+    case '~':
+    case '!':
+        match2(PRE_TOK_PUNCTUATOR);
+        r = pre_eval_una_expr();
+        return (s[0] == '+') ? r : (s[0] == '-') ? -r : (s[0] == '~') ? ~r : !r;
+    default:
+        return pre_eval_pri_expr();
+    }
+}
+
+long long pre_eval_pri_expr(void)
+{
+    char *endp;
+    long long r;
+
+    switch (lookahead(1)) {
+    case PRE_TOK_PUNCTUATOR:
+        if (!equal(get_lexeme(1), "("))
+            break;
+        match2(PRE_TOK_PUNCTUATOR);
+        r = pre_eval_expr();
+        if (!equal(get_lexeme(1), ")"))
+            ERROR("expecting `)'; got `%s'", curr_tok->lexeme);
+        match2(PRE_TOK_PUNCTUATOR);
+        return r;
+
+    case PRE_TOK_ID: {
+        Macro *m;
+
+        if ((m=lookup_macro(get_lexeme(1))) != NULL)
+            r = strtoll(m->rep->lexeme, &endp, 10);
+        else
+            r = 0; /* undefined macro names evaluate to zero */
+        match2(PRE_TOK_ID);
+        return r;
+    }
+
+    case PRE_TOK_NUM:
+        r = strtoll(get_lexeme(1), &endp, 10);
+        match2(PRE_TOK_NUM);
+        return r;
+    }
+
+    ERROR("expecting primary-expression; got `%s'", curr_tok->lexeme);
 }

@@ -163,8 +163,8 @@ Symbol *lookup_symbol(char *name)
 /*
  * Relocations.
  */
-#define TEXT_RELOC_TABLE_SIZE   16384
-#define DATA_RELOC_TABLE_SIZE   16384
+#define TEXT_RELOC_TABLE_SIZE   32768
+#define DATA_RELOC_TABLE_SIZE   8192
 typedef struct Reloc Reloc;
 struct Reloc {
     int segment, offset;
@@ -405,6 +405,9 @@ int main(int argc, char *argv[])
         fwrite(&text_relocation_table[i].offset, sizeof(int), 1, fout);
     }
     fclose(fout);
+
+    // printf("text_size=%d, data_size=%d, bss_size=%d, ndreloc=%d, ntreloc=%d\n", text_size,
+    // data_size, bss_size, ndreloc, ntreloc);
 
     return 0;
 }

@@ -324,6 +324,8 @@ int main(int argc, char *argv[])
     if (fout != stdout)
         fclose(fout);
 
+    // printf("text_size=%d, data_size=%d, bss_size=%d, nreloc=%d\n", text_size, data_size, bss_size, nreloc);
+
     return 0;
 }
 
