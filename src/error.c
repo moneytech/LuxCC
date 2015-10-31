@@ -3,10 +3,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <unistd.h>
-
-extern int disable_warnings;
-extern int colored_diagnostics;
-extern unsigned warning_count, error_count;
+#include "luxcc.h"
 
 void emit_error(int fatal, char *file, int line, int column, char *fmt, ...)
 {

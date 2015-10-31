@@ -12,10 +12,10 @@
 #include "../loc.h"
 #include "../str.h"
 #include "../error.h"
+#include "../luxcc.h"
 
 #define MAX_STRLIT  1024
 
-extern int include_liblux;
 static char *liblux_functions[] = {
     "__lux_sx",
     "__lux_sto64",
@@ -954,13 +954,8 @@ static void load_llong_retval(void)
 {
     emitln("ldi %u;", -4);
     emitln("add;");
-    emitln("dup;");
-    emitln("ldi 4;");
-    emitln("add;");
-    emitln("pop;");
-    emitln("lddw;");
+    emitln("ldqw;");
     emitln("addsp 4;");
-    emitln("lddw;");
 }
 
 void expression(ExecNode *e, int is_addr)
@@ -1556,9 +1551,8 @@ void store(Declaration *dest_ty)
         break;
     case TOK_LONG_LONG:
     case TOK_UNSIGNED_LONG_LONG:
-        emitln("ldi __lux_sto64;");
-        emitln("call 12;");
-        load_llong_retval();
+        emitln("stqw;");
+        emitln("addsp 4;");
         break;
     case TOK_STRUCT:
     case TOK_UNION:

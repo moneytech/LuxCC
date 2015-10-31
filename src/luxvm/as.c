@@ -1,4 +1,6 @@
 /*
+    Small cross assembler for the Lux VM.
+
         ASM GRAMMAR
     program = statement { statement }
     statement = instruction | label | directive
@@ -13,6 +15,7 @@
                 "." "byte"  number |
                 "." "word"  number |
                 "." "dword" ( id [ "+" number ] | number ) |
+                "." "qword" ( id [ "+" number ] | number ) |
                 "." "res"   number |
                 "." "align" number |
                 "." "zero"  number
@@ -30,6 +33,17 @@
 #include "../util.h"
 #include "operations.h"
 
+#define MAX_LINE_BUF        4096
+#define MAX_LEXEME          512
+#define TEXT_SEG_MAX        65536
+#define DATA_SEG_MAX        65536
+#define HASH_SIZE           1009
+#define HASH(s)             (hash(s)%HASH_SIZE)
+#define RELOC_TABLE_SIZE    4096
+
+typedef struct Reloc Reloc;
+typedef struct Symbol Symbol;
+
 typedef enum {
     TOK_ID,
     TOK_NUM,
@@ -43,88 +57,106 @@ typedef enum {
 
 char *prog_name;
 char *curr, *buf;
-
-int reading_from_stdin;
-#define MAX_LINE_BUF    4096
 char line_buf[MAX_LINE_BUF];
-
-#define MAX_LEXEME  512
 char lexeme[MAX_LEXEME];
-Token curr_tok;
-Token get_token(void);
 int lineno = 1;
+Token curr_tok;
+int targeting_vm64;
+int reading_from_stdin;
+
+#define ASSEMBLER_ERR(...)  fprintf(stderr, "%s: line %d: ", prog_name, lineno), TERMINATE(__VA_ARGS__)
+
+Token get_token(void);
 void match(Token expected);
 void program(void);
 void statement(void);
 void instruction(char *operation);
 void label(char *id);
 void directive(void);
-#define ASSEMBLER_ERR(...)  fprintf(stderr, "%s: line %d: ", prog_name, lineno), TERMINATE(__VA_ARGS__)
 int read_line(void);
 void init(char *file_path);
-
-unsigned long get_num(char *s)
-{
-    char *ep;
-
-    return strtoul(s, &ep, 0);
-}
 
 /*
  * Segments.
  */
-#define TEXT_SEG_MAX    65536
-#define DATA_SEG_MAX    65536
 char text_seg[TEXT_SEG_MAX];
 char data_seg[DATA_SEG_MAX];
 int curr_segment = TEXT_SEG;
 int text_size, data_size, bss_size;
 #define CURR_OFFS() ((curr_segment==DATA_SEG)?data_size:(curr_segment==TEXT_SEG)?text_size:bss_size)
 
-void write_char(int c)
+unsigned get_int(char *s)
+{
+    char *ep;
+
+    return strtoul(s, &ep, 0);
+}
+
+unsigned long long get_llong(char *s)
+{
+    char *ep;
+
+    return strtoull(s, &ep, 0);
+}
+
+void bss_err(void)
+{
+    ASSEMBLER_ERR("trying to write into .bss segment");
+}
+
+void write_byte(int b)
 {
     if (curr_segment == TEXT_SEG)
-        text_seg[text_size++] = (char)c;
+        text_seg[text_size++] = (char)b;
     else if (curr_segment == DATA_SEG)
-        data_seg[data_size++] = (char)c;
+        data_seg[data_size++] = (char)b;
     else
-        ASSEMBLER_ERR("trying to write into .bss segment");
+        bss_err();
 
 }
 
-void write_short(int s)
+void write_word(int w)
 {
     if (curr_segment == TEXT_SEG) {
-        *(short *)&text_seg[text_size] = (short)s;
+        *(short *)&text_seg[text_size] = (short)w;
         text_size += 2;
     } else if (curr_segment == DATA_SEG) {
-        *(short *)&data_seg[data_size] = (short)s;
+        *(short *)&data_seg[data_size] = (short)w;
         data_size += 2;
     } else {
-        ASSEMBLER_ERR("trying to write into .bss segment");
+        bss_err();
     }
 }
 
-void write_int(int i)
+void write_dword(int d)
 {
     if (curr_segment == TEXT_SEG) {
-        *(int *)&text_seg[text_size] = i;
+        *(int *)&text_seg[text_size] = d;
         text_size += 4;
     } else if (curr_segment == DATA_SEG) {
-        *(int *)&data_seg[data_size] = i;
+        *(int *)&data_seg[data_size] = d;
         data_size += 4;
     } else {
-        ASSEMBLER_ERR("trying to write into .bss segment");
+        bss_err();
+    }
+}
+
+void write_qword(long long q)
+{
+    if (curr_segment == TEXT_SEG) {
+        *(long long *)&text_seg[text_size] = q;
+        text_size += 8;
+    } else if (curr_segment == DATA_SEG) {
+        *(long long *)&data_seg[data_size] = q;
+        data_size += 8;
+    } else {
+        bss_err();
     }
 }
 
 /*
  * Symbols.
  */
-#define HASH_SIZE   1009
-#define HASH(s) (hash(s)%HASH_SIZE)
-
-typedef struct Symbol Symbol;
 struct Symbol {
     char *name;
     int segment, offset;
@@ -179,8 +211,6 @@ Symbol *define_symbol(char *name, int kind, int segment, int offset)
 /*
  * Relocations.
  */
-#define RELOC_TABLE_SIZE    4096
-typedef struct Reloc Reloc;
 struct Reloc {
     int segment, offset; /* segment+offset is where the fix must be made */
     char *symbol;        /* the information about what symbol must be fixed */
@@ -198,6 +228,12 @@ void append_reloc(int segment, int offset, char *symbol)
 void err_no_input(void)
 {
     fprintf(stderr, "%s: no input file\n", prog_name);
+    exit(1);
+}
+
+void unk_opt(char *opt)
+{
+    fprintf(stderr, "%s: unknown option `%s'\n", prog_name, opt);
     exit(1);
 }
 
@@ -238,11 +274,14 @@ int main(int argc, char *argv[])
     int i;
     FILE *fout;
     char *outpath, *inpath;
+    int print_stats;
 
     prog_name = argv[0];
     if (argc == 1)
         err_no_input();
     outpath = NULL;
+    print_stats = FALSE;
+    targeting_vm64 = FALSE;
     for (i = 1; i < argc; i++) {
         if (argv[i][0]!='-' || argv[i][1]=='\0') {
             inpath = argv[i];
@@ -259,17 +298,28 @@ int main(int argc, char *argv[])
                 outpath = argv[++i];
             }
             break;
+        case 's':
+            print_stats = TRUE;
+            break;
+        case 'v':
+            if (equal(argv[i], "vm64"))
+                targeting_vm64 = TRUE;
+            else
+                unk_opt(argv[i]);
+            break;
         case 'h':
             printf("usage: %s [ options ] <input-file>\n"
                    "  The available options are:\n"
                    "    -o<file>    write output to <file>\n"
+                   "    -s          print assembling stats\n"
+                   "    -vm64       target the 64-bit VM (32-bit VM is the default)\n"
                    "    -h          print this help\n"
                    "\nnote: if the input file is - the program is read from the standard input\n", prog_name);
             exit(0);
             break;
         default:
-            fprintf(stderr, "%s: unknown option `%s'\n", prog_name, argv[i]);
-            exit(1);
+            unk_opt(argv[i]);
+            break;
         }
     }
     if (inpath == NULL)
@@ -328,7 +378,12 @@ int main(int argc, char *argv[])
     if (fout != stdout)
         fclose(fout);
 
-    // printf("text_size=%d, data_size=%d, bss_size=%d, nreloc=%d\n", text_size, data_size, bss_size, nreloc);
+    if (print_stats) {
+        printf("Text size: %d\n", text_size);
+        printf("Data size: %d\n", data_size);
+        printf("Bss size: %d\n", bss_size);
+        printf("Number of relocations: %d\n", nreloc);
+    }
 
     return 0;
 }
@@ -374,14 +429,20 @@ void instruction(char *operation)
 
     if ((op_entry=lookup_operation(operation)) == NULL)
         ASSEMBLER_ERR("unknown operation `%s'", operation);
-    write_char(op_entry->opcode);
+    write_byte(op_entry->opcode);
     if (op_entry->has_operand) {
         if (curr_tok == TOK_ID) {
             append_reloc(curr_segment, CURR_OFFS(), lexeme);
             match(TOK_ID);
-            write_int(0);
+            if (targeting_vm64)
+                write_qword(0);
+            else
+                write_dword(0);
         } else if (curr_tok == TOK_NUM) {
-            write_int(get_num(lexeme));
+            if (targeting_vm64)
+                write_qword(get_llong(lexeme));
+            else
+                write_dword(get_int(lexeme));
             match(TOK_NUM);
         } else if (curr_tok == TOK_SEMI) {
             ASSEMBLER_ERR("operation `%s' requires an operand", operation);
@@ -460,38 +521,63 @@ void directive(void)
     } else if (equal(lexeme, "byte")) {
         match(TOK_ID);
         if (curr_tok == TOK_NUM)
-            write_char(get_num(lexeme));
+            write_byte(get_int(lexeme));
         match(TOK_NUM);
     } else if (equal(lexeme, "word")) {
         match(TOK_ID);
         if (curr_tok == TOK_NUM)
-            write_short(get_num(lexeme));
+            write_word(get_int(lexeme));
         match(TOK_NUM);
     } else if (equal(lexeme, "dword")) {
         match(TOK_ID);
         if (curr_tok == TOK_ID) {
+            if (targeting_vm64)
+                goto dword_bad_op;
             append_reloc(curr_segment, CURR_OFFS(), lexeme);
             match(TOK_ID);
             if (curr_tok == TOK_PLUS) {
                 match(TOK_PLUS);
                 if (curr_tok == TOK_NUM)
-                    write_int(get_num(lexeme));
+                    write_dword(get_int(lexeme));
                 match(TOK_NUM);
             } else {
-                write_int(0);
+                write_dword(0);
             }
         } else if (curr_tok == TOK_NUM) {
-            write_int(get_num(lexeme));
+            write_dword(get_int(lexeme));
             match(TOK_NUM);
         } else {
+dword_bad_op:
             ASSEMBLER_ERR("invalid operand to directive `.dword'");
+        }
+    } else if (equal(lexeme, "qword")) {
+        match(TOK_ID);
+        if (curr_tok == TOK_ID) {
+            if (!targeting_vm64)
+                goto qword_bad_op;
+            append_reloc(curr_segment, CURR_OFFS(), lexeme);
+            match(TOK_ID);
+            if (curr_tok == TOK_PLUS) {
+                match(TOK_PLUS);
+                if (curr_tok == TOK_NUM)
+                    write_qword(get_llong(lexeme));
+                match(TOK_NUM);
+            } else {
+                write_qword(0);
+            }
+        } else if (curr_tok == TOK_NUM) {
+            write_qword(get_llong(lexeme));
+            match(TOK_NUM);
+        } else {
+qword_bad_op:
+            ASSEMBLER_ERR("invalid operand to directive `.qword'");
         }
     } else if (equal(lexeme, "res")) {
         match(TOK_ID);
         if (curr_tok == TOK_NUM) {
             if (curr_segment != BSS_SEG)
                 ASSEMBLER_ERR("`.res' can only be used in the .bss segment");
-            bss_size += get_num(lexeme);
+            bss_size += get_int(lexeme);
         }
         match(TOK_NUM);
     } else if (equal(lexeme, "align")) {
@@ -500,12 +586,12 @@ void directive(void)
             int curr_size, new_size;
 
             curr_size = CURR_OFFS();
-            new_size = round_up(curr_size, get_num(lexeme));
+            new_size = round_up(curr_size, get_int(lexeme));
             while (curr_size++ < new_size)
                 if (curr_segment == BSS_SEG)
                     ++bss_size;
                 else
-                    write_char(OpNop);
+                    write_byte(OpNop);
         }
         match(TOK_NUM);
     } else if (equal(lexeme, "zero")) {
@@ -513,8 +599,8 @@ void directive(void)
         if (curr_tok == TOK_NUM) {
             unsigned long n;
 
-            for (n = get_num(lexeme); n != 0; n--)
-                write_char(0);
+            for (n = get_int(lexeme); n != 0; n--)
+                write_byte(0);
         }
         match(TOK_NUM);
     } else {

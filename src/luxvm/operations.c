@@ -13,11 +13,13 @@ static Operation operations[] = {
     { "ldw",    OpLdW,      0 },
     { "lduw",   OpLdUW,     0 },
     { "lddw",   OpLdDW,     0 },
+    { "ldqw",   OpLdQW,     0 },
     { "ldn",    OpLdN,      1 },
 
     { "stb",    OpStB,      0 },
     { "stw",    OpStW,      0 },
     { "stdw",   OpStDW,     0 },
+    { "stqw",   OpStQW,     0 },
     { "stn",    OpStN,      1 },
     { "memcpy", OpMemCpy,   1 },
 
@@ -55,6 +57,12 @@ static Operation operations[] = {
     { "dw2ub",  OpDW2UB,    0 },
     { "dw2w",   OpDW2W,     0 },
     { "dw2uw",  OpDW2UW,    0 },
+    { "qw2b",   OpQW2B,     0 },
+    { "qw2ub",  OpQW2UB,    0 },
+    { "qw2w",   OpQW2W,     0 },
+    { "qw2uw",  OpQW2UW,    0 },
+    { "qw2dw",  OpQW2DW,    0 },
+    { "qw2udw", OpQW2UDW,   0 },
 
     { "ldi",    OpLdI,      1 },
     { "ldbp",   OpLdBP,     1 },

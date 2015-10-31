@@ -9,8 +9,7 @@
 #include "util.h"
 #include "decl.h"
 #include "error.h"
-
-extern int targeting_arch64;
+#include "luxcc.h"
 
 /*
  * Print error and set to 'error' the type of

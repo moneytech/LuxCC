@@ -16,6 +16,7 @@
 #include "loc.h"
 #include "dflow.h"
 #include "bset.h"
+#include "luxcc.h"
 
 #define ID_TABLE_SIZE 1009
 typedef struct IDNode IDNode;
@@ -61,13 +62,8 @@ static unsigned ic_func_first_instr;
 static unsigned exit_label;
 static Arena *temp_names_arena;
 
-extern char *cg_outpath;
 static FILE *cg_dotfile;
-
-extern char *cfg_outpath, *cfg_function_to_print;
 static FILE *cfg_dotfile;
-
-extern char *ic_outpath, *ic_function_to_print;
 static FILE *ic_file;
 
 /*

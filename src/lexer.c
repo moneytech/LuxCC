@@ -7,9 +7,8 @@
 #include "util.h"
 #include "error.h"
 #include "arena.h"
+#include "luxcc.h"
 
-extern unsigned stat_number_of_pre_tokens;
-extern unsigned stat_number_of_c_tokens;
 extern Arena *pre_node_arena;
 
 static PreTokenNode *pre_tok; /* declared global so ERROR can access it */

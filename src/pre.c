@@ -8,8 +8,7 @@
 #include "imp_lim.h"
 #include "error.h"
 #include "arena.h"
-
-extern unsigned stat_number_of_pre_tokens;
+#include "luxcc.h"
 
 #define SRC_FILE            curr_source_file
 #define SRC_LINE            curr_line

@@ -11,8 +11,8 @@
 #include "error.h"
 #include "arena.h"
 #include "sassert.h"
+#include "luxcc.h"
 
-extern unsigned stat_number_of_ast_nodes;
 extern char *current_function_name;
 static TokenNode *curr_tok;
 static Arena *parser_str_arena;

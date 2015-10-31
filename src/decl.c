@@ -10,9 +10,7 @@
 #include "arena.h"
 #include "imp_lim.h"
 #include "error.h"
-
-extern unsigned error_count;
-char *current_function_name; /* used to implement __func__ */
+#include "luxcc.h"
 
 #define ERROR(tok, ...) emit_error(TRUE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
 #define WARNING(tok, ...) emit_warning((tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)
@@ -22,6 +20,8 @@ char *current_function_name; /* used to implement __func__ */
 #define FILE_SCOPE      0
 #define HASH_VAL(s)     (hash(s)%HASH_SIZE)
 #define HASH_VAL2(x)    (hash2(x)%HASH_SIZE)
+
+char *current_function_name; /* used to implement __func__ */
 
 static ExternId *external_declarations[HASH_SIZE];
 static ExternId *external_declarations_list; /* linearized symtab */
