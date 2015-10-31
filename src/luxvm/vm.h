@@ -19,7 +19,7 @@
  */
 
 #define VM_STACK_ALIGN      4
-// #define VM_SEG_ALIGN        16
+/*#define VM_SEG_ALIGN        16*/
 #define VM_LOCAL_START      4
 #define VM_LOCAL_PARAM_END -8
 

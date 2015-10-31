@@ -1617,6 +1617,9 @@ long long pre_eval_mul_expr(void)
         } else if (equal(s, "/")) {
             match2(PRE_TOK_PUNCTUATOR);
             r = r/pre_eval_una_expr();
+        } else if (equal(s, "%")) {
+            match2(PRE_TOK_PUNCTUATOR);
+            r = r%pre_eval_una_expr();
         } else {
             break;
         }

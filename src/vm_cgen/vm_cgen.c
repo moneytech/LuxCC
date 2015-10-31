@@ -42,6 +42,7 @@ static char *curr_func_name;
 static unsigned temp_struct_size;
 static char *string_literal_pool[MAX_STRLIT];
 static unsigned str_lit_count;
+static Declaration int_ty;
 
 /* The amount of space to allocate for the current function's local variables. */
 static int size_of_local_area = 0;
@@ -49,7 +50,6 @@ static int size_of_local_area = 0;
 static int local_offset = VM_LOCAL_START;
 /* Return type of the current function being processed. */
 static Declaration ret_ty;
-static Declaration int_ty;
 
 static String *output_buffer;
 #define emit(...)   (string_printf(output_buffer, __VA_ARGS__))
@@ -950,7 +950,7 @@ unsigned function_argument(ExecNode *arg, DeclList *param)
     return arg_area_size;
 }
 
-void load_llong_retval(void)
+static void load_llong_retval(void)
 {
     emitln("ldi %u;", -4);
     emitln("add;");

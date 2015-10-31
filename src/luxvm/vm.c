@@ -165,7 +165,7 @@ long *exec(void)
                 sp[0] = *((ushort *)sp[0]);
                 break;
             case OpLdDW:
-                sp[0] = *((long *)sp[0]);
+                sp[0] = *((int *)sp[0]);
                 break;
             case OpLdN: {
                 long n;
@@ -190,22 +190,9 @@ long *exec(void)
                 --sp;
                 break;
             case OpStDW:
-                *((long *)sp[0]) = sp[-1];
+                *((int *)sp[0]) = sp[-1];
                 --sp;
                 break;
-            /*case OpStN: {
-                int n;
-                uchar *src, *dest;
-
-                n = *(int *)ip;
-                ip += 4;
-                src = (uchar *)sp-n;
-                dest = (uchar *)sp[0];
-                sp = (int *)src;
-                while (n-- > 0)
-                    *dest++ = *src++;
-                break;
-            }*/
             case OpMemCpy:
                 memmove((void *)sp[-1], (const void *)sp[0], *(long *)ip);
                 ip += sizeof(long);
@@ -224,6 +211,8 @@ long *exec(void)
                 sp[0] = (long)bp + *(long *)ip;
                 ip += sizeof(long);
                 break;
+
+                /* load immediate data */
             case OpLdI:
                 ++sp;
                 sp[0] = *(long *)ip;
@@ -266,6 +255,7 @@ long *exec(void)
                 sp[0] = !sp[0];
                 break;
 
+                /* comparisons */
             case OpSLT:
                 sp[-1] = sp[-1]<sp[0];
                 --sp;
@@ -307,6 +297,7 @@ long *exec(void)
                 --sp;
                 break;
 
+                /* bitwise */
             case OpAnd:
                 sp[-1] &= sp[0];
                 --sp;
@@ -335,6 +326,7 @@ long *exec(void)
                 --sp;
                 break;
 
+                /* conversions */
             case OpDW2B:
                 sp[0] = (char)sp[0];
                 break;
@@ -428,6 +420,7 @@ long *exec(void)
             }
                 break;
 
+                /* system library calls */
             case OpLibCall:
                 a = *(long *)ip;
                 ip += sizeof(long);
@@ -458,9 +451,9 @@ long *exec(void)
                 sp[0] = (long)(sp-1);
                 break;
 
+            /* misc */
             case OpNop:
                 break;
-
             case OpHalt:    /* OK */
             default:        /* error, unknown opcode */
                 return sp;

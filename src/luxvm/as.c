@@ -283,9 +283,13 @@ int main(int argc, char *argv[])
     if (outpath != NULL) {
         fout = fopen(outpath, "wb");
     } else {
-        outpath = replace_extension(inpath, ".o");
-        fout = fopen(outpath, "wb");
-        free(outpath);
+        if (equal(inpath, "-")) {
+            fout = fopen("a.o", "wb");
+        } else {
+            outpath = replace_extension(inpath, ".o");
+            fout = fopen(outpath, "wb");
+            free(outpath);
+        }
     }
     fwrite(&nsym, sizeof(int), 1, fout);
     fwrite(&bss_size, sizeof(int), 1, fout);
