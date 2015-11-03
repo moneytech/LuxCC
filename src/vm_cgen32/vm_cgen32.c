@@ -1,3 +1,6 @@
+/*
+    Code generator for the 32-bit VM.
+*/
 #include "vm_cgen32.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -861,6 +864,7 @@ void expr_convert(ExecNode *e, Declaration *dest)
     case TOK_INT:  case TOK_UNSIGNED:
     case TOK_ENUM: case TOK_STAR:
     case TOK_LONG: case TOK_UNSIGNED_LONG:
+    case TOK_SUBSCRIPT: case TOK_FUNCTION:
         if (is_integer(cat_src) && get_rank(cat_src)==LLONG_RANK)
             emitln("pop;");
         break;

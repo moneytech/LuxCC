@@ -304,6 +304,8 @@ int main(int argc, char *argv[])
         case 'v':
             if (equal(argv[i]+1, "vm64"))
                 targeting_vm64 = TRUE;
+            else if (equal(argv[i]+1, "vm32"))
+                ;
             else
                 unk_opt(argv[i]);
             break;
@@ -312,7 +314,8 @@ int main(int argc, char *argv[])
                    "  The available options are:\n"
                    "    -o<file>    write output to <file>\n"
                    "    -s          print assembling stats\n"
-                   "    -vm64       target the 64-bit VM (32-bit VM is the default)\n"
+                   "    -vm32       target the 32-bit VM (default)\n"
+                   "    -vm64       target the 64-bit VM\n"
                    "    -h          print this help\n"
                    "\nnote: if the input file is - the program is read from the standard input\n", prog_name);
             exit(0);
@@ -598,9 +601,9 @@ qword_bad_op:
     } else if (equal(lexeme, "zero")) {
         match(TOK_ID);
         if (curr_tok == TOK_NUM) {
-            unsigned long n;
+            unsigned n;
 
-            for (n = get_int32(lexeme); n != 0; n--)
+            for (n = (unsigned)get_int32(lexeme); n != 0; n--)
                 write_byte(0);
         }
         match(TOK_NUM);

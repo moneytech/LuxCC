@@ -270,6 +270,8 @@ int main(int argc, char *argv[])
         case 'v':
             if (equal(argv[i]+1, "vm64"))
                 targeting_vm64 = TRUE;
+            else if (equal(argv[i]+1, "vm32"))
+                ;
             else
                 unk_opt(argv[i]);
             break;
@@ -278,7 +280,8 @@ int main(int argc, char *argv[])
                    "  The available options are:\n"
                    "    -o<file>    write output to <file>\n"
                    "    -s          print linking stats\n"
-                   "    -vm64       output a 64-bit executable (32-bit is the default)\n"
+                   "    -vm32       output a 32-bit executable (default)\n"
+                   "    -vm64       output a 64-bit executable\n"
                    "    -h          print this help\n", prog_name);
             exit(0);
             break;
