@@ -19,8 +19,7 @@
 #define PATH_TO_VM_LD       "src/luxvm/luxvmld"
 #define GNU_LD              "ld"
 
-#define PATH_TO_VM_RUNC1    "src/lib/crt.o"
-#define PATH_TO_VM_RUNC1_2  "src/lib/liblux.o"
+#define PATH_TO_VM_RUNC1    "src/lib/crt32.o"
 #define PATH_TO_VM_LIBC1    "src/lib/libc.o"
 #define PATH_TO_VM_RUNC2    "/usr/local/lib/luxcc/crt.o"
 #define PATH_TO_VM_LIBC2    "/usr/local/lib/luxcc/libc.o"
@@ -206,7 +205,7 @@ char *get_path(int file)
 
     case VM_LIBC:
         if (file_exist(PATH_TO_VM_LIBC1))
-            return PATH_TO_VM_RUNC1 " " PATH_TO_VM_RUNC1_2 " " PATH_TO_VM_LIBC1;
+            return PATH_TO_VM_RUNC1 " " PATH_TO_VM_LIBC1;
         else if (file_exist(PATH_TO_VM_LIBC2))
             return PATH_TO_VM_RUNC2 " " PATH_TO_VM_LIBC2;
         break;
@@ -237,6 +236,12 @@ void missing_arg(char *opt)
     exit(1);
 }
 
+enum {
+    X86_TARGET,
+    VM_TARGET,
+    VM64_TARGET,
+};
+
 int main(int argc, char *argv[])
 {
     int i, exst;
@@ -246,7 +251,7 @@ int main(int argc, char *argv[])
     InFile *c_files, *asm_files, *other_files;
     char asm_tmp[] = "/tmp/luxXXXXXX.s";
     char obj_tmp[] = "/tmp/luxXXXXXX.o";
-    int target; /* 1: x86, 2: vm */
+    int target;
 
     prog_name = argv[0];
     if (argc == 1) {
@@ -264,7 +269,7 @@ int main(int argc, char *argv[])
     as_cmd = string_new(32);
     ld_cmd = string_new(32);
     string_printf(cc_cmd, get_path(CC));
-    target = 1;
+    target = X86_TARGET;
 
     for (i = 1; i < argc; i++) {
         if (argv[i][0] != '-') {
@@ -385,16 +390,25 @@ int main(int argc, char *argv[])
                     string_printf(cc_cmd, " %s", argv[++i]);
                 }
                 break;
-            case 'm':
+            case 'm': {
+                char *m;
+
                 string_printf(cc_cmd, " %s", argv[i]);
                 if (argv[i][2] == '\0') {
                     if (argv[i+1] == NULL)
                         missing_arg(argv[i]);
                     string_printf(cc_cmd, " %s", argv[++i]);
-                    target = equal(argv[i-1], "x86") ? 1 : 2;
+                    m = argv[i-1];
                 } else {
-                    target = equal(argv[i]+2, "x86") ? 1 : 2;
+                    m = argv[i]+2;
                 }
+                if (equal(m, "x86"))
+                    target = X86_TARGET;
+                else if (equal(m, "vm"))
+                    target = VM_TARGET;
+                else if (equal(m, "vm64"))
+                    target = VM64_TARGET;
+            }
                 break;
             case 'o':
                 outpath = (argv[i][2]!='\0') ? argv[i]+2 : argv[++i];
@@ -443,10 +457,17 @@ err_1:
         goto done;
     }
 ok_1:
-    if (target == 2) {
+    if (target == VM_TARGET) {
         string_printf(as_cmd, get_path(VM_AS));
         string_clear(ld_cmd);
         string_printf(ld_cmd, get_path(VM_LD));
+        string_printf(ld_cmd, " %s", get_path(VM_LIBC));
+    } else if (target == VM64_TARGET) {
+        string_printf(as_cmd, get_path(VM_AS));
+        string_printf(as_cmd, " -vm64");
+        string_clear(ld_cmd);
+        string_printf(ld_cmd, get_path(VM_LD));
+        string_printf(ld_cmd, " -vm64");
         string_printf(ld_cmd, " %s", get_path(VM_LIBC));
     } else {
         char *p;
@@ -606,7 +627,7 @@ ok_1:
                 string_printf(ld_cmd, " %s", obj_tmps[i]);
             if (outpath != NULL)
                 string_printf(ld_cmd, " -o %s", outpath);
-            if (target == 1) {
+            if (target == X86_TARGET) {
                 if (musl_libc_is_installed)
                     string_printf(ld_cmd, " %s", get_path(X86_LIBC));
                 else

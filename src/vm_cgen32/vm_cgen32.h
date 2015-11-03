@@ -3,6 +3,6 @@
 
 #include <stdio.h>
 
-void vm_cgen(FILE *outf);
+void vm_cgen32(FILE *outf);
 
 #endif

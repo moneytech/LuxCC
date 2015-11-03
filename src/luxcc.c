@@ -5,18 +5,18 @@
 #include <assert.h>
 #include "parser.h"
 #include "ic.h"
-#include "vm_cgen/vm_cgen.h"
+#include "vm_cgen32/vm_cgen32.h"
 #include "x86_cgen/x86_cgen.h"
 #include "util.h"
 
 unsigned warning_count, error_count;
 int disable_warnings;
-int colored_diagnostics = 1;
+int colored_diagnostics = TRUE;
 int targeting_arch64;
 char *cg_outpath;
 char *cfg_outpath, *cfg_function_to_print;
 char *ic_outpath, *ic_function_to_print;
-int include_liblux = 1;
+int include_liblux = TRUE;
 
 unsigned stat_number_of_pre_tokens;
 unsigned stat_number_of_c_tokens;
@@ -35,14 +35,15 @@ static void missing_arg(char *opt)
 }
 
 enum {
-    OPT_PREPROCESS_ONLY = 0x01,
-    OPT_DUMP_TOKENS     = 0x02,
-    OPT_ANALYZE         = 0x04,
-    OPT_SHOW_STATS      = 0x08,
-    OPT_X86_TARGET      = 0x10,
-    OPT_VM_TARGET       = 0x20,
-    OPT_PRINT_AST       = 0x40,
-    OPT_PRINT_CG        = 0x80,
+    OPT_PREPROCESS_ONLY = 0x001,
+    OPT_DUMP_TOKENS     = 0x002,
+    OPT_ANALYZE         = 0x004,
+    OPT_SHOW_STATS      = 0x008,
+    OPT_PRINT_AST       = 0x010,
+    OPT_PRINT_CG        = 0x020,
+    OPT_X86_TARGET      = 0x040,
+    OPT_VM_TARGET       = 0x080,
+    OPT_VM64_TARGET     = 0x100,
 };
 
 int main(int argc, char *argv[])
@@ -115,6 +116,8 @@ int main(int argc, char *argv[])
                 flags |= OPT_X86_TARGET;
             else if (equal(targ, "vm"))
                 flags |= OPT_VM_TARGET;
+            else if (equal(targ, "vm64"))
+                flags |= OPT_VM64_TARGET;
         }
             break;
         case 'o':
@@ -178,10 +181,17 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    if (flags & OPT_VM_TARGET)
-        install_macro(SIMPLE_MACRO, "__LuxVM__", &newline_node, NULL);
-    else /* default target: x86 */
-        install_macro(SIMPLE_MACRO, "__x86_32__", &newline_node, NULL);
+    if (flags & OPT_VM_TARGET) {
+        install_macro(SIMPLE_MACRO, "__LuxVM__", &one_node, NULL);
+    } else if (flags & OPT_VM64_TARGET) {
+        install_macro(SIMPLE_MACRO, "__LuxVM__", &one_node, NULL);
+        install_macro(SIMPLE_MACRO, "__LP64__", &one_node, NULL);
+        targeting_arch64 = TRUE;
+        include_liblux = FALSE;
+    } else { /* default target: x86 */
+        flags |= OPT_X86_TARGET;
+        install_macro(SIMPLE_MACRO, "__x86_32__", &one_node, NULL);
+    }
 
     pre = preprocess(inpath);
     if (flags & OPT_PREPROCESS_ONLY) {
@@ -224,9 +234,7 @@ int main(int argc, char *argv[])
 
     if (error_count == 0) {
         fp = (outpath == NULL) ? stdout : fopen(outpath, "wb");
-        if (flags & OPT_VM_TARGET) {
-            vm_cgen(fp);
-        } else {
+        if (flags & OPT_X86_TARGET) {
             if (ic_function_to_print != NULL)
                 ic_outpath = replace_extension(inpath, ".ic");
             if (cfg_function_to_print != NULL)
@@ -240,6 +248,8 @@ int main(int argc, char *argv[])
                 free(cfg_outpath);
             if (cg_outpath != NULL)
                 free(cg_outpath);
+        } else if (flags & OPT_VM_TARGET) {
+            vm_cgen32(fp);
         }
     } else {
         return 1;

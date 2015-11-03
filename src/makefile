@@ -6,8 +6,8 @@ SRCS = luxcc.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c e
 
 all: $(PROG)
 
-$(PROG): $(OBJS) vm_cgen.o x86_cgen.o
-	$(CC) -o $(PROG) $(OBJS) vm_cgen.o x86_cgen.o
+$(PROG): $(OBJS) vm_cgen32.o x86_cgen.o
+	$(CC) -o $(PROG) $(OBJS) vm_cgen32.o x86_cgen.o
 .c.o:
 	$(CC) $(CFLAGS) $*.c
 clean:
@@ -16,7 +16,7 @@ depend:
 	makedepend -- $(CFLAGS) -- $(SRCS) -Y
 # DO NOT DELETE
 
-luxcc.o: parser.h lexer.h pre.h ic.h bset.h vm_cgen/vm_cgen.h x86_cgen/x86_cgen.h
+luxcc.o: parser.h lexer.h pre.h ic.h bset.h vm_cgen32/vm_cgen32.h x86_cgen/x86_cgen.h
 pre.o: pre.h util.h imp_lim.h error.h
 lexer.o: lexer.h pre.h util.h error.h
 parser.o: parser.h lexer.h pre.h util.h decl.h expr.h stmt.h error.h
@@ -32,8 +32,8 @@ bset.o: bset.h
 str.o: str.h
 dflow.o: dflow.h bset.h util.h ic.h parser.h lexer.h pre.h expr.h
 opt.o: opt.h bset.h util.h ic.h expr.h
-vm_cgen.o: vm_cgen/vm_cgen.h vm_cgen/vm_cgen.c decl.h parser.h lexer.h pre.h util.h expr.h stmt.h arena.h imp_lim.h error.h loc.h
-	$(CC) $(CFLAGS) vm_cgen/vm_cgen.c
+vm_cgen32.o: vm_cgen32/vm_cgen32.h vm_cgen32/vm_cgen32.c decl.h parser.h lexer.h pre.h util.h expr.h stmt.h arena.h imp_lim.h error.h loc.h
+	$(CC) $(CFLAGS) vm_cgen32/vm_cgen32.c
 x86_cgen.o: x86_cgen/x86_cgen.c x86_cgen/x86_cgen.h decl.h parser.h lexer.h pre.h util.h expr.h ic.h arena.h imp_lim.h \
 error.h bset.h str.h dflow.h
 	$(CC) $(CFLAGS) x86_cgen/x86_cgen.c

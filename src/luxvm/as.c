@@ -85,18 +85,18 @@ int curr_segment = TEXT_SEG;
 int text_size, data_size, bss_size;
 #define CURR_OFFS() ((curr_segment==DATA_SEG)?data_size:(curr_segment==TEXT_SEG)?text_size:bss_size)
 
-unsigned get_int(char *s)
+int get_int32(char *s)
 {
     char *ep;
 
-    return strtoul(s, &ep, 0);
+    return strtol(s, &ep, 0);
 }
 
-unsigned long long get_llong(char *s)
+long long get_int64(char *s)
 {
     char *ep;
 
-    return strtoull(s, &ep, 0);
+    return strtoll(s, &ep, 0);
 }
 
 void bss_err(void)
@@ -302,7 +302,7 @@ int main(int argc, char *argv[])
             print_stats = TRUE;
             break;
         case 'v':
-            if (equal(argv[i], "vm64"))
+            if (equal(argv[i]+1, "vm64"))
                 targeting_vm64 = TRUE;
             else
                 unk_opt(argv[i]);
@@ -439,14 +439,14 @@ void instruction(char *operation)
             else
                 write_dword(0);
         } else if (curr_tok == TOK_NUM) {
-            if (targeting_vm64)
-                write_qword(get_llong(lexeme));
+            if (op_entry->opcode == OpLdIQW)
+                write_qword(get_int64(lexeme));
             else
-                write_dword(get_int(lexeme));
+                write_dword(get_int32(lexeme));
             match(TOK_NUM);
         } else if (curr_tok == TOK_SEMI) {
             ASSEMBLER_ERR("operation `%s' requires an operand", operation);
-         } else {
+        } else {
             ASSEMBLER_ERR("invalid operand to operation `%s'", operation);
         }
     }
@@ -476,6 +476,7 @@ void globalize_symbol(char *name)
  *             "." "byte"  number |
  *             "." "word"  number |
  *             "." "dword" ( id [ "+" number ] | number ) |
+ *             "." "qword" ( id [ "+" number ] | number ) |
  *             "." "res"   number |
  *             "." "align" number |
  *             "." "zero"  number
@@ -521,30 +522,30 @@ void directive(void)
     } else if (equal(lexeme, "byte")) {
         match(TOK_ID);
         if (curr_tok == TOK_NUM)
-            write_byte(get_int(lexeme));
+            write_byte(get_int32(lexeme));
         match(TOK_NUM);
     } else if (equal(lexeme, "word")) {
         match(TOK_ID);
         if (curr_tok == TOK_NUM)
-            write_word(get_int(lexeme));
+            write_word(get_int32(lexeme));
         match(TOK_NUM);
     } else if (equal(lexeme, "dword")) {
         match(TOK_ID);
         if (curr_tok == TOK_ID) {
             if (targeting_vm64)
-                goto dword_bad_op;
+                goto dword_bad_op; /* should be using .qword */
             append_reloc(curr_segment, CURR_OFFS(), lexeme);
             match(TOK_ID);
             if (curr_tok == TOK_PLUS) {
                 match(TOK_PLUS);
                 if (curr_tok == TOK_NUM)
-                    write_dword(get_int(lexeme));
+                    write_dword(get_int32(lexeme));
                 match(TOK_NUM);
             } else {
                 write_dword(0);
             }
         } else if (curr_tok == TOK_NUM) {
-            write_dword(get_int(lexeme));
+            write_dword(get_int32(lexeme));
             match(TOK_NUM);
         } else {
 dword_bad_op:
@@ -554,19 +555,19 @@ dword_bad_op:
         match(TOK_ID);
         if (curr_tok == TOK_ID) {
             if (!targeting_vm64)
-                goto qword_bad_op;
+                goto qword_bad_op; /* should be using .dword */
             append_reloc(curr_segment, CURR_OFFS(), lexeme);
             match(TOK_ID);
             if (curr_tok == TOK_PLUS) {
                 match(TOK_PLUS);
                 if (curr_tok == TOK_NUM)
-                    write_qword(get_llong(lexeme));
+                    write_qword(get_int64(lexeme));
                 match(TOK_NUM);
             } else {
                 write_qword(0);
             }
         } else if (curr_tok == TOK_NUM) {
-            write_qword(get_llong(lexeme));
+            write_qword(get_int64(lexeme));
             match(TOK_NUM);
         } else {
 qword_bad_op:
@@ -577,7 +578,7 @@ qword_bad_op:
         if (curr_tok == TOK_NUM) {
             if (curr_segment != BSS_SEG)
                 ASSEMBLER_ERR("`.res' can only be used in the .bss segment");
-            bss_size += get_int(lexeme);
+            bss_size += get_int32(lexeme);
         }
         match(TOK_NUM);
     } else if (equal(lexeme, "align")) {
@@ -586,7 +587,7 @@ qword_bad_op:
             int curr_size, new_size;
 
             curr_size = CURR_OFFS();
-            new_size = round_up(curr_size, get_int(lexeme));
+            new_size = round_up(curr_size, get_int32(lexeme));
             while (curr_size++ < new_size)
                 if (curr_segment == BSS_SEG)
                     ++bss_size;
@@ -599,7 +600,7 @@ qword_bad_op:
         if (curr_tok == TOK_NUM) {
             unsigned long n;
 
-            for (n = get_int(lexeme); n != 0; n--)
+            for (n = get_int32(lexeme); n != 0; n--)
                 write_byte(0);
         }
         match(TOK_NUM);
@@ -634,7 +635,7 @@ Token get_token(void)
                 save = 0;
                 if (c == '\n')
                     ++lineno;
-            } else if (isdigit(c)) {
+            } else if (isdigit(c) || c=='-') {
                 state = INNUM;
             } else if (isalpha(c) || c=='_' || c=='@') {
                 state = INID;

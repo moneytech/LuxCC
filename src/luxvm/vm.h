@@ -18,15 +18,13 @@
  * Highly inspired in Fabrice Bellard's VM for the fbcc compiler.
  */
 
-#define VM_STACK_ALIGN      4
-/*#define VM_SEG_ALIGN        16*/
-#define VM_LOCAL_START      4
-#define VM_LOCAL_PARAM_END -8
+#define VM32_STACK_ALIGN      4
+#define VM32_LOCAL_START      4
+#define VM32_LOCAL_PARAM_END -8
 
-#define VM_CHAR_SIZE        1
-#define VM_SHORT_SIZE       2
-#define VM_INT_SIZE         4
-#define VM_POINTER_SIZE     4
+#define VM64_STACK_ALIGN      8
+#define VM64_LOCAL_START      8
+#define VM64_LOCAL_PARAM_END -16
 
 /*
  *      Base types
@@ -35,7 +33,9 @@
  *   ub  = unsigned 8 bits
  *   w   = signed 16 bits
  *   uw  = unsigned 16 bits
- *   dw  = 32 bits (signed or unsigned, it doesn't matter)
+ *   dw  = signed 32 bits
+ *   udw = unsigned 32 bits
+ *   qw  = 64 bits value
  */
 enum {
     OpHalt,
@@ -52,43 +52,66 @@ enum {
     OpStQW,
     OpStN,
     OpMemCpy,
-    OpAdd,
-    OpSub,
-    OpMul,
-    OpSDiv,
-    OpUDiv,
-    OpSMod,
-    OpUMod,
-    OpNeg,
-    OpCmpl,
-    OpNot,
-    OpSLT,
-    OpULT,
-    OpSLET,
-    OpULET,
-    OpSGT,
-    OpUGT,
-    OpSGET,
-    OpUGET,
-    OpEQ,
-    OpNEQ,
-    OpAnd,
-    OpOr,
-    OpXor,
-    OpSLL,
-    OpSRL,
-    OpSRA,
+    OpAddDW,
+    OpAddQW,
+    OpSubDW,
+    OpSubQW,
+    OpMulDW,
+    OpMulQW,
+    OpSDivDW,
+    OpSDivQW,
+    OpUDivDW,
+    OpUDivQW,
+    OpSModDW,
+    OpSModQW,
+    OpUModDW,
+    OpUModQW,
+    OpNegDW,
+    OpNegQW,
+    OpCmplDW,
+    OpCmplQW,
+    OpNotDW,
+    OpNotQW,
+    OpSLTDW,
+    OpSLTQW,
+    OpULTDW,
+    OpULTQW,
+    OpSLETDW,
+    OpSLETQW,
+    OpULETDW,
+    OpULETQW,
+    OpSGTDW,
+    OpSGTQW,
+    OpUGTDW,
+    OpUGTQW,
+    OpSGETDW,
+    OpSGETQW,
+    OpUGETDW,
+    OpUGETQW,
+    OpEQDW,
+    OpEQQW,
+    OpNEQDW,
+    OpNEQQW,
+    OpAndDW,
+    OpAndQW,
+    OpOrDW,
+    OpOrQW,
+    OpXorDW,
+    OpXorQW,
+    OpSLLDW,
+    OpSLLQW,
+    OpSRLDW,
+    OpSRLQW,
+    OpSRADW,
+    OpSRAQW,
     OpDW2B,
     OpDW2UB,
     OpDW2W,
     OpDW2UW,
-    OpQW2B,
-    OpQW2UB,
-    OpQW2W,
-    OpQW2UW,
-    OpQW2DW,
-    OpQW2UDW,
-    OpLdI,
+    OpDW2QW,
+    OpUDW2QW,
+    OpLdIDW,
+    OpLdIQW,
     OpLdBP,
     OpJmpF,
     OpJmpT,

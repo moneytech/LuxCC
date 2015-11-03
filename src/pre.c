@@ -37,6 +37,7 @@ typedef enum {
 typedef struct Macro Macro;
 
 static char *default_angle_dirs[] = {
+    "include/",
     "src/lib/include/",
     "/usr/local/lib/luxcc/include/",
 };

@@ -2,7 +2,12 @@
 #define EXPR_H_
 
 #include "parser.h"
-// #include <setjmp.h>
+
+#define LLONG_RANK  5
+#define LONG_RANK   4
+#define INT_RANK    3
+#define SHORT_RANK  2
+#define CHAR_RANK   1
 
 void analyze_primary_expression(ExecNode *e);
 void analyze_postfix_expression(ExecNode *e);

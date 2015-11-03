@@ -8,6 +8,7 @@
 #include "../util.h"
 
 char *prog_name;
+int targeting_vm64;
 
 /*
  * Segments.
@@ -18,7 +19,8 @@ char text_seg[TEXT_SEG_MAX];
 char data_seg[DATA_SEG_MAX];
 int text_size, data_size, bss_size;
 #define SEG_SIZ(seg) ((seg==DATA_SEG)?data_size:(seg==TEXT_SEG)?text_size:bss_size)
-#define MAX_ALIGN       4 /* most restrictive alignment */
+#define MAX_ALIGN32     4
+#define MAX_ALIGN64     8
 
 /*
  * Symbols.
@@ -194,6 +196,12 @@ void err_no_input(void)
     exit(1);
 }
 
+void unk_opt(char *opt)
+{
+    fprintf(stderr, "%s: unknown option `%s'\n", prog_name, opt);
+    exit(1);
+}
+
 int main(int argc, char *argv[])
 {
     /*
@@ -232,11 +240,13 @@ int main(int argc, char *argv[])
     char *outpath;
     char *infiles[64];
     int ninf;
+    int print_stats;
 
     prog_name = argv[0];
     if (argc == 1)
         err_no_input();
     ninf = 0;
+    print_stats = FALSE;
     outpath = "a.out.vme";
     for (i = 1; i < argc; i++) {
         if (argv[i][0] != '-') {
@@ -254,18 +264,29 @@ int main(int argc, char *argv[])
                 outpath = argv[++i];
             }
             break;
+        case 's':
+            print_stats = TRUE;
+            break;
+        case 'v':
+            if (equal(argv[i]+1, "vm64"))
+                targeting_vm64 = TRUE;
+            else
+                unk_opt(argv[i]);
+            break;
         case 'h':
             printf("usage: %s [ options ] <input-file> ...\n"
                    "  The available options are:\n"
                    "    -o<file>    write output to <file>\n"
+                   "    -s          print linking stats\n"
+                   "    -vm64       output a 64-bit executable (32-bit is the default)\n"
                    "    -h          print this help\n", prog_name);
             exit(0);
             break;
         case '\0':
             break;
         default:
-            fprintf(stderr, "%s: unknown option `%s'\n", prog_name, argv[i]);
-            exit(1);
+            unk_opt(argv[i]);
+            break;
         }
     }
     if (ninf == 0)
@@ -332,10 +353,16 @@ int main(int argc, char *argv[])
             s = lookup_symbol(name);
             if (s->kind != EXTERN_SYM) {
                 if (segment == TEXT_SEG) {
-                    *(int *)&text_seg[SEG_SIZ(segment)+offset] += s->offset;
+                    if (targeting_vm64)
+                        *(long long *)&text_seg[SEG_SIZ(segment)+offset] += s->offset;
+                    else
+                        *(int *)&text_seg[SEG_SIZ(segment)+offset] += s->offset;
                     append_text_reloc(s->segment, SEG_SIZ(segment)+offset, NULL);
                 } else {
-                    *(int *)&data_seg[SEG_SIZ(segment)+offset] += s->offset;
+                    if (targeting_vm64)
+                        *(long long *)&data_seg[SEG_SIZ(segment)+offset] += s->offset;
+                    else
+                        *(int *)&data_seg[SEG_SIZ(segment)+offset] += s->offset;
                     append_data_reloc(s->segment, SEG_SIZ(segment)+offset, NULL);
                 }
             } else {
@@ -350,9 +377,15 @@ int main(int argc, char *argv[])
             }
         }
 
-        bss_size  += round_up(curr_bss_size,  MAX_ALIGN);
-        data_size += round_up(curr_data_size, MAX_ALIGN);
-        text_size += round_up(curr_text_size, MAX_ALIGN);
+        if (targeting_vm64) {
+            bss_size  += round_up(curr_bss_size,  MAX_ALIGN64);
+            data_size += round_up(curr_data_size, MAX_ALIGN64);
+            text_size += round_up(curr_text_size, MAX_ALIGN64);
+        } else {
+            bss_size  += round_up(curr_bss_size,  MAX_ALIGN32);
+            data_size += round_up(curr_data_size, MAX_ALIGN32);
+            text_size += round_up(curr_text_size, MAX_ALIGN32);
+        }
         reset_local_table();
         fclose(fin);
     }
@@ -368,7 +401,10 @@ int main(int argc, char *argv[])
 
             if ((s=lookup_global_symbol(text_relocation_table[i].symbol))->kind == EXTERN_SYM)
                 TERMINATE("%s: undefined reference to `%s'", prog_name, s->name);
-            *(int *)&text_seg[text_relocation_table[i].offset] += s->offset;
+            if (targeting_vm64)
+                *(long long *)&text_seg[text_relocation_table[i].offset] += s->offset;
+            else
+                *(int *)&text_seg[text_relocation_table[i].offset] += s->offset;
             text_relocation_table[i].segment = s->segment;
         }
     }
@@ -378,7 +414,10 @@ int main(int argc, char *argv[])
 
             if ((s=lookup_global_symbol(data_relocation_table[i].symbol))->kind == EXTERN_SYM)
                 TERMINATE("%s: undefined reference to `%s'", prog_name, s->name);
-            *(int *)&data_seg[data_relocation_table[i].offset] += s->offset;
+            if (targeting_vm64)
+                *(long long *)&data_seg[data_relocation_table[i].offset] += s->offset;
+            else
+                *(int *)&data_seg[data_relocation_table[i].offset] += s->offset;
             data_relocation_table[i].segment = s->segment;
         }
     }
@@ -406,8 +445,13 @@ int main(int argc, char *argv[])
     }
     fclose(fout);
 
-    // printf("text_size=%d, data_size=%d, bss_size=%d, ndreloc=%d, ntreloc=%d\n", text_size,
-    // data_size, bss_size, ndreloc, ntreloc);
+    if (print_stats) {
+        printf("Text size: %d\n", text_size);
+        printf("Data size: %d\n", data_size);
+        printf("Bss size: %d\n", bss_size);
+        printf("Number of text relocations: %d\n", ntreloc);
+        printf("Number of data relocations: %d\n", ndreloc);
+    }
 
     return 0;
 }

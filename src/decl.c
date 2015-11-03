@@ -629,7 +629,7 @@ int is_typedef_name(char *id)
     return FALSE;
 }
 
-static long en_val = -1;
+static int en_val = -1;
 
 void reset_enum_val(void)
 {
