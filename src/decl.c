@@ -1357,7 +1357,12 @@ scalar:
         if (is_const_expr) {
             Token cat;
 
-            if ((cat=get_type_category(&dest_ty))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG)
+            /*
+             * We want to disallow pointers values to initialize
+             * long long variables on 32-bit platforms.
+             */
+            if (!targeting_arch64
+            && ((cat=get_type_category(&dest_ty))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG))
                 (void)eval_const_expr(e, FALSE, TRUE);
             else
                 (void)eval_const_expr(e, FALSE, FALSE);

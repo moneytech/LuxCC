@@ -1,7 +1,7 @@
 /*
     Code generator for the 32-bit VM.
 */
-#include "vm_cgen32.h"
+#include "vm32_cgen.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -641,7 +641,6 @@ void expression_statement(ExecNode *s)
     emitln("pop;");
     if (is_integer(cat=get_type_category(&s->child[0]->type)) && get_rank(cat)==LLONG_RANK)
         emitln("pop;");
-
 }
 
 /*
@@ -697,20 +696,18 @@ static void install_switch_label(long long val, int is_default, unsigned lab)
 
 void switch_statement(ExecNode *s)
 {
-    Token cat;
     unsigned ST, EXIT;
-    int i, st_size, is_ll;
+    int i, st_size, ce64;
     SwitchLabel *search_table[MAX_CASE_LABELS], *np;
-
-    is_ll = (get_rank(cat=get_type_category(&s->child[0]->type)) == LLONG_RANK);
 
     /*
      * Controlling expression.
      */
+    ce64 = (get_rank(get_type_category(&s->child[0]->type)) == LLONG_RANK);
     ST = new_label();
     expression(s->child[0], FALSE);
     emitln("ldidw @T%d;", ST);
-    emitln("%s;", is_ll ? "switch2" : "switch");
+    emitln("%s;", ce64 ? "switch2" : "switch");
 
     /*
      * Body.
@@ -745,7 +742,7 @@ void switch_statement(ExecNode *s)
     if (st_size == 0) {
         /* if there are no labels at all, the body of the switch is skipped */
         emitln(".dword 1");
-        if (is_ll)
+        if (ce64)
             emitln(".dword 0");
         emitln(".dword @L%d", EXIT);
         emitln(".text");
@@ -762,11 +759,11 @@ void switch_statement(ExecNode *s)
         emitln(".dword %d", st_size);
         i = 1;
     }
-    if (is_ll)
+    if (ce64)
         emitln(".dword 0");
     while (i < st_size) {
         emitln(".dword %d", ((int *)&search_table[i]->val)[0]);
-        if (is_ll)
+        if (ce64)
             emitln(".dword %d", ((int *)&search_table[i]->val)[1]);
         ++i;
     }
@@ -871,7 +868,10 @@ void expr_convert(ExecNode *e, Declaration *dest)
     case TOK_LONG_LONG:
     case TOK_UNSIGNED_LONG_LONG:
         if (cat_src!=TOK_LONG_LONG && cat_src!=TOK_UNSIGNED_LONG_LONG) {
-            /* note: pointers are sign extended to match gcc's behaviour */
+            /*
+             * Note: Conversion from pointer to integer is implementation-defined (6.3.2.3#6).
+             * To match gcc's behaviour, we sign extend pointers when converting to long long.
+             */
             if (is_unsigned_int(cat_src))
                 emitln("udw2qw;");
             else
@@ -931,13 +931,6 @@ unsigned function_argument(ExecNode *arg, DeclList *param)
         emitln("ldn %d;", real_arg_size);
 
     return arg_area_size;
-}
-
-static void load_llong_retval(void)
-{
-    emitln("ldidw -4;");
-    emitln("adddw;");
-    emitln("ldqw;");
 }
 
 void expression(ExecNode *e, int is_addr)
@@ -1052,7 +1045,7 @@ void expression(ExecNode *e, int is_addr)
 #define BIN_OPS()   expression(e->child[0], FALSE), expression(e->child[1], FALSE)
 #define BIN_OPS2()  expr_convert(e->child[0], &e->type), expr_convert(e->child[1], &e->type)
         case TOK_BW_OR:
-            if (is_integer(cat=get_type_category(&e->type)) && get_rank(cat)==LLONG_RANK) {
+            if (get_rank(cat=get_type_category(&e->type)) == LLONG_RANK) {
                 BIN_OPS2();
                 emitln("orqw;");
             } else {
@@ -1061,7 +1054,7 @@ void expression(ExecNode *e, int is_addr)
             }
             break;
         case TOK_BW_XOR:
-            if (is_integer(cat=get_type_category(&e->type)) && get_rank(cat)==LLONG_RANK) {
+            if (get_rank(cat=get_type_category(&e->type)) == LLONG_RANK) {
                 BIN_OPS2();
                 emitln("xorqw;");
             } else {
@@ -1070,7 +1063,7 @@ void expression(ExecNode *e, int is_addr)
             }
             break;
         case TOK_BW_AND:
-            if (is_integer(cat=get_type_category(&e->type)) && get_rank(cat)==LLONG_RANK) {
+            if (get_rank(cat=get_type_category(&e->type)) == LLONG_RANK) {
                 BIN_OPS2();
                 emitln("andqw;");
             } else {
@@ -1163,7 +1156,7 @@ void expression(ExecNode *e, int is_addr)
 
             expression(e->child[0], FALSE);
             expr_convert(e->child[1], &int_ty);
-            if (get_rank(cat=get_type_category(&e->type)) == LLONG_RANK)
+            if (get_rank(cat) == LLONG_RANK)
                 emitln("sr%sqw;", skind);
             else
                 emitln("sr%sdw;", skind);
@@ -1181,7 +1174,7 @@ void expression(ExecNode *e, int is_addr)
                 }
             } else {
                 int i, j;
-                char *size;
+                unsigned size;
                 Declaration ty;
 
                 if (is_integer(get_type_category(&e->child[0]->type)))
@@ -1197,8 +1190,10 @@ void expression(ExecNode *e, int is_addr)
                  *      It is promoted, converted (to what?), ...
                  */
                 expr_convert(e->child[i], &e->type);
-                emitln("ldidw %d;", get_sizeof(&ty));
-                emitln("muldw;");
+                if ((size=get_sizeof(&ty)) > 1) {
+                    emitln("ldidw %d;", size);
+                    emitln("muldw;");
+                }
                 emitln("adddw;");
             }
             break;
@@ -1212,20 +1207,26 @@ void expression(ExecNode *e, int is_addr)
                     emitln("subdw;");
                 }
             } else {
+                unsigned size;
                 Declaration ty;
 
                 ty.decl_specs = e->child[0]->type.decl_specs;
                 ty.idl = e->child[0]->type.idl->child;
+                size = get_sizeof(&ty);
                 expression(e->child[0], FALSE);
                 expr_convert(e->child[1], &e->child[0]->type);
                 if (is_integer(get_type_category(&e->child[1]->type))) { /* pointer - integer */
-                    emitln("ldidw %d;", get_sizeof(&ty));
-                    emitln("muldw;");
+                    if (size > 1) {
+                        emitln("ldidw %d;", size);
+                        emitln("muldw;");
+                    }
                     emitln("subdw;");
                 } else { /* pointer - pointer */
                     emitln("subdw;");
-                    emitln("ldidw %d;", get_sizeof(&ty));
-                    emitln("sdivdw;");
+                    if (size > 1) {
+                        emitln("ldidw %d;", size);
+                        emitln("sdivdw;");
+                    }
                 }
             }
             break;
@@ -1363,7 +1364,7 @@ void expression(ExecNode *e, int is_addr)
             break;
 
         case TOK_SUBSCRIPT: {
-            char *size;
+            unsigned size;
 
             if (is_pointer(get_type_category(&e->child[0]->type))) { /* a[i] */
                 expression(e->child[0], FALSE);
@@ -1372,8 +1373,10 @@ void expression(ExecNode *e, int is_addr)
                 expression(e->child[1], FALSE);
                 expr_convert(e->child[0], &e->child[1]->type);
             }
-            emitln("ldidw %d;", get_sizeof(&e->type));
-            emitln("muldw;");
+            if ((size=get_sizeof(&e->type)) > 1) {
+                emitln("ldidw %d;", size);
+                emitln("muldw;");
+            }
             emitln("adddw;");
             if (!is_addr)
                 load(e);
@@ -1385,8 +1388,11 @@ void expression(ExecNode *e, int is_addr)
             arg_siz = function_argument(e->child[1], e->locals);
             expression(e->child[0], FALSE);
             emitln("call %d;", arg_siz);
-            if (is_integer(cat=get_type_category(&e->type)) && get_rank(cat)==LLONG_RANK)
-                load_llong_retval();
+            if (is_integer(cat=get_type_category(&e->type)) && get_rank(cat)==LLONG_RANK) {
+                emitln("ldidw -4;");
+                emitln("adddw;");
+                emitln("ldqw;");
+            }
             break;
         }
         case TOK_DOT:
@@ -1850,14 +1856,14 @@ static void function_definition(TypeExp *decl_specs, TypeExp *header)
     emitln("ret;");
 }
 
-void vm_cgen32(FILE *outf)
+void vm32_cgen(FILE *outf)
 {
     ExternId *ed;
 
     location_init();
     output_file = outf;
     output_buffer = string_new(4096);
-    int_ty.decl_specs = get_type_node(TOK_LONG);
+    int_ty.decl_specs = get_type_node(TOK_INT);
     int_ty.idl = NULL;
 
 #if 0

@@ -12,25 +12,27 @@
 #include "../util.h"
 #include "../str.h"
 
-#define PATH_TO_CC          "src/luxcc"
-#define PATH_TO_X86_AS      "src/luxas/luxas"
-#define PATH_TO_X86_LD      "src/luxld/luxld"
-#define PATH_TO_VM_AS       "src/luxvm/luxvmas"
-#define PATH_TO_VM_LD       "src/luxvm/luxvmld"
-#define GNU_LD              "ld"
+#define PATH_TO_CC              "src/luxcc"
+#define PATH_TO_X86_AS          "src/luxas/luxas"
+#define PATH_TO_X86_LD          "src/luxld/luxld"
+#define PATH_TO_VM_AS           "src/luxvm/luxvmas"
+#define PATH_TO_VM_LD           "src/luxvm/luxvmld"
+#define GNU_LD                  "ld"
 
-#define PATH_TO_VM_RUNC1    "src/lib/crt32.o"
-#define PATH_TO_VM_LIBC1    "src/lib/libc.o"
-#define PATH_TO_VM_RUNC2    "/usr/local/lib/luxcc/crt.o"
-#define PATH_TO_VM_LIBC2    "/usr/local/lib/luxcc/libc.o"
+#define PATH_TO_VM32_CRT_1      "src/lib/crt32.o"
+#define PATH_TO_VM64_CRT_1      "src/lib/crt64.o"
+#define PATH_TO_VM32_CRT_2      "/usr/local/lib/luxcc/crt32.o"
+#define PATH_TO_VM64_CRT_2      "/usr/local/lib/luxcc/crt64.o"
+#define PATH_TO_VM_LIBC_1       "src/lib/libc.o"
+#define PATH_TO_VM_LIBC_2       "/usr/local/lib/luxcc/libc.o"
 
-#define PATH_TO_LIBCONF1    "src/luxdvr/library_path.conf"
-#define PATH_TO_LIBCONF2    "/usr/local/lib/luxcc/library_path.conf"
+#define PATH_TO_LIBCONF_1       "src/luxdvr/library_path.conf"
+#define PATH_TO_LIBCONF_2       "/usr/local/lib/luxcc/library_path.conf"
 
 /* musl's default installation path */
-#define PATH_TO_MUSL_RUNC   "/usr/local/musl/lib/crt1.o "\
-                            "/usr/local/musl/lib/crti.o"
-#define PATH_TO_MUSL_LIBC   "/usr/local/musl/lib/libc.so"
+#define PATH_TO_MUSL_RUNC       "/usr/local/musl/lib/crt1.o "\
+                                "/usr/local/musl/lib/crti.o"
+#define PATH_TO_MUSL_LIBC       "/usr/local/musl/lib/libc.so"
 
 int musl_libc_is_installed;
 int verbose;
@@ -72,6 +74,8 @@ enum {
     VM_LD,
     X86_LIBC,
     VM_LIBC,
+    VM32_CRT,
+    VM64_CRT,
 };
 
 enum {
@@ -80,7 +84,11 @@ enum {
     DVR_COMP_ONLY       = 0x04,
     DVR_NOLINK          = 0x08,
     DVR_ANALYZE_ONLY    = 0x10,
+    DVR_VM32_TARGET     = 0x20,
+    DVR_VM64_TARGET     = 0x40,
+    DVR_X86_TARGET      = 0x80,
 };
+#define DVR_TARGETS (DVR_VM32_TARGET+DVR_VM64_TARGET+DVR_X86_TARGET)
 
 typedef struct InFile InFile;
 struct InFile {
@@ -144,23 +152,25 @@ char *get_path(int file)
     case CC:
         if (file_exist(PATH_TO_CC))
             return PATH_TO_CC;
-        else if (is_in_path(p = "luxcc"))
-            return p;
+        else if (is_in_path("luxcc"))
+            return "luxcc";
+        p = "core compiler (luxcc)";
         break;
 
     case X86_AS:
         if (file_exist(PATH_TO_X86_AS))
             return PATH_TO_X86_AS;
-        else if (is_in_path(p = "luxas"))
-            return p;
+        else if (is_in_path("luxas"))
+            return "luxas";
+        p = "x86 assembler (luxas)";
         break;
-
     case X86_LD:
         if (musl_libc_is_installed) {
             if (file_exist(PATH_TO_X86_LD))
                 return PATH_TO_X86_LD;
-            else if (is_in_path(p = "luxld"))
-                return p;
+            else if (is_in_path("luxld"))
+                return "luxld";
+            p = "x86 linker (luxld)";
             break;
         } else {
             return GNU_LD;
@@ -169,15 +179,16 @@ char *get_path(int file)
     case VM_AS:
         if (file_exist(PATH_TO_VM_AS))
             return PATH_TO_VM_AS;
-        else if (is_in_path(p = "luxvmas"))
-            return p;
+        else if (is_in_path("luxvmas"))
+            return "luxvmas";
+        p = "VM assembler (luxvmas)";
         break;
-
     case VM_LD:
         if (file_exist(PATH_TO_VM_LD))
             return PATH_TO_VM_LD;
-        else if (is_in_path(p = "luxvmld"))
-            return p;
+        else if (is_in_path("luxvmld"))
+            return "luxvmld";
+        p = "VM linker (luxvmld)";
         break;
 
     case X86_LIBC:
@@ -188,10 +199,10 @@ char *get_path(int file)
             char *cp;
             static char lib_path[BUFSIZ];
 
-            if (file_exist(PATH_TO_LIBCONF1))
-                fp = fopen(PATH_TO_LIBCONF1, "rb");
-            else if (file_exist(PATH_TO_LIBCONF2))
-                fp = fopen(PATH_TO_LIBCONF2, "rb");
+            if (file_exist(PATH_TO_LIBCONF_1))
+                fp = fopen(PATH_TO_LIBCONF_1, "rb");
+            else if (file_exist(PATH_TO_LIBCONF_2))
+                fp = fopen(PATH_TO_LIBCONF_2, "rb");
             else
                 break;
             cp = lib_path;
@@ -202,17 +213,30 @@ char *get_path(int file)
             return lib_path;
         }
         break;
-
     case VM_LIBC:
-        if (file_exist(PATH_TO_VM_LIBC1))
-            return PATH_TO_VM_RUNC1 " " PATH_TO_VM_LIBC1;
-        else if (file_exist(PATH_TO_VM_LIBC2))
-            return PATH_TO_VM_RUNC2 " " PATH_TO_VM_LIBC2;
+        if (file_exist(PATH_TO_VM_LIBC_1))
+            return PATH_TO_VM_LIBC_1;
+        else if (file_exist(PATH_TO_VM_LIBC_2))
+            return PATH_TO_VM_LIBC_2;
+        p = "VM C standard library (libc.o)";
+        break;
+
+    case VM32_CRT:
+        if (file_exist(PATH_TO_VM32_CRT_1))
+            return PATH_TO_VM32_CRT_1;
+        else if (file_exist(PATH_TO_VM32_CRT_2))
+            return PATH_TO_VM32_CRT_1;
+        p = "C runtime library (crt32.o)";
+        break;
+    case VM64_CRT:
+        if (file_exist(PATH_TO_VM64_CRT_1))
+            return PATH_TO_VM64_CRT_1;
+        else if (file_exist(PATH_TO_VM64_CRT_2))
+            return PATH_TO_VM64_CRT_1;
+        p = "C runtime library (crt64.o)";
         break;
     }
 
-    if (file==X86_LIBC || file==VM_LIBC)
-        p = "libc";
     fprintf(stderr, "%s: cannot find `%s'\n", prog_name, p);
     exit(1);
 }
@@ -236,22 +260,15 @@ void missing_arg(char *opt)
     exit(1);
 }
 
-enum {
-    X86_TARGET,
-    VM_TARGET,
-    VM64_TARGET,
-};
-
 int main(int argc, char *argv[])
 {
     int i, exst;
-    unsigned driver_args;
+    unsigned driver_flags;
     char *outpath, *alt_asm_tmp;
     String *cc_cmd, *as_cmd, *ld_cmd;
     InFile *c_files, *asm_files, *other_files;
     char asm_tmp[] = "/tmp/luxXXXXXX.s";
     char obj_tmp[] = "/tmp/luxXXXXXX.o";
-    int target;
 
     prog_name = argv[0];
     if (argc == 1) {
@@ -262,14 +279,14 @@ int main(int argc, char *argv[])
     /* use musl libc if it is installed */
     musl_libc_is_installed = file_exist(PATH_TO_MUSL_LIBC);
 
-    driver_args = 0;
+    driver_flags = 0;
+    driver_flags |= DVR_X86_TARGET;
     outpath = alt_asm_tmp = NULL;
     c_files = asm_files = other_files = NULL;
     cc_cmd = string_new(32);
     as_cmd = string_new(32);
     ld_cmd = string_new(32);
     string_printf(cc_cmd, get_path(CC));
-    target = X86_TARGET;
 
     for (i = 1; i < argc; i++) {
         if (argv[i][0] != '-') {
@@ -305,7 +322,7 @@ int main(int argc, char *argv[])
             case 'a':
                 if (equal(argv[i], "-analyze")) {
                     string_printf(cc_cmd, " -a");
-                    driver_args |= DVR_ANALYZE_ONLY;
+                    driver_flags |= DVR_ANALYZE_ONLY;
                 } else if (strncmp(argv[i], "-alt-asm-tmp", 12) == 0) {
                     /*
                      * This option is only used when self-compiling in x86. It is necessary
@@ -325,7 +342,7 @@ int main(int argc, char *argv[])
                 }
                 break;
             case 'c':
-                driver_args |= DVR_NOLINK;
+                driver_flags |= DVR_NOLINK;
                 break;
             case 'd':
                 if (equal(argv[i], "-dump-tokens")) {
@@ -365,7 +382,7 @@ int main(int argc, char *argv[])
                 }
                 break;
             case 'E':
-                driver_args |= DVR_PREP_ONLY;
+                driver_flags |= DVR_PREP_ONLY;
                 string_printf(cc_cmd, " -p");
                 break;
             case 'e':
@@ -379,7 +396,7 @@ int main(int argc, char *argv[])
                 }
                 break;
             case 'h':
-                driver_args |= DVR_HELP;
+                driver_flags |= DVR_HELP;
                 break;
             case 'I':
             case 'i':
@@ -402,12 +419,16 @@ int main(int argc, char *argv[])
                 } else {
                     m = argv[i]+2;
                 }
-                if (equal(m, "x86"))
-                    target = X86_TARGET;
-                else if (equal(m, "vm"))
-                    target = VM_TARGET;
-                else if (equal(m, "vm64"))
-                    target = VM64_TARGET;
+                if (equal(m, "x86")) {
+                    driver_flags &= ~DVR_TARGETS;
+                    driver_flags |= DVR_X86_TARGET;
+                } else if (equal(m, "vm32")) {
+                    driver_flags &= ~DVR_TARGETS;
+                    driver_flags |= DVR_VM32_TARGET;
+                } else if (equal(m, "vm64")) {
+                    driver_flags &= ~DVR_TARGETS;
+                    driver_flags |= DVR_VM64_TARGET;
+                }
             }
                 break;
             case 'o':
@@ -419,7 +440,7 @@ int main(int argc, char *argv[])
                 string_printf(cc_cmd, " %s", argv[i]);
                 break;
             case 'S':
-                driver_args |= DVR_COMP_ONLY;
+                driver_flags |= DVR_COMP_ONLY;
                 break;
             case 's':
                 if (equal(argv[i], "-show-stats"))
@@ -444,7 +465,7 @@ int main(int argc, char *argv[])
             }
         }
     }
-    if (outpath!=NULL && (driver_args & (DVR_PREP_ONLY|DVR_COMP_ONLY|DVR_NOLINK))) {
+    if (outpath!=NULL && (driver_flags & (DVR_PREP_ONLY|DVR_COMP_ONLY|DVR_NOLINK))) {
         if (asm_files != NULL) {
             if (asm_files->next!=NULL || c_files!=NULL)
                 goto err_1;
@@ -457,17 +478,21 @@ err_1:
         goto done;
     }
 ok_1:
-    if (target == VM_TARGET) {
+    if (driver_flags & DVR_VM32_TARGET) {
         string_printf(as_cmd, get_path(VM_AS));
+        string_printf(as_cmd, " -vm32");
         string_clear(ld_cmd);
         string_printf(ld_cmd, get_path(VM_LD));
+        string_printf(ld_cmd, " -vm32");
+        string_printf(ld_cmd, " %s", get_path(VM32_CRT));
         string_printf(ld_cmd, " %s", get_path(VM_LIBC));
-    } else if (target == VM64_TARGET) {
+    } else if (driver_flags & DVR_VM64_TARGET) {
         string_printf(as_cmd, get_path(VM_AS));
         string_printf(as_cmd, " -vm64");
         string_clear(ld_cmd);
         string_printf(ld_cmd, get_path(VM_LD));
         string_printf(ld_cmd, " -vm64");
+        string_printf(ld_cmd, " %s", get_path(VM64_CRT));
         string_printf(ld_cmd, " %s", get_path(VM_LIBC));
     } else {
         char *p;
@@ -481,7 +506,7 @@ ok_1:
     }
 
     exst = 0;
-    if (driver_args & DVR_HELP) {
+    if (driver_flags & DVR_HELP) {
         usage(FALSE);
         printf("%s", helpstr);
         goto done;
@@ -491,7 +516,7 @@ ok_1:
         exst = 1;
         goto done;
     }
-    if (driver_args & DVR_ANALYZE_ONLY) {
+    if (driver_flags & DVR_ANALYZE_ONLY) {
         InFile *fi;
 
         if (c_files == NULL)
@@ -505,7 +530,7 @@ ok_1:
                 exst = 1;
             string_set_pos(cc_cmd, pos);
         }
-    } else if (driver_args & (DVR_PREP_ONLY|DVR_COMP_ONLY)) {
+    } else if (driver_flags & (DVR_PREP_ONLY|DVR_COMP_ONLY)) {
         if (c_files == NULL)
             goto done;
         if (outpath != NULL) { /* there must be a single C input file */
@@ -524,7 +549,7 @@ ok_1:
                 string_set_pos(cc_cmd, pos);
             }
         }
-    } else if (driver_args & DVR_NOLINK) {
+    } else if (driver_flags & DVR_NOLINK) {
         if (c_files==NULL && asm_files==NULL)
             goto done;
         if (c_files != NULL)
@@ -627,7 +652,7 @@ ok_1:
                 string_printf(ld_cmd, " %s", obj_tmps[i]);
             if (outpath != NULL)
                 string_printf(ld_cmd, " -o %s", outpath);
-            if (target == X86_TARGET) {
+            if (driver_flags & DVR_X86_TARGET) {
                 if (musl_libc_is_installed)
                     string_printf(ld_cmd, " %s", get_path(X86_LIBC));
                 else

@@ -22,8 +22,8 @@
 #define VM32_LOCAL_START      4
 #define VM32_LOCAL_PARAM_END -8
 
-#define VM64_STACK_ALIGN      8
-#define VM64_LOCAL_START      8
+#define VM64_STACK_ALIGN      4
+#define VM64_LOCAL_START      4
 #define VM64_LOCAL_PARAM_END -16
 
 /*
@@ -121,9 +121,11 @@ enum {
     OpCall,
     OpRet,
     OpDup,
+    OpDup2,
     OpPop,
     OpAddSP,
     OpSwap,
+    OpSwap2,
     OpPushSP,
     OpLibCall,
     OpFill,
