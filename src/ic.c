@@ -2450,12 +2450,12 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             unsigned a1, a2, a3, a4, a5;
 
 #define CAST()\
-    if ((cat=get_type_category(&e->type)) == TOK_UNSIGNED_CHAR) {\
+    if ((cat=get_type_category(&e->type))==TOK_CHAR || cat==TOK_UNSIGNED_CHAR) {\
         a4 = new_temp_addr();\
-        emit_i(OpUCh, NULL, a4, a3, 0);\
-    } else if (cat == TOK_UNSIGNED_SHORT) {\
+        emit_i((cat==TOK_CHAR)?OpCh:OpUCh, NULL, a4, a3, 0);\
+    } else if (cat==TOK_SHORT || cat==TOK_UNSIGNED_SHORT) {\
         a4 = new_temp_addr();\
-        emit_i(OpUSh, NULL, a4, a3, 0);\
+        emit_i((cat==TOK_SHORT)?OpSh:OpUSh, NULL, a4, a3, 0);\
     } else {\
         a4 = a3;\
     }
