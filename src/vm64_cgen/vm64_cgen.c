@@ -893,7 +893,7 @@ unsigned function_argument(ExecNode *arg, DeclList *param)
      * Copy struct/unions by value.
      */
     if ((ty_cat=get_type_category(&ty))==TOK_STRUCT || ty_cat==TOK_UNION)
-        emitln("ldn %u;", real_arg_size);
+        emitln("ldn %d;", real_arg_size);
 
     return arg_area_size;
 }
@@ -1504,7 +1504,7 @@ void load_addr(ExecNode *e)
     }
 }
 
-static unsigned long long do_static_expr(ExecNode *e)
+static long long do_static_expr(ExecNode *e)
 {
     switch (e->kind.exp) {
     case OpExp:
@@ -1570,9 +1570,9 @@ static unsigned long long do_static_expr(ExecNode *e)
             assert(0);
         }
     case IConstExp:
-        return e->attr.uval;
+        return e->attr.val;
     case StrLitExp:
-        emit("@S%u+", new_string_literal(e->attr.str));
+        emit("@S%d+", new_string_literal(e->attr.str));
         return 0;
     case IdExp:
         emit("%s+", e->attr.str);
@@ -1626,8 +1626,8 @@ static void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
 
                 elem_ty.decl_specs = ds;
                 elem_ty.idl = dct->child;
-                emitln(".align %u", get_alignment(&elem_ty));
-                emitln(".zero %u", nelem*get_sizeof(&elem_ty));
+                emitln(".align %d", get_alignment(&elem_ty));
+                emitln(".zero %d", nelem*get_sizeof(&elem_ty));
             }
         }
     } else if ((ts=get_type_spec(ds))->op == TOK_STRUCT) {
@@ -1670,8 +1670,8 @@ static void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
 
                     ty.decl_specs = d->decl->decl_specs;
                     ty.idl = dct->child;
-                    emitln(".align %u", get_alignment(&ty));
-                    emitln(".zero %u", get_sizeof(&ty));
+                    emitln(".align %d", get_alignment(&ty));
+                    emitln(".zero %d", get_sizeof(&ty));
 
                     dct = dct->sibling;
                 }
@@ -1721,17 +1721,13 @@ scalar:
         case TOK_LONG:
         case TOK_UNSIGNED_LONG:
         case TOK_LONG_LONG:
-        case TOK_UNSIGNED_LONG_LONG: {
-            unsigned long long val;
-
+        case TOK_UNSIGNED_LONG_LONG:
             emitln(".align 8");
             emit(".qword ");
-            val = do_static_expr(e);
-            emitln("%llu", val);
-        }
+            emitln("%lld", do_static_expr(e));
             return;
         }
-        emitln("%lu", (unsigned long)do_static_expr(e));
+        emitln("%d", (int)do_static_expr(e));
     }
 }
 
@@ -1871,7 +1867,7 @@ void vm64_cgen(FILE *outf)
         emitln(".bss");
         emitln(".align 8");
         emitln("__temp_struct:");
-        emitln(".res %u", temp_struct_size);
+        emitln(".res %d", temp_struct_size);
         string_write(output_buffer, output_file);
         string_clear(output_buffer);
     }
