@@ -963,11 +963,11 @@ void expression(ExecNode *e, int is_addr)
             controlling_expression(e->child[0]);
             emit_jmpf(L1);
             /* e2 */
-            expression(e->child[1], FALSE);
+            expr_convert(e->child[1], &e->type);
             emit_jmp(L2);
             /* e3 */
             emit_lab(L1);
-            expression(e->child[2], FALSE);
+            expr_convert(e->child[2], &e->type);
             emit_lab(L2);
             break;
         }
@@ -1609,7 +1609,7 @@ static void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
 
             /* zero any trailing elements */
             if (n < nelem)
-                emitln(".zero %u", nelem-n);
+                emitln(".zero %d", nelem-n);
         } else {
             /*
              * Handle elements with explicit initializer.
@@ -1750,7 +1750,7 @@ void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mang
 
     /* alignment */
     if ((alignment=get_alignment(&ty)) > 1)
-        emitln(".align %u", alignment);
+        emitln(".align %d", alignment);
 
     /* label */
     if (mangle_name)
@@ -1763,7 +1763,7 @@ void static_object_definition(TypeExp *decl_specs, TypeExp *declarator, int mang
     if (initializer != NULL)
         do_static_init(ty.decl_specs, ty.idl, initializer);
     else
-        emitln(".res %u", get_sizeof(&ty));
+        emitln(".res %d", get_sizeof(&ty));
 
     if ((scs=get_sto_class_spec(decl_specs))==NULL || scs->op!=TOK_STATIC)
         emitln(".global %s", declarator->str);

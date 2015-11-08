@@ -998,11 +998,11 @@ void expression(ExecNode *e, int is_addr)
             controlling_expression(e->child[0]);
             emit_jmpf(L1);
             /* e2 */
-            expression(e->child[1], FALSE);
+            expr_convert(e->child[1], &e->type);
             emit_jmp(L2);
             /* e3 */
             emit_lab(L1);
-            expression(e->child[2], FALSE);
+            expr_convert(e->child[2], &e->type);
             emit_lab(L2);
             break;
         }
