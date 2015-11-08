@@ -120,11 +120,7 @@ static char *str_segment[] = {
 
 static int new_string_literal(unsigned a);
 static void emit_raw_string(String *q, char *s);
-static String *func_body;
-static String *func_prolog;
-static String *func_epilog;
-static String *asm_decls;
-static String *str_lits;
+static String *func_body, *func_prolog, *func_epilog, *asm_decls, *str_lits;
 #define emit(...)           (string_printf(func_body, __VA_ARGS__))
 #define emitln(...)         (string_printf(func_body, __VA_ARGS__), string_printf(func_body, "\n"))
 #define emit_prolog(...)    (string_printf(func_prolog, __VA_ARGS__))
@@ -139,7 +135,7 @@ static String *str_lits;
 static int *addr_descr_tab;
 static unsigned reg_descr_tab[X86_NREG];
 #define addr_reg(a)     (addr_descr_tab[address_nid(a)])
-#define reg_is_empty(r) (reg_descr_tab[r] == 0)
+#define reg_isempty(r)  (reg_descr_tab[r] == 0)
 static void dump_addr_descr_tab(void);
 static void dump_reg_descr_tab(void);
 
@@ -466,7 +462,7 @@ void dump_reg_descr_tab(void)
     int i;
 
     for (i = 0; i < X86_NREG; i++)
-        if (!reg_is_empty(i))
+        if (!reg_isempty(i))
             printf("%s => %s\n", x86_reg_str[i], address_sid(reg_descr_tab[i]));
 }
 
@@ -475,7 +471,7 @@ X86_Reg get_empty_reg(void)
     int i;
 
     for (i = 0; i < X86_NREG; i++) {
-        if (!pinned[i] && reg_is_empty(i)) {
+        if (!pinned[i] && reg_isempty(i)) {
             modified[i] = TRUE;
             return (X86_Reg)i;
         }
@@ -500,7 +496,7 @@ void spill_reg(X86_Reg r)
 {
     unsigned a;
 
-    if (reg_is_empty(r))
+    if (reg_isempty(r))
         return;
 
     a = reg_descr_tab[r];
@@ -529,7 +525,7 @@ void spill_aliased_objects(void)
     for (i = 0; i < X86_NREG; i++) {
         unsigned a;
 
-        if (reg_is_empty(i))
+        if (reg_isempty(i))
             continue;
         a = reg_descr_tab[i];
         if (address(a).kind==IdKind && bset_member(address_taken_variables, address_nid(a)))
@@ -787,20 +783,20 @@ void x86_store(X86_Reg r, unsigned a)
 
             cluttered = 0;
             if (r != X86_ESI) {
-                if (!reg_is_empty(X86_ESI)) {
+                if (!reg_isempty(X86_ESI)) {
                     cluttered |= 1;
                     emitln("push esi");
                 }
                 emitln("mov esi, %s", x86_reg_str[r]);
             }
             if (addr_reg(a) != X86_EDI) {
-                if (!reg_is_empty(X86_EDI)) {
+                if (!reg_isempty(X86_EDI)) {
                     cluttered |= 2;
                     emitln("push edi");
                 }
                 x86_load_addr(X86_EDI, a);
             }
-            if (!reg_is_empty(X86_ECX)) {
+            if (!reg_isempty(X86_ECX)) {
                 cluttered |= 4;
                 emitln("push ecx");
             }
@@ -1429,20 +1425,20 @@ void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
         cluttered = 0;
         if (addr_reg(arg2) != X86_ESI) {
-            if (!reg_is_empty(X86_ESI)) {
+            if (!reg_isempty(X86_ESI)) {
                 cluttered |= 1;
                 emitln("push esi");
             }
             x86_load(X86_ESI, arg2);
         }
         if (addr_reg(arg1) != X86_EDI) {
-            if (!reg_is_empty(X86_EDI)) {
+            if (!reg_isempty(X86_EDI)) {
                 cluttered |= 2;
                 emitln("push edi");
             }
             x86_load(X86_EDI, arg1);
         }
-        if (!reg_is_empty(X86_ECX)) {
+        if (!reg_isempty(X86_ECX)) {
             cluttered |= 4;
             emitln("push ecx");
         }
@@ -1572,14 +1568,14 @@ void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
         cluttered = savnb = 0;
         if (addr_reg(arg1) != X86_ESI) {
-            if (!reg_is_empty(X86_ESI)) {
+            if (!reg_isempty(X86_ESI)) {
                 cluttered |= 1;
                 emitln("push esi");
                 savnb += 4;
             }
             x86_load(X86_ESI, arg1);
         }
-        if (!reg_is_empty(X86_EDI)) {
+        if (!reg_isempty(X86_EDI)) {
             cluttered |= 2;
             emitln("push edi");
             savnb += 4;
@@ -1588,7 +1584,7 @@ void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
             emitln("mov edi, esp");
         else
             emitln("lea edi, [esp+%d]", savnb);
-        if (!reg_is_empty(X86_ECX)) {
+        if (!reg_isempty(X86_ECX)) {
             cluttered |= 4;
             emitln("push ecx");
         }
@@ -1613,19 +1609,19 @@ void x86_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
         unsigned siz;
 
         siz = get_sizeof(instruction(i).type);
-        /*if (!reg_is_empty(X86_ESI))
+        /*if (!reg_isempty(X86_ESI))
             spill_reg(X86_ESI);*/
         x86_load(X86_ESI, arg1);
         modified[X86_ESI] = TRUE;
-        if (!reg_is_empty(X86_EDI))
+        if (!reg_isempty(X86_EDI))
             spill_reg(X86_EDI);
         emitln("mov edi, dword [ebp+-4]");
         modified[X86_EDI] = TRUE;
-        if (!reg_is_empty(X86_ECX))
+        if (!reg_isempty(X86_ECX))
             spill_reg(X86_ECX);
         emitln("mov ecx, %u", siz);
         emitln("rep movsb");
-        /*if (!reg_is_empty(X86_EAX))
+        /*if (!reg_isempty(X86_EAX))
             spill_reg(X86_EAX);
         emitln("mov eax, dword [ebp-4]");*/
     }

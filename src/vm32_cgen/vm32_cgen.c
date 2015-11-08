@@ -1045,7 +1045,7 @@ void expression(ExecNode *e, int is_addr)
 #define BIN_OPS()   expression(e->child[0], FALSE), expression(e->child[1], FALSE)
 #define BIN_OPS2()  expr_convert(e->child[0], &e->type), expr_convert(e->child[1], &e->type)
         case TOK_BW_OR:
-            if (get_rank(cat=get_type_category(&e->type)) == LLONG_RANK) {
+            if (get_rank(get_type_category(&e->type)) == LLONG_RANK) {
                 BIN_OPS2();
                 emitln("orqw;");
             } else {
@@ -1054,7 +1054,7 @@ void expression(ExecNode *e, int is_addr)
             }
             break;
         case TOK_BW_XOR:
-            if (get_rank(cat=get_type_category(&e->type)) == LLONG_RANK) {
+            if (get_rank(get_type_category(&e->type)) == LLONG_RANK) {
                 BIN_OPS2();
                 emitln("xorqw;");
             } else {
@@ -1063,7 +1063,7 @@ void expression(ExecNode *e, int is_addr)
             }
             break;
         case TOK_BW_AND:
-            if (get_rank(cat=get_type_category(&e->type)) == LLONG_RANK) {
+            if (get_rank(get_type_category(&e->type)) == LLONG_RANK) {
                 BIN_OPS2();
                 emitln("andqw;");
             } else {
@@ -1143,7 +1143,7 @@ void expression(ExecNode *e, int is_addr)
         case TOK_LSHIFT:
             expression(e->child[0], FALSE);
             expr_convert(e->child[1], &int_ty);
-            if (get_rank(cat=get_type_category(&e->type)) == LLONG_RANK)
+            if (get_rank(get_type_category(&e->type)) == LLONG_RANK)
                 emitln("sllqw;");
             else
                 emitln("slldw;");
@@ -1232,7 +1232,7 @@ void expression(ExecNode *e, int is_addr)
             break;
 
         case TOK_MUL:
-            if (get_rank(cat=get_type_category(&e->type)) == LLONG_RANK) {
+            if (get_rank(get_type_category(&e->type)) == LLONG_RANK) {
                 BIN_OPS2();
                 emitln("mulqw;");
             } else {
@@ -1339,7 +1339,7 @@ void expression(ExecNode *e, int is_addr)
             char *size;
 
             expression(e->child[0], FALSE);
-            if (get_rank(cat=get_type_category(&e->type)) == LLONG_RANK)
+            if (get_rank(get_type_category(&e->type)) == LLONG_RANK)
                 size = "qw";
             else
                 size = "dw";
@@ -1419,7 +1419,7 @@ void expression(ExecNode *e, int is_addr)
         } /* switch (e->attr.op) */
         break;
     case IConstExp:
-        if (get_rank(cat=get_type_category(&e->type)) == LLONG_RANK)
+        if (get_rank(get_type_category(&e->type)) == LLONG_RANK)
             emitln("ldiqw %lld;", e->attr.val);
         else
             emitln("ldidw %d;", (int)e->attr.val);
