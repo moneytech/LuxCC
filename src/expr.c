@@ -2442,7 +2442,7 @@ long long eval_const_expr(ExecNode *e, int is_addr, int is_iconst)
         /*
          * An identifier can only appears in a constant expression
          * if its address is being computed or the address of one
-         * of its elements (arrays) or members (unions/structs) is.
+         * of its elements (arrays) or members (unions/structs) is
          * being computed. The address can be computed implicitly
          * if the identifier denotes an array or function designator.
          */

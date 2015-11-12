@@ -17,7 +17,7 @@ int targeting_arch64;
 char *cg_outpath;
 char *cfg_outpath, *cfg_function_to_print;
 char *ic_outpath, *ic_function_to_print;
-int include_liblux;
+int include_liblux = TRUE;
 
 unsigned stat_number_of_pre_tokens;
 unsigned stat_number_of_c_tokens;
@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
             flags |= OPT_DUMP_TOKENS;
             break;
         case 'z': /* only used when compiling liblux */
-            include_liblux = 0;
+            include_liblux = FALSE;
             break;
         case '\0': /* stray '-' */
             break;

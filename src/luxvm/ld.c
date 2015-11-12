@@ -337,6 +337,8 @@ int main(int argc, char *argv[])
                 define_local_symbol(name, segment, SEG_SIZ(segment)+offset);
             else
                 define_symbol(name, kind, segment, SEG_SIZ(segment)+offset);
+            // if (segment == TEXT_SEG)
+				// printf("%s, %d\n", name, SEG_SIZ(segment)+offset);
         }
 
         /* data&text */

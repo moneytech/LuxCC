@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-c -g -fwrapv -Wall -Wconversion -Wno-switch -Wno-parentheses
+CFLAGS=-c -g -fwrapv -Wall -Wconversion -Wno-switch -Wno-parentheses -Wno-sign-conversion
 PROG = luxcc
 OBJS = luxcc.o pre.o lexer.o parser.o util.o decl.o expr.o stmt.o ic.o arena.o error.o loc.o bset.o str.o dflow.o opt.o
 SRCS = luxcc.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c error.c loc.c bset.c str.c dflow.c opt.c

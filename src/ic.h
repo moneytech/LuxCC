@@ -5,8 +5,12 @@
 #include "bset.h"
 #include "decl.h" /* for ExternId */
 
-#define IC_UNSIGNED 0
-#define IC_SIGNED   1
+enum {
+    IC_UNSIGNED,
+    IC_SIGNED,
+    IC_UNSIGNED_WIDE,
+    IC_SIGNED_WIDE,
+};
 
 typedef struct Address Address;
 typedef struct Quad Quad;
@@ -42,6 +46,9 @@ typedef enum {
     OpUCh,
     OpSh,
     OpUSh,
+    /*OpInt,*/
+    OpSXLL,
+    OpZXLL,
     OpAddrOf,
     OpInd,
     OpAsn,      /* x = y */
@@ -77,8 +84,8 @@ typedef enum {
 struct Address {
     AddrKind kind;
     union {
-        long val;
-        unsigned long uval;
+        long long val;
+        unsigned long long uval;
         char *str;
         int nid;
         struct {

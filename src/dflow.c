@@ -330,6 +330,7 @@ void live_init_block(unsigned b, int exit_bb)
                 bset_insert(modified_static_objects, address_nid(tar));
         case OpNeg: case OpCmpl: case OpNot: case OpCh:
         case OpUCh: case OpSh: case OpUSh:
+        case OpSXLL: case OpZXLL:
             if (!const_addr(arg1))
                 add_UEVar(arg1);
             add_VarKill(tar);
