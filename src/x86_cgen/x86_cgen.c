@@ -93,7 +93,7 @@ static char *x86_lbreg_str[] = {
 };
 
 static int size_of_local_area;
-static char *curr_func;
+static char *curr_func, *enclosing_function;
 static unsigned temp_struct_size;
 static int big_return, qword_return;
 static int arg_stack[64], arg_stack_top;
@@ -2347,7 +2347,7 @@ static void x86_do_switch64(int i, unsigned tar, unsigned arg1, unsigned arg2)
             break;
         }
 
-        p = &address(tar).cont.uval;
+        p = (unsigned *)&address(tar).cont.uval;
         emitln("cmp %s, %u", x86_reg_str[res.r1], p[0]);
         emitln("jne .sw64L%u", nlab);
         emitln("cmp %s, %u", x86_reg_str[res.r2], p[1]);
@@ -2736,7 +2736,10 @@ void x86_static_expr(ExecNode *e)
         emit_decl("_@S%d", string_literals_counter++);
         break;
     case IdExp:
-        emit_decl("$%s", e->attr.str);
+        if (e->attr.var.linkage == LINKAGE_NONE)
+            emit_decl("$%s@%s", enclosing_function, e->attr.str);
+        else
+            emit_decl("$%s", e->attr.str);
         break;
     }
 }
@@ -2892,7 +2895,7 @@ void x86_allocate_static_objects(void)
             if (al > 1)
                 emit_declln("alignb %u", al);
         }
-        if (np->enclosing_function != NULL) { /* static local */
+        if ((enclosing_function=np->enclosing_function) != NULL) { /* static local */
             emit_declln("$%s@%s:", np->enclosing_function, np->declarator->str);
         } else {
             TypeExp *scs;

@@ -1575,7 +1575,10 @@ static long long do_static_expr(ExecNode *e)
         emit("@S%d+", new_string_literal(e->attr.str));
         return 0;
     case IdExp:
-        emit("%s+", e->attr.str);
+        if (e->attr.var.linkage == LINKAGE_NONE)
+            emit("@%s_%s+", curr_func_name, e->attr.str);
+        else
+            emit("%s+", e->attr.str);
         return 0;
     }
 }

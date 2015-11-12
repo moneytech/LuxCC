@@ -39,7 +39,7 @@
 #define DATA_SEG_MAX        65536
 #define HASH_SIZE           1009
 #define HASH(s)             (hash(s)%HASH_SIZE)
-#define RELOC_TABLE_SIZE    4096
+#define RELOC_TABLE_SIZE    8192
 
 typedef struct Reloc Reloc;
 typedef struct Symbol Symbol;
