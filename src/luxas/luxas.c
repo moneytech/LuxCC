@@ -31,9 +31,11 @@
     pseudo_instruction = "resb" crit_expr |
                          "resw" crit_expr |
                          "resd" crit_expr |
+                         "resq" crit_expr |
                          "db" OR_expr { "," OR_expr } |
                          "dw" OR_expr { "," OR_expr } |
-                         "dd" OR_expr { "," OR_expr }
+                         "dd" OR_expr { "," OR_expr } |
+                         "dq" OR_expr { "," OR_expr }
     crit_expr = same as OR_expr but cannot reference future symbols
 
         Tokens
@@ -87,9 +89,11 @@ typedef enum {
     TOK_RESB,
     TOK_RESW,
     TOK_RESD,
+    TOK_RESQ,
     TOK_DB,
     TOK_DW,
     TOK_DD,
+    TOK_DQ,
     TOK_REP,
     TOK_REPE,
     TOK_REPZ,
@@ -143,7 +147,7 @@ typedef enum {
 
 #define ISSIZ(tok) (tok>=TOK_BYTE    && tok<=TOK_DWORD)
 #define ISDIR(tok) (tok>=TOK_SECTION && tok<=TOK_ALIGNB)
-#define ISPSE(tok) (tok>=TOK_RESB    && tok<=TOK_DD)
+#define ISPSE(tok) (tok>=TOK_RESB    && tok<=TOK_DQ)
 #define ISPRE(tok) (tok>=TOK_REP     && tok<=TOK_TIMES)
 #define ISREG(tok) (tok>=TOK_AL      && tok<=TOK_EDI)
 #define REGENC(r)  ((r<TOK_AX) ? r-TOK_AL : (r<TOK_EAX) ? r-TOK_AX : r-TOK_EAX)
@@ -352,6 +356,17 @@ void write_dword(int d)
     curr_section->LC += 4;
 }
 
+void write_qword(long long q)
+{
+    if (curr_section == NULL)
+        set_curr_section(DEF_SEC);
+    else if (curr_section->last->avail+8 > curr_section->last->limit)
+        expand_curr_section();
+    *(long long *)curr_section->last->avail = q;
+    curr_section->last->avail += 8;
+    curr_section->LC += 8;
+}
+
 #define Reg_mode            0x000001 /* reg */
 #define Imm_mode            0x000002 /* imm */
 #define Dir_mode            0x000004 /* [ disp32 ] */
@@ -369,6 +384,7 @@ void write_dword(int d)
 /* special */
 #define Reg_CL_mode         0x002000
 #define Imm_1_mode          0x004000
+#define Qword               0x008000
 /* r/m operand */
 #define rm  (Reg_mode|Dir_mode|RegInd_mode|Based_mode|Index_mode|BasedIndex_mode|BasedIndexDisp_mode)
 /* assembling instructions */
@@ -391,6 +407,7 @@ enum {
 
 /* instruction classes */
 typedef enum {
+    op_adc,
     op_add,     op_and,     op_call,    op_cdq,
     op_cmp,     op_dec,     op_div,     op_idiv,
     op_imul,    op_inc,     op_ja,      op_jae,
@@ -400,11 +417,11 @@ typedef enum {
     op_movsd,   op_movsw,   op_movsx,   op_movzx,
     op_neg,     op_nop,     op_not,     op_or,
     op_pop,     op_push,    op_ret,     op_sal,
-    op_sar,     op_seta,    op_setae,   op_setb,
-    op_setbe,   op_sete,    op_setg,    op_setge,
-    op_setl,    op_setle,   op_setne,   op_shl,
-    op_shr,     op_sub,     op_test,    op_xchg,
-    op_xor,
+    op_sar,     op_sbb,     op_seta,    op_setae,
+    op_setb,    op_setbe,   op_sete,    op_setg,
+    op_setge,   op_setl,    op_setle,   op_setne,
+    op_shl,     op_shr,     op_sub,     op_test,
+    op_xchg,    op_xor,
 } InstrClass;
 
 /*
@@ -635,6 +652,30 @@ struct {
     { op_xor,  0,  0x31,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
     { op_xor,  0,  0x32,   -1,     Reg_mode|Byte,      rm|Byte,                I_RM },
     { op_xor,  0,  0x33,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
+    /* ADC */
+    { op_adc,  0,  0x83,   0x02,   rm|Word|Dword,      Imm_mode|Byte,          I_MI },
+    { op_adc,  0,  0x14,   -1,     Acc_mode|Byte,      Imm_mode|Byte,          I_AI },
+    { op_adc,  0,  0x15,   -1,     Acc_mode|Word,      Imm_mode|Word,          I_AI },
+    { op_adc,  0,  0x15,   -1,     Acc_mode|Dword,     Imm_mode|Dword,         I_AI },
+    { op_adc,  0,  0x80,   0x02,   rm|Byte,            Imm_mode|Byte,          I_MI },
+    { op_adc,  0,  0x81,   0x02,   rm|Word,            Imm_mode|Word,          I_MI },
+    { op_adc,  0,  0x81,   0x02,   rm|Dword,           Imm_mode|Dword,         I_MI },
+    { op_adc,  0,  0x10,   -1,     rm|Byte,            Reg_mode|Byte,          I_MR },
+    { op_adc,  0,  0x11,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
+    { op_adc,  0,  0x12,   -1,     Reg_mode|Byte,      rm|Byte,                I_RM },
+    { op_adc,  0,  0x13,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
+    /* SBB */
+    { op_sbb,  0,  0x83,   0x03,   rm|Word|Dword,      Imm_mode|Byte,          I_MI },
+    { op_sbb,  0,  0x1C,   -1,     Acc_mode|Byte,      Imm_mode|Byte,          I_AI },
+    { op_sbb,  0,  0x1D,   -1,     Acc_mode|Word,      Imm_mode|Word,          I_AI },
+    { op_sbb,  0,  0x1D,   -1,     Acc_mode|Dword,     Imm_mode|Dword,         I_AI },
+    { op_sbb,  0,  0x80,   0x03,   rm|Byte,            Imm_mode|Byte,          I_MI },
+    { op_sbb,  0,  0x81,   0x03,   rm|Word,            Imm_mode|Word,          I_MI },
+    { op_sbb,  0,  0x81,   0x03,   rm|Dword,           Imm_mode|Dword,         I_MI },
+    { op_sbb,  0,  0x18,   -1,     rm|Byte,            Reg_mode|Byte,          I_MR },
+    { op_sbb,  0,  0x19,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
+    { op_sbb,  0,  0x1A,   -1,     Reg_mode|Byte,      rm|Byte,                I_RM },
+    { op_sbb,  0,  0x1B,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
     /* DUMMY ENTRY */
     { -1,      0,      0,  -1,     0,                  0,                      0 }
 };
@@ -644,6 +685,7 @@ struct {
     char *mne;
     int ote;
 } mne2ote[] = { /* sorted for bsearch() */
+    { "adc",    182 },
     { "add",    0 },
     { "and",    11 },
     { "call",   22 },
@@ -681,6 +723,7 @@ struct {
     { "ret",    116 },
     { "sal",    118 },
     { "sar",    124 },
+    { "sbb",    193 },
     { "seta",   130 },
     { "setae",  131 },
     { "setb",   132 },
@@ -706,7 +749,7 @@ struct Operand {
     short kind;             /* ABS/REL */
     unsigned addr_mode;
     union {
-        int val;
+        long long val;
         Operand *child[2];
         struct {
             char *name;
@@ -778,9 +821,9 @@ void bad_expr(Operand *e)
     err2(e, "invalid operand type");
 }
 
-int eval_expr(Operand *e, bool pass2)
+long long eval_expr(Operand *e, bool pass2)
 {
-    int res;
+    long long res;
 
     switch (e->op) {
 #define CHECK_BINOP()\
@@ -815,7 +858,7 @@ int eval_expr(Operand *e, bool pass2)
         CHECK_BINOP();
         break;
     case TOK_RSHIFT:
-        res = (unsigned)L>>R;
+        res = (unsigned long long)L>>R;
         CHECK_BINOP();
         break;
     case TOK_MUL:
@@ -827,7 +870,7 @@ int eval_expr(Operand *e, bool pass2)
         CHECK_BINOP();
         break;
     case TOK_UDIV:
-        res = (unsigned)L/(unsigned)R;
+        res = (unsigned long long)L/(unsigned long long)R;
         CHECK_BINOP();
         break;
     case TOK_MOD:
@@ -835,7 +878,7 @@ int eval_expr(Operand *e, bool pass2)
         CHECK_BINOP();
         break;
     case TOK_UMOD:
-        res = (unsigned)L%(unsigned)R;
+        res = (unsigned long long)L%(unsigned long long)R;
         CHECK_BINOP();
         break;
 
@@ -956,9 +999,9 @@ void resolve_expressions(void)
 
     n = unresolved_expressions_list;
     while (n != NULL) {
-        int res;
         Reloc *r;
         Symbol *s;
+        long long res;
 
         r = NULL;
         res = eval_expr(n->expr, TRUE);
@@ -978,9 +1021,11 @@ void resolve_expressions(void)
                     r = new_reloc(RELOC_REL|RELOC_SIZ16, n->loc.offs, s);
                     break;*/
                 case Dword:
-                    *(int *)n->dest = res-4;
+                    *(int *)n->dest = (int)(res-4);
                     r = new_reloc(RELOC_REL|RELOC_SIZ32, n->loc.offs, s);
                     break;
+                case Qword:
+                    assert(0); /* TBD */
                 }
             } else { /* target is absolute or relocatable with respect to this same section */
                 switch (n->size) {
@@ -991,8 +1036,10 @@ void resolve_expressions(void)
                     *(short *)n->dest = (short)(res-(n->loc.offs+2));
                     break;*/
                 case Dword:
-                    *(int *)n->dest = res-(n->loc.offs+4);
+                    *(int *)n->dest = (int)(res-(n->loc.offs+4));
                     break;
+                case Qword:
+                    assert(0); /* TBD */
                 }
             }
         } else {
@@ -1004,7 +1051,10 @@ void resolve_expressions(void)
                 *(short *)n->dest = (short)res;
                 break;
             case Dword:
-                *(int *)n->dest = res;
+                *(int *)n->dest = (int)res;
+                break;
+            case Qword:
+                *(long long *)n->dest = res;
                 break;
             }
 
@@ -1021,6 +1071,8 @@ void resolve_expressions(void)
                 case Dword:
                     r = new_reloc(RELOC_ABS|RELOC_SIZ32, n->loc.offs, s);
                     break;
+                case Qword:
+                    assert(0); /* TBD */
                 }
             }
         }
@@ -1057,7 +1109,7 @@ void dump_section(Section *s)
 }
 
 int read_line(void);
-int str2int(char *s);
+long long str2int(char *s);
 void init(char *file_path);
 Token curr_tok;
 Token get_token(void);
@@ -1157,7 +1209,6 @@ Operand *MUL_expr(void);
 Operand *UNARY_expr(void);
 Operand *PRIMARY_expr(void);
 Operand *eff_addr(void);
-int eval_expr(Operand *e, bool pass2);
 void match(Token expected);
 void encode_rm_opnd(char *mod_rm, Operand *op, unsigned addr_mode);
 void encode_sib(int scale, Token index, Token base);
@@ -1389,7 +1440,7 @@ void emit_i(int ote, Operand *op1, Operand *op2)
     char *opcode;
     unsigned char mod_rm = 0;
 
-    --line_number; /* the lexer already read the '\n' that follows the instruction */
+    --line_number; /* the lexer has already read the '\n' that follows the instruction */
 
     if (op1!=NULL && op2!=NULL) {
         bool size_mismatch = FALSE;
@@ -1694,9 +1745,11 @@ void directive(void)
    pseudo_instruction = "resb" crit_expr |
                         "resw" crit_expr |
                         "resd" crit_expr |
+                        "resq" crit_expr |
                         "db" OR_expr { "," OR_expr } |
                         "dw" OR_expr { "," OR_expr } |
-                        "dd" OR_expr { "," OR_expr }
+                        "dd" OR_expr { "," OR_expr } |
+                        "dq" OR_expr { "," OR_expr }
  */
 void source_line(void)
 {
@@ -1771,13 +1824,17 @@ start:
         case TOK_RESB:
         case TOK_RESW:
         case TOK_RESD:
+        case TOK_RESQ:
             if (!setjmp(env)) {
                 int val, siz;
                 Operand *arg;
 
-                if (curr_tok == TOK_RESB) siz = 1;
-                else if (curr_tok == TOK_RESW) siz = 2;
-                else siz = 4;
+                switch (curr_tok) {
+                case TOK_RESB: siz = 1; break;
+                case TOK_RESW: siz = 2; break;
+                case TOK_RESD: siz = 4; break;
+                case TOK_RESQ: siz = 8; break;
+                }
                 match(curr_tok);
                 arg = OR_expr();
                 val = eval_expr(arg, FALSE);
@@ -1825,6 +1882,18 @@ start:
                 match(TOK_COMMA);
                 write_dword(0);
                 new_unr_expr(OR_expr(), GET_POS()-4, Dword, LC()-4, curr_section, FALSE);
+            }
+            break;
+        case TOK_DQ:
+            match(TOK_DQ);
+            if (curr_section == NULL)
+                set_curr_section(DEF_SEC);
+            write_qword(0);
+            new_unr_expr(OR_expr(), GET_POS()-8, Qword, LC()-8, curr_section, FALSE);
+            while (curr_tok == TOK_COMMA) {
+                match(TOK_COMMA);
+                write_qword(0);
+                new_unr_expr(OR_expr(), GET_POS()-8, Qword, LC()-8, curr_section, FALSE);
             }
             break;
         }
@@ -2295,6 +2364,7 @@ struct RWord {
     { "dh",     TOK_DH      },
     { "di",     TOK_DI      },
     { "dl",     TOK_DL      },
+    { "dq",     TOK_DQ      },
     { "dw",     TOK_DW      },
     { "dword",  TOK_DWORD   },
     { "dx",     TOK_DX      },
@@ -2315,6 +2385,7 @@ struct RWord {
     { "repz",   TOK_REPZ    },
     { "resb",   TOK_RESB    },
     { "resd",   TOK_RESD    },
+    { "resq",   TOK_RESQ    },
     { "resw",   TOK_RESW    },
     { "section",TOK_SECTION },
     { "segment",TOK_SECTION },
@@ -2560,11 +2631,11 @@ void init(char *file_path)
     }
 }
 
-int str2int(char *s)
+long long str2int(char *s)
 {
     char *ep;
 
-    return (int)strtoul(s, &ep, 0);
+    return (long long)strtoull(s, &ep, 0);
 }
 
 /* report pass 1 errors */

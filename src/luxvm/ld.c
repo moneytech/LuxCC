@@ -1,3 +1,6 @@
+/*
+    Small linker for the 32 and 64 bits Lux VM.
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>

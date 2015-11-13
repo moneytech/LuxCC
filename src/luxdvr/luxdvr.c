@@ -25,6 +25,7 @@
 #define PATH_TO_VM64_CRT_2      "/usr/local/lib/luxcc/crt64.o"
 #define PATH_TO_VM_LIBC_1       "src/lib/libc.o"
 #define PATH_TO_VM_LIBC_2       "/usr/local/lib/luxcc/libc.o"
+#define PATH_TO_LIBLUX          "src/lib/liblux.o"
 
 #define PATH_TO_LIBCONF_1       "src/luxdvr/library_path.conf"
 #define PATH_TO_LIBCONF_2       "/usr/local/lib/luxcc/library_path.conf"
@@ -158,12 +159,11 @@ char *get_path(int file)
         break;
 
     case X86_AS:
-        /*if (file_exist(PATH_TO_X86_AS))
+        if (file_exist(PATH_TO_X86_AS))
             return PATH_TO_X86_AS;
         else if (is_in_path("luxas"))
             return "luxas";
-        p = "x86 assembler (luxas)";*/
-        return "nasm -f elf";
+        p = "x86 assembler (luxas)";
         break;
     case X86_LD:
         if (musl_libc_is_installed) {
@@ -194,7 +194,7 @@ char *get_path(int file)
 
     case X86_LIBC:
         if (musl_libc_is_installed) {
-            return "src/lib/liblux.o " PATH_TO_MUSL_RUNC " " PATH_TO_MUSL_LIBC;
+            return PATH_TO_LIBLUX " " PATH_TO_MUSL_RUNC " " PATH_TO_MUSL_LIBC;
         } else { /* get the paths from the .conf file */
             FILE *fp;
             char *cp;
@@ -207,8 +207,8 @@ char *get_path(int file)
             else
                 break;
             cp = lib_path;
-            strcpy(lib_path, "src/lib/liblux.o ");
-            cp += strlen("src/lib/liblux.o ");
+            strcpy(lib_path, PATH_TO_LIBLUX " ");
+            cp += strlen(PATH_TO_LIBLUX)+1;
             while (fgets(cp, 0x7FFFFFFF, fp) != NULL) {
                 cp += strlen(cp)-1;
                 *cp++ = ' ';
@@ -280,7 +280,7 @@ int main(int argc, char *argv[])
     }
 
     /* use musl libc if it is installed */
-    musl_libc_is_installed = 0;//file_exist(PATH_TO_MUSL_LIBC);
+    musl_libc_is_installed = file_exist(PATH_TO_MUSL_LIBC);
 
     driver_flags = 0;
     driver_flags |= DVR_X86_TARGET;

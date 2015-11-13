@@ -471,9 +471,9 @@ void dump_addr_descr_tab(void)
         ad = addr_descr_tab[i];
         if (ad.r1 != -1) {
             if (ad.r2 != -1)
-                printf("%s => %s:%s\n", nid2sid_tab[i], x86_reg_str[ad.r1], x86_reg_str[ad.r2]);
+                fprintf(stderr, "%s => %s:%s\n", nid2sid_tab[i], x86_reg_str[ad.r1], x86_reg_str[ad.r2]);
             else
-                printf("%s => %s\n", nid2sid_tab[i], x86_reg_str[ad.r1]);
+                fprintf(stderr, "%s => %s\n", nid2sid_tab[i], x86_reg_str[ad.r1]);
         }
     }
 }
@@ -484,7 +484,7 @@ void dump_reg_descr_tab(void)
 
     for (i = 0; i < X86_NREG; i++)
         if (!reg_isempty(i))
-            printf("%s => %s\n", x86_reg_str[i], address_sid(reg_descr_tab[i]));
+            fprintf(stderr, "%s => %s\n", x86_reg_str[i], address_sid(reg_descr_tab[i]));
 }
 
 void spill_reg(X86_Reg r)
@@ -2625,7 +2625,7 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
     memset(reg_descr_tab, 0, sizeof(unsigned)*X86_NREG);
 #endif
     big_return = qword_return = FALSE;
-#if 0
+#if 1
     dump_addr_descr_tab();
     dump_reg_descr_tab();
 #endif

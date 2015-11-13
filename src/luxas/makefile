@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-c -g -Wall -Wno-switch
+CFLAGS=-c -g -Wall -Wno-switch -Wno-sign-conversion
 OBJS = luxas.o ELF_util.o
 
 all: luxas
