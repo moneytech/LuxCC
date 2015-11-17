@@ -995,6 +995,8 @@ void x86_store(X86_Reg r, unsigned a)
         case TOK_CHAR:
         case TOK_SIGNED_CHAR:
         case TOK_UNSIGNED_CHAR:
+            assert(r != X86_ESI);
+            assert(r != X86_EDI);
             siz_str = "byte";
             reg_str = x86_lbreg_str[r];
             break;

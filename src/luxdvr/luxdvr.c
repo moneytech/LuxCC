@@ -31,9 +31,9 @@
 #define PATH_TO_LIBCONF_2       "/usr/local/lib/luxcc/library_path.conf"
 
 /* musl's default installation path */
+#define PATH_TO_MUSL_LIBC       "/usr/local/musl/lib/libc.so"
 #define PATH_TO_MUSL_RUNC       "/usr/local/musl/lib/crt1.o "\
                                 "/usr/local/musl/lib/crti.o"
-#define PATH_TO_MUSL_LIBC       "/usr/local/musl/lib/libc.so"
 
 int musl_libc_is_installed;
 int verbose;
@@ -601,8 +601,8 @@ ok_1:
                 string_set_pos(as_cmd, apos);
             }
         }
-        if (c_files != NULL)
-            unlink(asm_tmp);
+        // if (c_files != NULL)
+            // unlink(asm_tmp);
     } else {
         int ntmp;
         char *obj_tmps[64];
@@ -649,10 +649,11 @@ ok_1:
         if (exst == 0) {
             InFile *fp;
 
-            for (fp = other_files; fp != NULL; fp = fp->next)
-                string_printf(ld_cmd, " %s", fp->path);
+            /* TOFIX: the order of the files should remain the same */
             for (i = 0; i < ntmp; i++)
                 string_printf(ld_cmd, " %s", obj_tmps[i]);
+            for (fp = other_files; fp != NULL; fp = fp->next)
+                string_printf(ld_cmd, " %s", fp->path);
             if (outpath != NULL)
                 string_printf(ld_cmd, " -o %s", outpath);
             if (driver_flags & DVR_X86_TARGET) {
@@ -663,10 +664,10 @@ ok_1:
             }
             exst = !!exec_cmd(strbuf(ld_cmd));
         }
-        if (alt_asm_tmp==NULL && c_files!=NULL)
-            unlink(asm_tmp_p);
+        // if (alt_asm_tmp==NULL && c_files!=NULL)
+            // unlink(asm_tmp_p);
         for (i = 0; i < ntmp; i++) {
-            unlink(obj_tmps[i]);
+            // unlink(obj_tmps[i]);
             free(obj_tmps[i]);
         }
     }

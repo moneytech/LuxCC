@@ -1505,8 +1505,10 @@ repeat:
     for (i = 0; i < nsym; i++) {
         Symbol *sym;
 
-        if ((sym=lookup_global_symbol(cp))==NULL || sym->shndx!=SHN_UNDEF)
+        if ((sym=lookup_global_symbol(cp))==NULL || sym->shndx!=SHN_UNDEF) {
+            cp += strlen(cp)+1;
             continue;
+        }
         process_object_file(buf+offs[i]+sizeof(struct ar_hdr)), added=TRUE;
         if (nundef == 0)
             goto done; /* that file resolved everything up to this point
@@ -1514,7 +1516,7 @@ repeat:
         cp += strlen(cp)+1;
     }
     if (nundef!=0 && added) {
-        /* OK, the added file/s included undefined symbols.
+        /* OK, the added file(s) included undefined symbols.
            See if those symbols can be resolved by another file in the archive. */
         cp = strtab;
         goto repeat;
