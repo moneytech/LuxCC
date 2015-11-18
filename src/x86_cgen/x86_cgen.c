@@ -24,29 +24,6 @@
 #include "../str.h"
 #include "../luxcc.h"
 
-static unsigned char *liveness_and_next_use;
-static BSet *operand_liveness;
-static BSet *operand_next_use;
-static void init_operand_table(BSet *block_LiveOut);
-static void compute_liveness_and_next_use(unsigned fn);
-#if DEBUG
-static void print_liveness_and_next_use(unsigned fn);
-#endif
-
-#define TAR_LIVE_MASK   0x01
-#define AR1_LIVE_MASK   0x02
-#define AR2_LIVE_MASK   0x04
-#define TAR_NEXT_MASK   0x08
-#define AR1_NEXT_MASK   0x10
-#define AR2_NEXT_MASK   0x20
-
-#define tar_liveness(i)  (liveness_and_next_use[i] & TAR_LIVE_MASK)
-#define arg1_liveness(i) (liveness_and_next_use[i] & AR1_LIVE_MASK)
-#define arg2_liveness(i) (liveness_and_next_use[i] & AR2_LIVE_MASK)
-#define tar_next_use(i)  (liveness_and_next_use[i] & TAR_NEXT_MASK)
-#define arg1_next_use(i) (liveness_and_next_use[i] & AR1_NEXT_MASK)
-#define arg2_next_use(i) (liveness_and_next_use[i] & AR2_NEXT_MASK)
-
 typedef enum {
     X86_EAX,
     X86_EBX,
@@ -199,267 +176,6 @@ int new_string_literal(unsigned a)
     emit_raw_string(str_lits, address(a).cont.str);
     return string_literals_counter++;
 }
-
-/*
- * Initialize the operand table with the liveness
- * and next use as of the end of the block.
- * Liveness is determined using the LiveOut set.
- */
-void init_operand_table(BSet *block_LiveOut)
-{
-    bset_clear(operand_next_use);
-    bset_cpy(operand_liveness, block_LiveOut);
-}
-
-void compute_liveness_and_next_use(unsigned fn)
-{
-    int b;
-    unsigned entry_bb, last_bb;
-
-    if (cg_node_is_empty(fn))
-        return;
-
-    entry_bb = cg_node(fn).bb_i;
-    last_bb = cg_node(fn).bb_f;
-
-    /* annotate the quads of every block with liveness and next-use information */
-    for (b = entry_bb; b <= last_bb; b++) {
-        int i;
-
-        init_operand_table(cfg_node(b).LiveOut);
-
-        /* scan backward through the block */
-        for (i = cfg_node(b).last; i >= (int)cfg_node(b).leader; i--) {
-            unsigned tar, arg1, arg2;
-
-            tar = instruction(i).tar;
-            arg1 = instruction(i).arg1;
-            arg2 = instruction(i).arg2;
-            switch (instruction(i).op) {
-#define update_tar()\
-        do {\
-            int tar_nid;\
-\
-            tar_nid = address_nid(tar);\
-            if (bset_member(operand_liveness, tar_nid)) {\
-                liveness_and_next_use[i] |= TAR_LIVE_MASK;\
-                bset_delete(operand_liveness, tar_nid);\
-            } else {\
-                /*liveness_and_next_use[i] &= ~TAR_LIVE_MASK;*/\
-            }\
-            if (bset_member(operand_next_use, tar_nid)) {\
-                liveness_and_next_use[i] |= TAR_NEXT_MASK;\
-                bset_delete(operand_next_use, tar_nid);\
-            } else {\
-                /*liveness_and_next_use[i] &= ~TAR_NEXT_MASK;*/\
-            }\
-        } while (0)
-#define update_arg1()\
-        do {\
-            int arg1_nid;\
-\
-            arg1_nid = address_nid(arg1);\
-            if (bset_member(operand_liveness, arg1_nid)) {\
-                liveness_and_next_use[i] |= AR1_LIVE_MASK;\
-            } else {\
-                /*liveness_and_next_use[i] &= ~AR1_LIVE_MASK;*/\
-                bset_insert(operand_liveness, arg1_nid);\
-            }\
-            if (bset_member(operand_next_use, arg1_nid)) {\
-                liveness_and_next_use[i] |= AR1_NEXT_MASK;\
-            } else {\
-                /*liveness_and_next_use[i] &= ~AR1_NEXT_MASK;*/\
-                bset_insert(operand_next_use, arg1_nid);\
-            }\
-        } while (0)
-#define update_arg2()\
-        do {\
-            int arg2_nid;\
-\
-            arg2_nid = address_nid(arg2);\
-            if (bset_member(operand_liveness, arg2_nid)) {\
-                liveness_and_next_use[i] |= AR2_LIVE_MASK;\
-            } else {\
-                /*liveness_and_next_use[i] &= ~AR2_LIVE_MASK;*/\
-                bset_insert(operand_liveness, arg2_nid);\
-            }\
-            if (bset_member(operand_next_use, arg2_nid)) {\
-                liveness_and_next_use[i] |= AR2_NEXT_MASK;\
-            } else {\
-                /*liveness_and_next_use[i] &= ~AR2_NEXT_MASK;*/\
-                bset_insert(operand_next_use, arg2_nid);\
-            }\
-        } while (0)
-
-            case OpAdd: case OpSub: case OpMul: case OpDiv:
-            case OpRem: case OpSHL: case OpSHR: case OpAnd:
-            case OpOr: case OpXor: case OpEQ: case OpNEQ:
-            case OpLT: case OpLET: case OpGT: case OpGET:
-                update_tar();
-                if (!const_addr(arg1))
-                    update_arg1();
-                if (!const_addr(arg2))
-                    update_arg2();
-                continue;
-
-            case OpNeg: case OpCmpl: case OpNot: case OpCh:
-            case OpUCh: case OpSh: case OpUSh: case OpAsn:
-            case OpSXLL: case OpZXLL:
-                update_tar();
-                if (!const_addr(arg1))
-                    update_arg1();
-                continue;
-
-            case OpArg:
-            case OpRet:
-            case OpSwitch:
-            case OpCBr:
-                if (!const_addr(arg1))
-                    update_arg1();
-                continue;
-
-            case OpAddrOf:
-                update_tar();
-                continue;
-
-            case OpInd:
-                update_tar();
-                update_arg1();
-                bset_union(operand_liveness, address_taken_variables);
-                continue;
-
-            case OpIndAsn:
-                update_arg1();
-                if (!const_addr(arg2))
-                    update_arg2();
-                continue;
-
-            case OpCall:
-            case OpIndCall:
-                if (tar)
-                    update_tar();
-                if (instruction(i).op==OpIndCall && !const_addr(arg1))
-                    update_arg1();
-                bset_union(operand_liveness, cg_node(fn).modified_static_objects);
-                bset_union(operand_liveness, address_taken_variables);
-                continue;
-
-            default: /* other */
-                continue;
-            } /* switch (instruction(i).op) */
-        } /* instructions */
-    } /* basic blocks */
-
-#if DEBUG
-    print_liveness_and_next_use(fn);
-#endif
-}
-
-#if DEBUG
-void print_liveness_and_next_use(unsigned fn)
-{
-    int b;
-    unsigned entry_bb, last_bb;
-
-    entry_bb = cg_node(fn).bb_i;
-    last_bb = cg_node(fn).bb_f;
-
-    for (b = entry_bb; b <= last_bb; b++) {
-        int i;
-
-        printf("Block %d\n", b);
-
-        for (i = cfg_node(b).leader; i <= cfg_node(b).last; i++) {
-            unsigned tar, arg1, arg2;
-
-            tar = instruction(i).tar;
-            arg1 = instruction(i).arg1;
-            arg2 = instruction(i).arg2;
-            switch (instruction(i).op) {
-#define print_tar()\
-        printf("name=%s, ", address_sid(tar)),\
-        printf("status=%s, ", tar_liveness(i)?"LIVE":"DEAD"),\
-        printf("next use=%d", !!tar_next_use(i))
-#define print_arg1()\
-        printf("name=%s, ", address_sid(arg1)),\
-        printf("status=%s, ", arg1_liveness(i)?"LIVE":"DEAD"),\
-        printf("next use=%d", !!arg1_next_use(i))
-#define print_arg2()\
-        printf("name=%s, ", address_sid(arg2)),\
-        printf("status=%s, ", arg2_liveness(i)?"LIVE":"DEAD"),\
-        printf("next use=%d", !!arg2_next_use(i))
-
-            case OpAdd: case OpSub: case OpMul: case OpDiv:
-            case OpRem: case OpSHL: case OpSHR: case OpAnd:
-            case OpOr: case OpXor: case OpEQ: case OpNEQ:
-            case OpLT: case OpLET: case OpGT: case OpGET:
-                print_tar();
-                if (!const_addr(arg1)) {
-                    printf(" | ");
-                    print_arg1();
-                }
-                if (!const_addr(arg2)) {
-                    printf(" | ");
-                    print_arg2();
-                }
-                break;
-
-            case OpNeg: case OpCmpl: case OpNot: case OpCh:
-            case OpUCh: case OpSh: case OpUSh: case OpAsn:
-            case OpSXLL: case OpZXLL:
-                print_tar();
-                if (!const_addr(arg1)) {
-                    printf(" | ");
-                    print_arg1();
-                }
-                break;
-
-            case OpArg:
-            case OpRet:
-            case OpSwitch:
-            case OpCBr:
-                if (!const_addr(arg1)) {
-                    print_arg1();
-                }
-                break;
-
-            case OpAddrOf:
-                print_tar();
-                break;
-
-            case OpInd:
-                print_tar();
-                printf(" | ");
-                print_arg1();
-                break;
-
-            case OpIndAsn:
-                print_arg1();
-                if (!const_addr(arg2)) {
-                    printf(" | ");
-                    print_arg2();
-                }
-                break;
-
-            case OpCall:
-            case OpIndCall:
-                if (tar)
-                    print_tar();
-                if (!const_addr(arg1)) {
-                    printf(" | ");
-                    print_arg1();
-                }
-                break;
-
-            default:
-                continue;
-            } /* instructions */
-            printf("\n--------------\n");
-        } /* basic blocks */
-        printf("\n\n");
-    }
-}
-#endif
 
 void dump_addr_descr_tab(void)
 {
@@ -2942,42 +2658,13 @@ void x86_allocate_static_objects(void)
 void x86_cgen(FILE *outf)
 {
     unsigned i, j;
-    ExternId *ed, *func_def_list[512] = { NULL }, *ext_sym_list[512] = { NULL };
+    ExternId *ed, **func_def_list, **ext_sym_list;
 
     x86_output_file = outf;
-    for (ed=get_external_declarations(), i=j=0; ed != NULL; ed = ed->next) {
-        TypeExp *scs;
-
-        if (ed->status == REFERENCED) {
-            if ((scs=get_sto_class_spec(ed->decl_specs))==NULL || scs->op!=TOK_STATIC)
-                ext_sym_list[j++] = ed;
-        } else {
-            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION) {
-                func_def_list[i++] = ed;
-            } else {
-                ExternId *np;
-
-                np = malloc(sizeof(ExternId));
-                np->decl_specs = ed->decl_specs;
-                np->declarator = ed->declarator;
-                np->enclosing_function = NULL;
-                np->next = static_objects_list;
-                static_objects_list = np;
-            }
-        }
-    }
 
     /* generate intermediate code and do some analysis */
-    ic_main(func_def_list);
-
-    /* compute liveness and next use */
-    liveness_and_next_use = calloc(ic_instructions_counter, sizeof(unsigned char));
-    operand_liveness = bset_new(nid_counter);
-    operand_next_use = bset_new(nid_counter);
-    for (i = 0; i < cg_nodes_counter; i++)
-        compute_liveness_and_next_use(i);
-    bset_free(operand_liveness);
-    bset_free(operand_next_use);
+    ic_main(&func_def_list, &ext_sym_list);
+    compute_liveness_and_next_use();
 
     /* generate assembly */
     asm_decls = string_new(512);
@@ -2985,8 +2672,8 @@ void x86_cgen(FILE *outf)
     func_body = string_new(1024);
     func_prolog = string_new(1024);
     func_epilog = string_new(1024);
-    addr_descr_tab = malloc(nid_counter*sizeof(int));
-    memset(addr_descr_tab, -1, nid_counter*sizeof(int));
+    addr_descr_tab = malloc(nid_counter*sizeof(X86_Reg2));
+    memset(addr_descr_tab, -1, nid_counter*sizeof(X86_Reg2));
     for (i = 0; (ed=func_def_list[i]) != NULL; i++)
         x86_function_definition(ed->decl_specs, ed->declarator);
     string_free(func_body);
@@ -2995,6 +2682,7 @@ void x86_cgen(FILE *outf)
 
     emit_declln("\n; == objects with static duration");
     x86_allocate_static_objects();
+
     emit_declln("\n; == extern symbols");
     /* emit extern directives only for those symbols that were referenced */
     for (j = 0; (ed=ext_sym_list[j]) != NULL; j++) {
@@ -3009,7 +2697,6 @@ void x86_cgen(FILE *outf)
     /* the front-end may emit calls to memcpy/memset */
     emit_declln("extern memcpy");
     emit_declln("extern memset");
-
     /* liblux functions */
     if (include_liblux) {
         emit_declln("extern __lux_mul64");

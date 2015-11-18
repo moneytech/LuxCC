@@ -180,6 +180,6 @@ int get_var_nid(char *sid, int scope);
 extern ExternId *static_objects_list;
 extern BSet *address_taken_variables;
 
-void ic_main(ExternId *func_def_list[]);
+void ic_main(ExternId ***func_def_list, ExternId ***ext_sym_list);
 
 #endif

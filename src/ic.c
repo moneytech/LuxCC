@@ -2865,13 +2865,38 @@ static void dump_ic(unsigned fn)
     }
 }
 
-void ic_main(ExternId *func_def_list[])
+void ic_main(ExternId ***func_def_list, ExternId ***ext_sym_list)
 {
-    unsigned i;
     ExternId *ed;
+    unsigned i, j;
+
+    *func_def_list = calloc(1, sizeof(ExternId *)*512);
+    *ext_sym_list  = calloc(1, sizeof(ExternId *)*512);
+
+    for (ed=get_external_declarations(), i=j=0; ed != NULL; ed = ed->next) {
+        TypeExp *scs;
+
+        if (ed->status == REFERENCED) {
+            if ((scs=get_sto_class_spec(ed->decl_specs))==NULL || scs->op!=TOK_STATIC)
+                (*ext_sym_list)[j++] = ed;
+        } else {
+            if (ed->declarator->child!=NULL && ed->declarator->child->op==TOK_FUNCTION) {
+                (*func_def_list)[i++] = ed;
+            } else {
+                ExternId *np;
+
+                np = malloc(sizeof(ExternId));
+                np->decl_specs = ed->decl_specs;
+                np->declarator = ed->declarator;
+                np->enclosing_function = NULL;
+                np->next = static_objects_list;
+                static_objects_list = np;
+            }
+        }
+    }
 
     ic_init();
-    for (i = 0, ed = func_def_list[i]; ed != NULL; ++i, ed = func_def_list[i]) {
+    for (i = 0, ed = (*func_def_list)[i]; ed != NULL; ++i, ed = (*func_def_list)[i]) {
         ic_func_first_instr = ic_instructions_counter;
         curr_cg_node = new_cg_node(ed->declarator->str);
         ic_function_definition(ed->decl_specs, ed->declarator);
