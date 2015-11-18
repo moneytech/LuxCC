@@ -750,24 +750,19 @@ void x86_load2(X86_Reg2 r, unsigned a)
         Token cat;
         ExecNode *e;
 
-        e = address(a).cont.var.e;
-        cat = get_type_category(&e->type);
-
         if (addr_reg1(a) != -1) {
-            if (addr_reg1(a) != r.r1)
+            if (addr_reg1(a) != r.r1) {
+                assert(addr_reg2(a) != r.r2);
                 emitln("mov %s, %s", x86_reg_str[r.r1], x86_reg_str[addr_reg1(a)]);
-            if (addr_reg2(a) != -1) {
-                if (addr_reg2(a) != r.r2)
-                    emitln("mov %s, %s", x86_reg_str[r.r2], x86_reg_str[addr_reg2(a)]);
+                emitln("mov %s, %s", x86_reg_str[r.r2], x86_reg_str[addr_reg2(a)]);
             } else {
-                if (is_unsigned_int(cat))
-                    emitln("xor %s, %s", x86_reg_str[r.r2], x86_reg_str[r.r2]);
-                else
-                    x86_sign_extend(r);
+                assert(addr_reg2(a) == r.r2);
             }
             return;
         }
 
+        e = address(a).cont.var.e;
+        cat = get_type_category(&e->type);
         assert(cat==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG);
 
         if (e->attr.var.duration == DURATION_STATIC) {
@@ -886,8 +881,8 @@ char **x86_get_operand2(unsigned a)
         ExecNode *e;
 
         if (addr_reg1(a) != -1) {
-            sprintf(op1, "%s", x86_reg_str[addr_reg1(a)]);
             assert(addr_reg2(a) != -1);
+            sprintf(op1, "%s", x86_reg_str[addr_reg1(a)]);
             sprintf(op2, "%s", x86_reg_str[addr_reg2(a)]);
             return op;
         }
@@ -910,8 +905,8 @@ char **x86_get_operand2(unsigned a)
         }
     } else if (address(a).kind == TempKind) {
         if (addr_reg1(a) != -1) {
-            sprintf(op1, "%s", x86_reg_str[addr_reg1(a)]);
             assert(addr_reg2(a) != -1);
+            sprintf(op1, "%s", x86_reg_str[addr_reg1(a)]);
             sprintf(op2, "%s", x86_reg_str[addr_reg2(a)]);
         } else {
             int offs;
@@ -944,8 +939,10 @@ void x86_store(X86_Reg r, unsigned a)
 {
     if (address(a).kind == IdKind) {
         ExecNode *e;
+        int clutter_eax;
         char *siz_str, *reg_str;
 
+        clutter_eax = FALSE;
         e = address(a).cont.var.e;
         switch (get_type_category(&e->type)) {
         case TOK_STRUCT:
@@ -995,10 +992,15 @@ void x86_store(X86_Reg r, unsigned a)
         case TOK_CHAR:
         case TOK_SIGNED_CHAR:
         case TOK_UNSIGNED_CHAR:
-            assert(r != X86_ESI);
-            assert(r != X86_EDI);
             siz_str = "byte";
-            reg_str = x86_lbreg_str[r];
+            if (r==X86_ESI || r==X86_EDI) {
+                emitln("push eax");
+                emitln("mov eax, %s", x86_reg_str[r]);
+                reg_str = "al";
+                clutter_eax = TRUE;
+            } else {
+                reg_str = x86_lbreg_str[r];
+            }
             break;
         default:
             siz_str = "dword";
@@ -1014,6 +1016,9 @@ void x86_store(X86_Reg r, unsigned a)
         } else { /* parameter or local */
             emitln("mov %s [ebp+%d], %s", siz_str, local_offset(a), reg_str);
         }
+
+        if (clutter_eax)
+            emitln("pop eax");
     } else if (address(a).kind == TempKind) {
         emitln("mov dword [ebp+%d], %s", get_temp_offs(a), x86_reg_str[r]);
     }
@@ -1822,11 +1827,16 @@ static void x86_ch(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
 
-    /* TODO: handle the case where the register is esi or edi */
-
     res = get_reg(i);
     x86_load(res, arg1);
-    emitln("movsx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    if (res==X86_ESI || res==X86_EDI) {
+        emitln("push eax");
+        emitln("mov eax, %s", x86_reg_str[res]);
+        emitln("movsx %s, al", x86_reg_str[res]);
+        emitln("pop eax");
+    } else {
+        emitln("movsx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    }
     UPDATE_ADDRESSES_UNARY(res);
 }
 
@@ -1834,11 +1844,16 @@ static void x86_uch(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg res;
 
-    /* TODO: handle the case where the register is esi or edi */
-
     res = get_reg(i);
     x86_load(res, arg1);
-    emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    if (res==X86_ESI || res==X86_EDI) {
+        emitln("push eax");
+        emitln("mov eax, %s", x86_reg_str[res]);
+        emitln("movzx %s, al", x86_reg_str[res]);
+        emitln("pop eax");
+    } else {
+        emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
+    }
     UPDATE_ADDRESSES_UNARY(res);
 }
 
@@ -2148,6 +2163,9 @@ static void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
     } else {
         X86_Reg r;
         char *reg_str;
+        int clutter_eax;
+
+        clutter_eax = FALSE;
 
         if (addr_reg1(arg2) == -1) {
             r = get_reg0();
@@ -2163,15 +2181,22 @@ static void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
         case TOK_CHAR:
         case TOK_SIGNED_CHAR:
         case TOK_UNSIGNED_CHAR:
-            assert(r != X86_ESI); /* XXX */
-            assert(r != X86_EDI); /* XXX */
-            reg_str = x86_lbreg_str[r];
+            if (r==X86_ESI || r==X86_EDI) {
+                emitln("push eax");
+                emitln("mov eax, %s", x86_reg_str[r]);
+                reg_str = "al";
+                clutter_eax = TRUE;
+            } else {
+                reg_str = x86_lbreg_str[r];
+            }
             break;
         default:
             reg_str = x86_reg_str[r];
             break;
         }
         emitln("mov %s [%s], %s", siz_str, x86_reg_str[pr], reg_str);
+        if (clutter_eax)
+            emitln("pop eax");
     }
     unpin_reg(pr);
 done:
@@ -2337,6 +2362,7 @@ static void x86_do_switch64(int i, unsigned tar, unsigned arg1, unsigned arg2)
     }
     update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
 
+    /* do a simple linear search */
     for (++i; ; i++) {
         unsigned *p;
 

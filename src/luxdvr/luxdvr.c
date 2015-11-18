@@ -601,8 +601,8 @@ ok_1:
                 string_set_pos(as_cmd, apos);
             }
         }
-        // if (c_files != NULL)
-            // unlink(asm_tmp);
+        if (c_files != NULL)
+            unlink(asm_tmp);
     } else {
         int ntmp;
         char *obj_tmps[64];
@@ -664,10 +664,10 @@ ok_1:
             }
             exst = !!exec_cmd(strbuf(ld_cmd));
         }
-        // if (alt_asm_tmp==NULL && c_files!=NULL)
-            // unlink(asm_tmp_p);
+        if (alt_asm_tmp==NULL && c_files!=NULL)
+            unlink(asm_tmp_p);
         for (i = 0; i < ntmp; i++) {
-            // unlink(obj_tmps[i]);
+            unlink(obj_tmps[i]);
             free(obj_tmps[i]);
         }
     }
