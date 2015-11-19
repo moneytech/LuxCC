@@ -78,6 +78,7 @@ static int calls_to_fix_counter;
 static unsigned calls_to_fix[64];
 static int string_literals_counter;
 static FILE *x86_output_file;
+static int func_last_quad;
 
 #define JMP_TAB_MIN_SIZ   3
 #define JMP_TAB_MAX_HOLES 10
@@ -907,8 +908,16 @@ void update_tar_descriptors2(X86_Reg2 res, unsigned tar, unsigned char liveness,
 #define emit_jmp(target)    emitln("jmp .L%d", (int)target)
 #define emit_jmpeq(target)  emitln("je .L%d", (int)target)
 #define emit_jmpneq(target) emitln("jne .L%d", (int)target)
+/* signed */
 #define emit_jl(target)     emitln("jl .L%d", (int)target)
 #define emit_jg(target)     emitln("jg .L%d", (int)target)
+#define emit_jle(target)    emitln("jle .L%d", (int)target)
+#define emit_jge(target)    emitln("jge .L%d", (int)target)
+/* unsigned */
+#define emit_jb(target)     emitln("jb .L%d", (int)target)
+#define emit_ja(target)     emitln("ja .L%d", (int)target)
+#define emit_jbe(target)    emitln("jbe .L%d", (int)target)
+#define emit_jae(target)    emitln("jae .L%d", (int)target)
 
 enum {
     LibMul,
@@ -1358,121 +1367,276 @@ static void x86_xor(int i, unsigned tar, unsigned arg1, unsigned arg2)
     }
 }
 
+static void do_relop_jump(int i, long flags, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    int nid, j;
+
+    /* do any spilling before the jump */
+    update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
+    update_arg_descriptors(arg2, arg2_liveness(i), arg2_next_use(i));
+
+    /*
+     * Search the OpCBr that uses the result of the relational operator
+     * and replace it for OpNOp. Before that, do the conditional jump
+     * that quad is supposed to do.
+     */
+    nid = address(tar).cont.nid;
+    for (j = i+1; ; j++) {
+        int lab;
+        unsigned tar_2, tar_3, arg2_2;
+
+        assert(j <= func_last_quad); /* this is overkill, the BB's last quad should be enough */
+        if (instruction(j).op!=OpCBr || address_nid(instruction(j).arg1)!=nid)
+            continue;
+
+        tar_2 = instruction(j).tar;
+        tar_3 = instruction(j+1).tar;
+        arg2_2 = instruction(j).arg2;
+        if (address(tar_2).cont.val == address(tar_3).cont.val) {
+            lab = (int)address(arg2_2).cont.val;
+            switch (instruction(i).op) {
+            case OpEQ:
+                emit_jmpneq(lab);
+                break;
+            case OpNEQ:
+                emit_jmpeq(lab);
+                break;
+            case OpLT:
+                if (flags & IC_SIGNED)
+                    emit_jge(lab);
+                else
+                    emit_jae(lab);
+                break;
+            case OpLET:
+                if (flags & IC_SIGNED)
+                    emit_jg(lab);
+                else
+                    emit_ja(lab);
+                break;
+            case OpGT:
+                if (flags & IC_SIGNED)
+                    emit_jle(lab);
+                else
+                    emit_jbe(lab);
+                break;
+            case OpGET:
+                if (flags & IC_SIGNED)
+                    emit_jl(lab);
+                else
+                    emit_jb(lab);
+                break;
+            }
+        } else {
+            lab = (int)address(tar_2).cont.val;
+            switch (instruction(i).op) {
+            case OpEQ:
+                emit_jmpeq(lab);
+                break;
+            case OpNEQ:
+                emit_jmpneq(lab);
+                break;
+            case OpLT:
+                if (flags & IC_SIGNED)
+                    emit_jl(lab);
+                else
+                    emit_jb(lab);
+                break;
+            case OpLET:
+                if (flags & IC_SIGNED)
+                    emit_jle(lab);
+                else
+                    emit_jbe(lab);
+                break;
+            case OpGT:
+                if (flags & IC_SIGNED)
+                    emit_jg(lab);
+                else
+                    emit_ja(lab);
+                break;
+            case OpGET:
+                if (flags & IC_SIGNED)
+                    emit_jge(lab);
+                else
+                    emit_jae(lab);
+                break;
+            }
+        }
+        instruction(j).op = OpNOp;
+        break;
+    }
+}
+
 static void x86_eq(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    if ((int)instruction(i).type==IC_SIGNED_WIDE
-    ||  (int)instruction(i).type==IC_UNSIGNED_WIDE) {
+    long flags;
+
+    flags = (long)instruction(i).type;
+    if (flags & IC_WIDE) {
         x86_do_libcall(i, tar, arg1, arg2, LibEq);
     } else {
         X86_Reg res;
 
-        res = get_reg(i);
-        x86_load(res, arg1);
+        if (flags&IC_STORE || const_addr(arg1) || addr_reg1(arg1)==-1) {
+            res = get_reg(i);
+            x86_load(res, arg1);
+        } else {
+            res = addr_reg1(arg1);
+        }
         pin_reg(res);
         emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
         unpin_reg(res);
-        emitln("mov %s, 0", x86_reg_str[res]);
-        emitln("sete %s", x86_lbreg_str[res]);
-        UPDATE_ADDRESSES(res);
+        if (flags & IC_STORE) {
+            emitln("mov %s, 0", x86_reg_str[res]);
+            emitln("sete %s", x86_lbreg_str[res]);
+            UPDATE_ADDRESSES(res);
+        } else {
+            do_relop_jump(i, flags, tar, arg1, arg2);
+        }
     }
 }
 
 static void x86_neq(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    if ((int)instruction(i).type==IC_SIGNED_WIDE
-    ||  (int)instruction(i).type==IC_UNSIGNED_WIDE) {
+    long flags;
+
+    flags = (long)instruction(i).type;
+    if (flags & IC_WIDE) {
         x86_do_libcall(i, tar, arg1, arg2, LibNeq);
     } else {
         X86_Reg res;
 
-        res = get_reg(i);
-        x86_load(res, arg1);
+        if (flags&IC_STORE || const_addr(arg1) || addr_reg1(arg1)==-1) {
+            res = get_reg(i);
+            x86_load(res, arg1);
+        } else {
+            res = addr_reg1(arg1);
+        }
         pin_reg(res);
         emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
         unpin_reg(res);
-        emitln("mov %s, 0", x86_reg_str[res]);
-        emitln("setne %s", x86_lbreg_str[res]);
-        UPDATE_ADDRESSES(res);
+        if (flags & IC_STORE) {
+            emitln("mov %s, 0", x86_reg_str[res]);
+            emitln("setne %s", x86_lbreg_str[res]);
+            UPDATE_ADDRESSES(res);
+        } else {
+            do_relop_jump(i, flags, tar, arg1, arg2);
+        }
     }
 }
 
 static void x86_lt(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    if ((int)instruction(i).type == IC_SIGNED_WIDE) {
-        x86_do_libcall(i, tar, arg1, arg2, LibSLT);
-    } else if ((int)instruction(i).type == IC_UNSIGNED_WIDE) {
-        x86_do_libcall(i, tar, arg1, arg2, LibULT);
+    long flags;
+
+    flags = (long)instruction(i).type;
+    if (flags & IC_WIDE) {
+        x86_do_libcall(i, tar, arg1, arg2, (flags&IC_SIGNED)?LibSLT:LibULT);
     } else {
         X86_Reg res;
 
-        res = get_reg(i);
-        x86_load(res, arg1);
+        if (flags&IC_STORE || const_addr(arg1) || addr_reg1(arg1)==-1) {
+            res = get_reg(i);
+            x86_load(res, arg1);
+        } else {
+            res = addr_reg1(arg1);
+        }
         pin_reg(res);
         emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
         unpin_reg(res);
-        emitln("mov %s, 0", x86_reg_str[res]);
-        emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"l":"b", x86_lbreg_str[res]);
-        UPDATE_ADDRESSES(res);
+        if (flags & IC_STORE) {
+            emitln("mov %s, 0", x86_reg_str[res]);
+            emitln("set%s %s", (flags&IC_SIGNED)?"l":"b", x86_lbreg_str[res]);
+            UPDATE_ADDRESSES(res);
+        } else {
+            do_relop_jump(i, flags, tar, arg1, arg2);
+        }
     }
 }
 
 static void x86_let(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    if ((int)instruction(i).type == IC_SIGNED_WIDE) {
-        x86_do_libcall(i, tar, arg1, arg2, LibSLET);
-    } else if ((int)instruction(i).type == IC_UNSIGNED_WIDE) {
-        x86_do_libcall(i, tar, arg1, arg2, LibULET);
+    long flags;
+
+    flags = (long)instruction(i).type;
+    if (flags & IC_WIDE) {
+        x86_do_libcall(i, tar, arg1, arg2, (flags&IC_SIGNED)?LibSLET:LibULET);
     } else {
         X86_Reg res;
 
-        res = get_reg(i);
-        x86_load(res, arg1);
+        if (flags&IC_STORE || const_addr(arg1) || addr_reg1(arg1)==-1) {
+            res = get_reg(i);
+            x86_load(res, arg1);
+        } else {
+            res = addr_reg1(arg1);
+        }
         pin_reg(res);
         emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
         unpin_reg(res);
-        emitln("mov %s, 0", x86_reg_str[res]);
-        emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"le":"be", x86_lbreg_str[res]);
-        UPDATE_ADDRESSES(res);
+        if (flags & IC_STORE) {
+            emitln("mov %s, 0", x86_reg_str[res]);
+            emitln("set%s %s", (flags&IC_SIGNED)?"le":"be", x86_lbreg_str[res]);
+            UPDATE_ADDRESSES(res);
+        } else {
+            do_relop_jump(i, flags, tar, arg1, arg2);
+        }
     }
 }
 
 static void x86_gt(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    if ((int)instruction(i).type == IC_SIGNED_WIDE) {
-        x86_do_libcall(i, tar, arg1, arg2, LibSGT);
-    } else if ((int)instruction(i).type == IC_UNSIGNED_WIDE) {
-        x86_do_libcall(i, tar, arg1, arg2, LibUGT);
+    long flags;
+
+    flags = (long)instruction(i).type;
+    if (flags & IC_WIDE) {
+        x86_do_libcall(i, tar, arg1, arg2, (flags&IC_SIGNED)?LibSGT:LibUGT);
     } else {
         X86_Reg res;
 
-        res = get_reg(i);
-        x86_load(res, arg1);
+        if (flags&IC_STORE || const_addr(arg1) || addr_reg1(arg1)==-1) {
+            res = get_reg(i);
+            x86_load(res, arg1);
+        } else {
+            res = addr_reg1(arg1);
+        }
         pin_reg(res);
         emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
         unpin_reg(res);
-        emitln("mov %s, 0", x86_reg_str[res]);
-        emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"g":"a", x86_lbreg_str[res]);
-        UPDATE_ADDRESSES(res);
+        if (flags & IC_STORE) {
+            emitln("mov %s, 0", x86_reg_str[res]);
+            emitln("set%s %s", (flags&IC_SIGNED)?"g":"a", x86_lbreg_str[res]);
+            UPDATE_ADDRESSES(res);
+        } else {
+            do_relop_jump(i, flags, tar, arg1, arg2);
+        }
     }
 }
 
 static void x86_get(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    if ((int)instruction(i).type == IC_SIGNED_WIDE) {
-        x86_do_libcall(i, tar, arg1, arg2, LibSGET);
-    } else if ((int)instruction(i).type == IC_UNSIGNED_WIDE) {
-        x86_do_libcall(i, tar, arg1, arg2, LibUGET);
+    long flags;
+
+    flags = (long)instruction(i).type;
+    if (flags & IC_WIDE) {
+        x86_do_libcall(i, tar, arg1, arg2, (flags&IC_SIGNED)?LibSGET:LibUGET);
     } else {
         X86_Reg res;
 
-        res = get_reg(i);
-        x86_load(res, arg1);
+        if (flags&IC_STORE || const_addr(arg1) || addr_reg1(arg1)==-1) {
+            res = get_reg(i);
+            x86_load(res, arg1);
+        } else {
+            res = addr_reg1(arg1);
+        }
         pin_reg(res);
         emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
         unpin_reg(res);
-        emitln("mov %s, 0", x86_reg_str[res]);
-        emitln("set%s %s", ((int)instruction(i).type==IC_SIGNED)?"ge":"ae", x86_lbreg_str[res]);
-        UPDATE_ADDRESSES(res);
+        if (flags & IC_STORE) {
+            emitln("mov %s, 0", x86_reg_str[res]);
+            emitln("set%s %s", (flags&IC_SIGNED)?"ge":"ae", x86_lbreg_str[res]);
+            UPDATE_ADDRESSES(res);
+        } else {
+            do_relop_jump(i, flags, tar, arg1, arg2);
+        }
     }
 }
 
@@ -2309,6 +2473,7 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
 
     i = cfg_node(cg_node(fn).bb_i).leader;
     last_i = cfg_node(cg_node(fn).bb_f).last;
+    func_last_quad = last_i;
     for (; i <= last_i; i++) {
         unsigned tar, arg1, arg2;
 

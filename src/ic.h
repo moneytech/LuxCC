@@ -6,10 +6,9 @@
 #include "decl.h" /* for ExternId */
 
 enum {
-    IC_UNSIGNED,
-    IC_SIGNED,
-    IC_UNSIGNED_WIDE,
-    IC_SIGNED_WIDE,
+    IC_SIGNED = 0x1,
+    IC_WIDE   = 0x2,
+    IC_STORE  = 0x4,
 };
 
 typedef struct Address Address;
@@ -129,10 +128,10 @@ unsigned edge_iterate(GraphEdge *p);
  * Control Flow Graphs
  *
  * TODO: for ease of reordering, it would be convenient to replace leader and last
- * for an array of nquad quads indexes (something like `int quads[nquad]'). So
+ * for an array of nquad quad indexes (something like 'int quads[nquad]'). So
  * instruction(quads[0]) is the first quad, instruction(quads[1]) is the second,
  * and so on. In order to reorder, the quad indices are copied instead of the quad
- * themselves. quads may be dinamically allocated, so to add/remove instructions
+ * themselves. quads[] may be dinamically allocated, so to add/remove instructions
  * it would only be necessary reallocate it and adjust nquad.
  */
 #define ENTRY_NODE      1

@@ -724,7 +724,7 @@ static void ic_simplify(void)
             if (is_iconst(arg1) && is_iconst(arg2)) {
                 instruction(i).op = OpAsn;
                 address(arg1).kind = IConstKind;
-                if ((int)instruction(i).op==IC_SIGNED || (int)instruction(i).op==IC_SIGNED_WIDE)
+                if ((long)instruction(i).type & IC_SIGNED)
                     address(arg1).cont.val = address(arg1).cont.val<address(arg2).cont.val;
                 else
                     address(arg1).cont.val = address(arg1).cont.uval<address(arg2).cont.uval;
@@ -735,7 +735,7 @@ static void ic_simplify(void)
             if (is_iconst(arg1) && is_iconst(arg2)) {
                 instruction(i).op = OpAsn;
                 address(arg1).kind = IConstKind;
-                if ((int)instruction(i).op==IC_SIGNED || (int)instruction(i).op==IC_SIGNED_WIDE)
+                if ((long)instruction(i).type & IC_SIGNED)
                     address(arg1).cont.val = address(arg1).cont.val<=address(arg2).cont.val;
                 else
                     address(arg1).cont.val = address(arg1).cont.uval<=address(arg2).cont.uval;
@@ -746,7 +746,7 @@ static void ic_simplify(void)
             if (is_iconst(arg1) && is_iconst(arg2)) {
                 instruction(i).op = OpAsn;
                 address(arg1).kind = IConstKind;
-                if ((int)instruction(i).op==IC_SIGNED || (int)instruction(i).op==IC_SIGNED_WIDE)
+                if ((long)instruction(i).op & IC_SIGNED)
                     address(arg1).cont.val = address(arg1).cont.val>address(arg2).cont.val;
                 else
                     address(arg1).cont.val = address(arg1).cont.uval>address(arg2).cont.uval;
@@ -757,7 +757,7 @@ static void ic_simplify(void)
             if (is_iconst(arg1) && is_iconst(arg2)) {
                 instruction(i).op = OpAsn;
                 address(arg1).kind = IConstKind;
-                if ((int)instruction(i).op==IC_SIGNED || (int)instruction(i).op==IC_SIGNED_WIDE)
+                if ((long)instruction(i).op & IC_SIGNED)
                     address(arg1).cont.val = address(arg1).cont.val>=address(arg2).cont.val;
                 else
                     address(arg1).cont.val = address(arg1).cont.uval>=address(arg2).cont.uval;
@@ -2345,16 +2345,23 @@ unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned fal
         case TOK_LET:
         case TOK_GET: {
             OpKind op;
-            int signedness;
+            long flags;
             Declaration *ty;
             Token cat1, cat2;
             unsigned a1, a2, a3;
 
+            flags = 0;
             cat1 = get_type_category(&e->child[0]->type);
             cat2 = get_type_category(&e->child[1]->type);
-            ty = is_wideval(cat1) ? &e->child[0]->type
-               : is_wideval(cat2) ? &e->child[1]->type
-               : &int_ty;
+            if (is_wideval(cat1)) {
+                ty = &e->child[0]->type;
+                flags |= IC_WIDE;
+            } else if (is_wideval(cat2)) {
+                ty = &e->child[1]->type;
+                flags |= IC_WIDE;
+            } else {
+                ty = &int_ty;
+            }
 
             if (NREG(e->child[0]) >= NREG(e->child[1])) {
                 a1 = ic_expr_convert(e->child[0], ty);
@@ -2366,9 +2373,7 @@ unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned fal
 
             if (is_integer(cat1) && is_integer(cat2)
             && is_signed_int(get_promoted_type(cat1)) && is_signed_int(get_promoted_type(cat2)))
-                signedness = (ty == &int_ty) ? IC_SIGNED : IC_SIGNED_WIDE;
-            else
-                signedness = (ty == &int_ty) ? IC_UNSIGNED : IC_UNSIGNED_WIDE;
+                flags |= IC_SIGNED;
 
             switch (e->attr.op) {
             case TOK_EQ:  op = OpEQ;  break;
@@ -2379,7 +2384,9 @@ unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned fal
             case TOK_GET: op = OpGET; break;
             }
             a3 = new_temp_addr();
-            emit_i(op, (Declaration *)signedness, a3, a1, a2);
+            if (false_lab == NOLAB)
+                flags |= IC_STORE;
+            emit_i(op, (Declaration *)flags, a3, a1, a2);
             return a3;
         }
 
