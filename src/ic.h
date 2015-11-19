@@ -127,6 +127,13 @@ unsigned edge_iterate(GraphEdge *p);
 
 /*
  * Control Flow Graphs
+ *
+ * TODO: for ease of reordering, it would be convenient to replace leader and last
+ * for an array of nquad quads indexes (something like `int quads[nquad]'). So
+ * instruction(quads[0]) is the first quad, instruction(quads[1]) is the second,
+ * and so on. In order to reorder, the quad indices are copied instead of the quad
+ * themselves. quads may be dinamically allocated, so to add/remove instructions
+ * it would only be necessary reallocate it and adjust nquad.
  */
 #define ENTRY_NODE      1
 struct CFGNode { /* CFG node == basic block */

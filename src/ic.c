@@ -1247,16 +1247,26 @@ static int gotos_to_fix[MAX_GOTOS_PER_FUNC], gotos_to_fix_counter;
 static unsigned btarget_stack[128], ctarget_stack[128];
 static int bt_stack_top = -1, ct_stack_top = -1;
 
-static unsigned ic_expression(ExecNode *e, int is_addr);
+static unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned false_lab);
 static int number_expression_tree(ExecNode *e);
 static unsigned ic_expr_convert(ExecNode *e, Declaration *dest);
 static void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned offset);
 static void ic_zero(unsigned id, unsigned offset, unsigned nb);
 
-static unsigned ic_expression2(ExecNode *e)
+#define NOLAB ((unsigned)-1)
+
+static unsigned ic_expression2(ExecNode *e, unsigned true_lab, unsigned false_lab)
 {
     number_expression_tree(e);
-    return ic_expression(e, FALSE);
+    return ic_expression(e, FALSE, true_lab, false_lab);
+}
+
+static void ic_controlling_expression(ExecNode *e, unsigned true_lab, unsigned false_lab)
+{
+    if (e->kind.exp==OpExp && (e->attr.op==TOK_OR || e->attr.op==TOK_AND))
+        ic_expression2(e, true_lab, false_lab);
+    else
+        emit_i(OpCBr, &e->type, true_lab, ic_expression2(e, true_lab, false_lab), false_lab);
 }
 
 static void push_break_target(unsigned lab)
@@ -1351,7 +1361,7 @@ void ic_if_statement(ExecNode *s)
     if (else_part)
         L3 = new_label();
 
-    emit_i(OpCBr, &s->child[0]->type, L1, ic_expression2(s->child[0]), L2);
+    ic_controlling_expression(s->child[0], L1, L2);
     emit_label(L1);
     ic_statement(s->child[1]);
     if (else_part)
@@ -1381,13 +1391,13 @@ void ic_while_statement(ExecNode *s)
     L2 = new_label();
     L3 = new_label();
 
-    emit_i(OpCBr, &s->child[0]->type, L1, ic_expression2(s->child[0]), L3);
+    ic_controlling_expression(s->child[0], L1, L3);
     emit_label(L1);
     push_break_target(L3), push_continue_target(L2);
     ic_statement(s->child[1]);
     pop_break_target(), pop_continue_target();
     emit_label(L2);
-    emit_i(OpCBr, &s->child[0]->type, L1, ic_expression2(s->child[0]), L3);
+    ic_controlling_expression(s->child[0], L1, L3);
     emit_label(L3);
 }
 
@@ -1419,7 +1429,7 @@ void ic_do_statement(ExecNode *s)
     ic_statement(s->child[1]);
     pop_break_target(), pop_continue_target();
     emit_label(L2);
-    emit_i(OpCBr, &s->child[0]->type, L1, ic_expression2(s->child[0]), L3);
+    ic_controlling_expression(s->child[0], L1, L3);
     emit_label(L3);
 }
 
@@ -1444,18 +1454,18 @@ void ic_for_statement(ExecNode *s)
     L3 = new_label();
 
     if (s->child[1] != NULL)
-        ic_expression2(s->child[1]);
+        ic_expression2(s->child[1], NOLAB, NOLAB);
     if (s->child[0] != NULL)
-        emit_i(OpCBr, &s->child[0]->type, L1, ic_expression2(s->child[0]), L3);
+        ic_controlling_expression(s->child[0], L1, L3);
     emit_label(L1);
     push_break_target(L3), push_continue_target(L2);
     ic_statement(s->child[3]);
     pop_break_target(), pop_continue_target();
     emit_label(L2);
     if (s->child[2] != NULL)
-        ic_expression2(s->child[2]);
+        ic_expression2(s->child[2], NOLAB, NOLAB);
     if (s->child[0] != NULL)
-        emit_i(OpCBr, &s->child[0]->type, L1, ic_expression2(s->child[0]), L3);
+        ic_controlling_expression(s->child[0], L1, L3);
     else
         emit_i(OpJmp, NULL, L1, 0, 0);
     emit_label(L3);
@@ -1524,7 +1534,7 @@ void ic_switch_statement(ExecNode *s)
     push_break_target(EXIT);
     a = new_address(IConstKind);
     address(a).cont.val = s->attr.val;
-    emit_i(OpSwitch, &s->child[0]->type, 0, ic_expression2(s->child[0]), a);
+    emit_i(OpSwitch, &s->child[0]->type, 0, ic_expression2(s->child[0], NOLAB, NOLAB), a);
     i = ic_instructions_counter;
     n = ic_instructions_counter+s->attr.val;
     while (ic_instructions_counter < n)
@@ -1695,7 +1705,7 @@ void ic_compound_statement(ExecNode *s, int push_scope)
 void ic_expression_statement(ExecNode *s)
 {
     if (s->child[0] != NULL)
-        ic_expression2(s->child[0]);
+        ic_expression2(s->child[0], NOLAB, NOLAB);
 }
 
 void register_label(char *str, unsigned addr)
@@ -2090,7 +2100,7 @@ static int function_argument(ExecNode *arg, DeclList *param)
         /* this and the arguments that follow match the `...' */
 
         n += function_argument(arg->sibling, param);
-        emit_i(OpArg, &arg->type, 0, ic_expression(arg, FALSE), 0);
+        emit_i(OpArg, &arg->type, 0, ic_expression(arg, FALSE, NOLAB, NOLAB), 0);
     }
     return n;
 }
@@ -2108,7 +2118,7 @@ static unsigned ic_expr_convert(ExecNode *e, Declaration *dest)
     unsigned a1, a2;
     Token cat_dest, cat_src;
 
-    a1 = ic_expression(e, FALSE);
+    a1 = ic_expression(e, FALSE, NOLAB, NOLAB);
 
     cat_src  = get_type_category(&e->type);
     cat_dest = get_type_category(dest);
@@ -2170,25 +2180,25 @@ int is_wideval(Token cat)
     return (cat==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG);
 }
 
-unsigned ic_expression(ExecNode *e, int is_addr)
+unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned false_lab)
 {
     switch (e->kind.exp) {
     case OpExp:
         switch (e->attr.op) {
         case TOK_COMMA:
-            ic_expression(e->child[0], FALSE);
-            return ic_expression(e->child[1], FALSE);
+            ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
+            return ic_expression(e->child[1], FALSE, NOLAB, NOLAB);
 
         case TOK_ASSIGN: {
             unsigned a1, a2;
 
             a2 = ic_expr_convert(e->child[1], &e->type);
             if (e->child[0]->kind.exp == IdExp) {
-                a1 = ic_expression(e->child[0], FALSE);
+                a1 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
                 emit_i(OpAsn, &e->type, a1, a2, 0);
                 return a1;
             } else {
-                a1 = ic_expression(e->child[0], TRUE);
+                a1 = ic_expression(e->child[0], TRUE, NOLAB, NOLAB);
                 ic_indirect_assignment(a1, a2, &e->type);
                 return a2;
             }
@@ -2235,11 +2245,11 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             new_e->type.idl = (TypeExp *)e->child[3];
             a2 = ic_expr_convert(new_e, &e->type);
             if (e->child[0]->kind.exp == IdExp) {
-                a1 = ic_expression(e->child[0], FALSE);
+                a1 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
                 emit_i(OpAsn, &e->type, a1, a2, 0);
                 return a1;
             } else {
-                a1 = ic_expression(e->child[0], TRUE);
+                a1 = ic_expression(e->child[0], TRUE, NOLAB, NOLAB);
                 ic_indirect_assignment(a1, a2, &e->type);
                 return a2;
             }
@@ -2254,13 +2264,12 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             L3 = new_label();
 
             a = new_temp_addr();
-            emit_i(OpCBr, &e->child[0]->type, L1, ic_expression(e->child[0], FALSE), L2);
+            ic_controlling_expression(e->child[0], L1, L2);
             emit_label(L1);
             emit_i(OpAsn, &e->type, a, ic_expr_convert(e->child[1], &e->type), 0);
             emit_i(OpJmp, NULL, L3, 0, 0);
             emit_label(L2);
             emit_i(OpAsn, &e->type, a, ic_expr_convert(e->child[2], &e->type), 0);
-            /*emit_i(OpJmp, NULL, L3, 0, 0);*/
             emit_label(L3);
             return a;
         }
@@ -2269,46 +2278,64 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             unsigned a;
             unsigned L1, L2, L3, L4;
 
-            L1 = new_label();
-            L2 = new_label();
-            L3 = new_label();
-            L4 = new_label();
+            if (true_lab != NOLAB) {
+                assert(false_lab != NOLAB);
+                L1 = new_label();
 
-            a = new_temp_addr();
-            emit_i(OpCBr, &e->child[0]->type, L1, ic_expression(e->child[0], FALSE), L2);
-            emit_label(L2);
-            emit_i(OpCBr, &e->child[1]->type, L1, ic_expression(e->child[1], FALSE), L3);
-            emit_label(L1);
-            emit_i(OpAsn, &e->type, a, true_addr, 0);
-            emit_i(OpJmp, NULL, L4, 0, 0);
-            emit_label(L3);
-            emit_i(OpAsn, &e->type, a, false_addr, 0);
-            /*emit_i(OpJmp, NULL, L4, 0, 0);*/
-            emit_label(L4);
-            return a;
+                ic_controlling_expression(e->child[0], true_lab, L1);
+                emit_label(L1);
+                ic_controlling_expression(e->child[1], true_lab, false_lab);
+                return 0;
+            } else {
+                L1 = new_label();
+                L2 = new_label();
+                L3 = new_label();
+                L4 = new_label();
+
+                a = new_temp_addr();
+                ic_controlling_expression(e->child[0], L1, L2);
+                emit_label(L2);
+                ic_controlling_expression(e->child[1], L1, L3);
+                emit_label(L1);
+                emit_i(OpAsn, &e->type, a, true_addr, 0);
+                emit_i(OpJmp, NULL, L4, 0, 0);
+                emit_label(L3);
+                emit_i(OpAsn, &e->type, a, false_addr, 0);
+                emit_label(L4);
+                return a;
+            }
         }
 
         case TOK_AND: {
             unsigned a;
             unsigned L1, L2, L3, L4;
 
-            L1 = new_label();
-            L2 = new_label();
-            L3 = new_label();
-            L4 = new_label();
+            if (true_lab != NOLAB) {
+                assert(false_lab != NOLAB);
+                L1 = new_label();
 
-            a = new_temp_addr();
-            emit_i(OpCBr, &e->child[0]->type, L1, ic_expression(e->child[0], FALSE), L3);
-            emit_label(L1);
-            emit_i(OpCBr, &e->child[1]->type, L2, ic_expression(e->child[1], FALSE), L3);
-            emit_label(L2);
-            emit_i(OpAsn, &e->type, a, true_addr, 0);
-            emit_i(OpJmp, NULL, L4, 0, 0);
-            emit_label(L3);
-            emit_i(OpAsn, &e->type, a, false_addr, 0);
-            /*emit_i(OpJmp, NULL, L4, 0, 0);*/
-            emit_label(L4);
-            return a;
+                ic_controlling_expression(e->child[0], L1, false_lab);
+                emit_label(L1);
+                ic_controlling_expression(e->child[1], true_lab, false_lab);
+                return 0;
+            } else {
+                L1 = new_label();
+                L2 = new_label();
+                L3 = new_label();
+                L4 = new_label();
+
+                a = new_temp_addr();
+                ic_controlling_expression(e->child[0], L1, L3);
+                emit_label(L1);
+                ic_controlling_expression(e->child[1], L2, L3);
+                emit_label(L2);
+                emit_i(OpAsn, &e->type, a, true_addr, 0);
+                emit_i(OpJmp, NULL, L4, 0, 0);
+                emit_label(L3);
+                emit_i(OpAsn, &e->type, a, false_addr, 0);
+                emit_label(L4);
+                return a;
+            }
         }
 
         case TOK_EQ:
@@ -2381,9 +2408,9 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                     ii = 1, pi = 0;
                 if (NREG(e->child[ii]) >= NREG(e->child[pi])) {
                     a1 = ic_expr_convert(e->child[ii], &e->type);
-                    a2 = ic_expression(e->child[pi], FALSE);
+                    a2 = ic_expression(e->child[pi], FALSE, NOLAB, NOLAB);
                 } else {
-                    a2 = ic_expression(e->child[pi], FALSE);
+                    a2 = ic_expression(e->child[pi], FALSE, NOLAB, NOLAB);
                     a1 = ic_expr_convert(e->child[ii], &e->type);
                 }
                 ty = e->child[pi]->type;
@@ -2417,11 +2444,11 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                 unsigned a4, a5;
 
                 if (NREG(e->child[0]) >= NREG(e->child[1])) {
-                    a1 = ic_expression(e->child[0], FALSE);
+                    a1 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
                     a2 = ic_expr_convert(e->child[1], &e->child[0]->type);
                 } else {
                     a2 = ic_expr_convert(e->child[1], &e->child[0]->type);
-                    a1 = ic_expression(e->child[0], FALSE);
+                    a1 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
                 }
                 ty = e->child[0]->type;
                 ty.idl = ty.idl->child;
@@ -2447,11 +2474,11 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             unsigned a1, a2, a3;
 
             if (NREG(e->child[0]) >= NREG(e->child[1])) {
-                a1 = ic_expression(e->child[0], FALSE);
-                a2 = ic_expression(e->child[1], FALSE);
+                a1 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
+                a2 = ic_expression(e->child[1], FALSE, NOLAB, NOLAB);
             } else {
-                a2 = ic_expression(e->child[1], FALSE);
-                a1 = ic_expression(e->child[0], FALSE);
+                a2 = ic_expression(e->child[1], FALSE, NOLAB, NOLAB);
+                a1 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
             }
             a3 = new_temp_addr();
             emit_i((e->attr.op==TOK_LSHIFT)?OpSHL:OpSHR, &e->type, a3, a1, a2);
@@ -2507,18 +2534,18 @@ unsigned ic_expression(ExecNode *e, int is_addr)
     }
             a1 = get_step_size(e);
             if (e->child[0]->kind.exp == IdExp) {
-                a2 = ic_expression(e->child[0], FALSE);
+                a2 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
                 a3 = new_temp_addr();
                 emit_i((e->attr.op==TOK_PRE_INC)?OpAdd:OpSub, &e->type, a3, a2, a1);
                 CAST();
                 emit_i(OpAsn, &e->type, a2, a4, 0);
                 return a2;
             } else {
-                a2 = ic_expression(e->child[0], FALSE);
+                a2 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
                 a3 = new_temp_addr();
                 emit_i((e->attr.op==TOK_PRE_INC)?OpAdd:OpSub, &e->type, a3, a2, a1);
                 CAST();
-                a5 = ic_expression(e->child[0], TRUE);
+                a5 = ic_expression(e->child[0], TRUE, NOLAB, NOLAB);
                 ic_indirect_assignment(a5, a4, &e->type);
                 return a4;
             }
@@ -2531,7 +2558,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
 
             a1 = get_step_size(e);
             if (e->child[0]->kind.exp == IdExp) {
-                a2 = ic_expression(e->child[0], FALSE);
+                a2 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
                 a3 = new_temp_addr();
                 emit_i(OpAsn, &e->type, a3, a2, 0);
                 a4 = new_temp_addr();
@@ -2539,27 +2566,27 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                 emit_i(OpAsn, &e->type, a2, a4, 0);
                 return a3;
             } else {
-                a2 = ic_expression(e->child[0], FALSE);
+                a2 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
                 a3 = new_temp_addr();
                 emit_i((e->attr.op==TOK_POS_INC)?OpAdd:OpSub, &e->type, a3, a2, a1);
-                a4 = ic_expression(e->child[0], TRUE);
+                a4 = ic_expression(e->child[0], TRUE, NOLAB, NOLAB);
                 ic_indirect_assignment(a4, a3, &e->type);
                 return a2;
             }
         }
 
         case TOK_ADDRESS_OF:
-            return ic_expression(e->child[0], TRUE);
+            return ic_expression(e->child[0], TRUE, NOLAB, NOLAB);
         case TOK_INDIRECTION:
             if (is_addr)
-                return ic_expression(e->child[0], FALSE);
+                return ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
             else
-                return ic_dereference(ic_expression(e->child[0], FALSE), &e->type);
+                return ic_dereference(ic_expression(e->child[0], FALSE, NOLAB, NOLAB), &e->type);
 
         case TOK_NEGATION: {
             unsigned a1, a2;
 
-            a1 = ic_expression(e->child[0], FALSE);
+            a1 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
             a2 = new_temp_addr();
             emit_i(OpNot, &e->child[0]->type, a2, a1, 0);
             return a2;
@@ -2568,13 +2595,13 @@ unsigned ic_expression(ExecNode *e, int is_addr)
         case TOK_UNARY_MINUS: {
             unsigned a1, a2;
 
-            a1 = ic_expression(e->child[0], FALSE);
+            a1 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
             a2 = new_temp_addr();
             emit_i((e->attr.op==TOK_COMPLEMENT)?OpCmpl:OpNeg, &e->type, a2, a1, 0);
             return a2;
         }
         case TOK_UNARY_PLUS:
-            return ic_expression(e->child[0], FALSE);
+            return ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
 
         case TOK_SUBSCRIPT: {
             int ii, pi;
@@ -2587,9 +2614,9 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                 ii = 1, pi = 0;
             if (NREG(e->child[ii]) >= NREG(e->child[pi])) {
                 a1 = ic_expr_convert(e->child[ii], &e->child[pi]->type);
-                a2 = ic_expression(e->child[pi], FALSE);
+                a2 = ic_expression(e->child[pi], FALSE, NOLAB, NOLAB);
             } else {
-                a2 = ic_expression(e->child[pi], FALSE);
+                a2 = ic_expression(e->child[pi], FALSE, NOLAB, NOLAB);
                 a1 = ic_expr_convert(e->child[ii], &e->child[pi]->type);
             }
             ty = e->child[pi]->type;
@@ -2631,7 +2658,7 @@ unsigned ic_expression(ExecNode *e, int is_addr)
                 edge_add(&cg_node(curr_cg_node).out, tar_fn);
             } else {
                 op = OpIndCall;
-                a1 = ic_expression(e->child[0], FALSE);
+                a1 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
             }
             if (get_type_category(&e->type) != TOK_VOID) {
                 unsigned a3;
@@ -2651,10 +2678,10 @@ unsigned ic_expression(ExecNode *e, int is_addr)
             unsigned a1;
 
             if (e->attr.op == TOK_DOT) {
-                a1 = ic_expression(e->child[0], TRUE);
+                a1 = ic_expression(e->child[0], TRUE, NOLAB, NOLAB);
                 is_union = get_type_category(&e->child[0]->type) == TOK_UNION;
             } else {
-                a1 = ic_expression(e->child[0], FALSE);
+                a1 = ic_expression(e->child[0], FALSE, NOLAB, NOLAB);
                 is_union = get_type_spec(e->child[0]->type.decl_specs)->op == TOK_UNION;
             }
             if (!is_union) {

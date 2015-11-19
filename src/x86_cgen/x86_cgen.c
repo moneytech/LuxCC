@@ -2663,7 +2663,7 @@ void x86_cgen(FILE *outf)
     x86_output_file = outf;
 
     /* generate intermediate code and do some analysis */
-    ic_main(&func_def_list, &ext_sym_list);
+    ic_main(&func_def_list, &ext_sym_list); //exit(0);
     compute_liveness_and_next_use();
 
     /* generate assembly */
