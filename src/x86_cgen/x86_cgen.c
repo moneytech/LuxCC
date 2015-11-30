@@ -1,10 +1,13 @@
 /*
  * Simple x86 code generator
  *      IC ==> x86 ASM (NASM syntax).
- * Of interest:
+ * Normative document:
  *   => System V ABI-i386: http://www.sco.com/developers/devspecs/abi386-4.pdf
+ * Other documents:
+ *   => Calling conventions: http://www.agner.org/optimize/calling_conventions.pdf
  * TOFIX:
- * - The code ignores the fact that byte versions of ESI and EDI don't exist.
+ * - There are places where the code ignores the fact that byte versions
+ *   of ESI and EDI don't exist.
  */
 #define DEBUG 0
 #include "x86_cgen.h"
@@ -220,7 +223,7 @@ void spill_reg(X86_Reg r)
         addr_reg1(a) = addr_reg2(a) = -1;
         reg_descr_tab[rr.r1] = reg_descr_tab[rr.r2] = 0;
     } else {
-        x86_store(addr_reg1(a), a);
+        x86_store(r, a);
         addr_reg1(a) = -1;
         reg_descr_tab[r] = 0;
     }
@@ -365,23 +368,6 @@ void free_all_temps(void)
 
 #define local_offset(a) (address(a).cont.var.offset)
 #define ISLL(ty) ((cat=get_type_category(ty))==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG)
-
-void x86_sign_extend(X86_Reg2 r)
-{
-    if (r.r1 != X86_EAX) {
-        emitln("push eax");
-        emitln("mov eax, %s", x86_reg_str[r.r1]);
-    }
-    if (r.r2 != X86_EDX)
-        emitln("push edx");
-    emitln("cdq");
-    if (r.r2 != X86_EDX) {
-        emitln("mov %s, edx", x86_reg_str[r.r2]);
-        emitln("pop edx");
-    }
-    if (r.r1 != X86_EAX)
-        emitln("pop eax");
-}
 
 void x86_load(X86_Reg r, unsigned a)
 {
@@ -815,7 +801,7 @@ void x86_compare_against_constant(unsigned a, unsigned c)
     }
 }
 
-void update_arg_descriptors(unsigned arg, unsigned char liveness, int next_use)
+static void update_arg_descriptors(unsigned arg, unsigned char liveness, int next_use)
 {
     if (const_addr(arg) || next_use)
         return;
@@ -841,7 +827,7 @@ void update_arg_descriptors(unsigned arg, unsigned char liveness, int next_use)
     }
 }
 
-void update_tar_descriptors(X86_Reg res, unsigned tar, unsigned char liveness, int next_use)
+static void update_tar_descriptors(X86_Reg res, unsigned tar, unsigned char liveness, int next_use)
 {
     /* Note:
         maintain the order of the operations for x86_store()
@@ -1031,8 +1017,8 @@ static void x86_do_libcall(int i, unsigned tar, unsigned arg1, unsigned arg2, in
         emitln("add esp, %d", nb);
 
         emitln("cmp eax, 1");
-        emitln("mov eax, 0");
         emitln("sete al");
+        emitln("movzx eax, al");
         UPDATE_ADDRESSES_UNARY(res);
     }
         break;
@@ -1067,37 +1053,37 @@ static void x86_do_libcall(int i, unsigned tar, unsigned arg1, unsigned arg2, in
         switch (func) {
         case LibEq:
             emitln("cmp eax, 1");
-            emitln("mov eax, 0");
             emitln("sete al");
+            emitln("movzx eax, al");
             break;
         case LibNeq:
             emitln("cmp eax, 1");
-            emitln("mov eax, 0");
             emitln("setne al");
+            emitln("movzx eax, al");
             break;
         case LibULT:
         case LibSLT:
             emitln("cmp eax, 4");
-            emitln("mov eax, 0");
             emitln("sete al");
+            emitln("movzx eax, al");
             break;
         case LibUGT:
         case LibSGT:
             emitln("cmp eax, 2");
-            emitln("mov eax, 0");
             emitln("sete al");
+            emitln("movzx eax, al");
             break;
         case LibUGET:
         case LibSGET:
             emitln("cmp eax, 4");
-            emitln("mov eax, 0");
             emitln("setne al");
+            emitln("movzx eax, al");
             break;
         case LibULET:
         case LibSLET:
             emitln("cmp eax, 2");
-            emitln("mov eax, 0");
             emitln("setne al");
+            emitln("movzx eax, al");
             break;
         }
         UPDATE_ADDRESSES(res);
@@ -1242,7 +1228,7 @@ static void x86_shl(int i, unsigned tar, unsigned arg1, unsigned arg2)
         if (address(arg2).kind == IConstKind) {
             res = get_reg(i);
             x86_load(res, arg1);
-            emitln("sal %s, %lu", x86_reg_str[res], address(arg2).cont.uval);
+            emitln("sal %s, %u", x86_reg_str[res], (unsigned)address(arg2).cont.uval);
         } else {
             if (addr_reg1(arg2) != X86_ECX) {
                 spill_reg(X86_ECX);
@@ -1273,7 +1259,7 @@ static void x86_shr(int i, unsigned tar, unsigned arg1, unsigned arg2)
         if (address(arg2).kind == IConstKind) {
             res = get_reg(i);
             x86_load(res, arg1);
-            emitln("%s %s, %lu", instr, x86_reg_str[res], address(arg2).cont.uval);
+            emitln("%s %s, %u", instr, x86_reg_str[res], (unsigned)address(arg2).cont.uval);
         } else {
             if (addr_reg1(arg2) != X86_ECX) {
                 spill_reg(X86_ECX);
@@ -1486,8 +1472,8 @@ static void x86_eq(int i, unsigned tar, unsigned arg1, unsigned arg2)
         emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
         unpin_reg(res);
         if (flags & IC_STORE) {
-            emitln("mov %s, 0", x86_reg_str[res]);
             emitln("sete %s", x86_lbreg_str[res]);
+            emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
             UPDATE_ADDRESSES(res);
         } else {
             do_relop_jump(i, flags, tar, arg1, arg2);
@@ -1515,8 +1501,8 @@ static void x86_neq(int i, unsigned tar, unsigned arg1, unsigned arg2)
         emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
         unpin_reg(res);
         if (flags & IC_STORE) {
-            emitln("mov %s, 0", x86_reg_str[res]);
             emitln("setne %s", x86_lbreg_str[res]);
+            emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
             UPDATE_ADDRESSES(res);
         } else {
             do_relop_jump(i, flags, tar, arg1, arg2);
@@ -1544,8 +1530,8 @@ static void x86_lt(int i, unsigned tar, unsigned arg1, unsigned arg2)
         emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
         unpin_reg(res);
         if (flags & IC_STORE) {
-            emitln("mov %s, 0", x86_reg_str[res]);
             emitln("set%s %s", (flags&IC_SIGNED)?"l":"b", x86_lbreg_str[res]);
+            emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
             UPDATE_ADDRESSES(res);
         } else {
             do_relop_jump(i, flags, tar, arg1, arg2);
@@ -1573,8 +1559,8 @@ static void x86_let(int i, unsigned tar, unsigned arg1, unsigned arg2)
         emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
         unpin_reg(res);
         if (flags & IC_STORE) {
-            emitln("mov %s, 0", x86_reg_str[res]);
             emitln("set%s %s", (flags&IC_SIGNED)?"le":"be", x86_lbreg_str[res]);
+            emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
             UPDATE_ADDRESSES(res);
         } else {
             do_relop_jump(i, flags, tar, arg1, arg2);
@@ -1602,8 +1588,8 @@ static void x86_gt(int i, unsigned tar, unsigned arg1, unsigned arg2)
         emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
         unpin_reg(res);
         if (flags & IC_STORE) {
-            emitln("mov %s, 0", x86_reg_str[res]);
             emitln("set%s %s", (flags&IC_SIGNED)?"g":"a", x86_lbreg_str[res]);
+            emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
             UPDATE_ADDRESSES(res);
         } else {
             do_relop_jump(i, flags, tar, arg1, arg2);
@@ -1631,8 +1617,8 @@ static void x86_get(int i, unsigned tar, unsigned arg1, unsigned arg2)
         emitln("cmp %s, %s", x86_reg_str[res], x86_get_operand(arg2));
         unpin_reg(res);
         if (flags & IC_STORE) {
-            emitln("mov %s, 0", x86_reg_str[res]);
             emitln("set%s %s", (flags&IC_SIGNED)?"ge":"ae", x86_lbreg_str[res]);
+            emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
             UPDATE_ADDRESSES(res);
         } else {
             do_relop_jump(i, flags, tar, arg1, arg2);
@@ -1697,8 +1683,8 @@ static void x86_not(int i, unsigned tar, unsigned arg1, unsigned arg2)
         res = get_reg(i);
         x86_load(res, arg1);
         emitln("cmp %s, 0", x86_reg_str[res]);
-        emitln("mov %s, 0", x86_reg_str[res]);
         emitln("sete %s", x86_lbreg_str[res]);
+        emitln("movzx %s, %s", x86_reg_str[res], x86_lbreg_str[res]);
         UPDATE_ADDRESSES_UNARY(res);
     }
 }
@@ -1757,22 +1743,21 @@ static void x86_ush(int i, unsigned tar, unsigned arg1, unsigned arg2)
     UPDATE_ADDRESSES_UNARY(res);
 }
 
-/*static void x86_int(int i, unsigned tar, unsigned arg1, unsigned arg2)
-{
-    assert(0);
-}*/
-
-static void x86_sxll(int i, unsigned tar, unsigned arg1, unsigned arg2)
+static void x86_llsx(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg2 res;
+    char *r1, *r2;
 
     res = get_reg2(i);
     x86_load(res.r1, arg1);
-    x86_sign_extend(res);
+    r1 = x86_reg_str[res.r1];
+    r2 = x86_reg_str[res.r2];
+    emitln("mov %s, %s", r2, r1);
+    emitln("sar %s, 31", r2);
     UPDATE_ADDRESSES_UNARY2(res);
 }
 
-static void x86_zxll(int i, unsigned tar, unsigned arg1, unsigned arg2)
+static void x86_llzx(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     X86_Reg2 res;
 
@@ -1813,7 +1798,7 @@ static void x86_ind(int i, unsigned tar, unsigned arg1, unsigned arg2)
         res = get_reg(i);
         x86_load(res, arg1);
         reg_str = x86_reg_str[res];
-        switch (get_type_category(instruction(i).type)) {
+        switch (cat) {
         case TOK_STRUCT:
         case TOK_UNION:
             break;
@@ -2010,7 +1995,7 @@ static void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
     }
 
     /*
-     * <= 4 bytes indirect assignment.
+     * <= 4 bytes scalar indirect assignment.
      */
 
     if (addr_reg1(arg1) == -1) {
@@ -2037,7 +2022,7 @@ static void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
     }
 
     if (address(arg2).kind == IConstKind) {
-        emitln("mov %s [%s], %lu", siz_str, x86_reg_str[pr], address(arg2).cont.uval);
+        emitln("mov %s [%s], %u", siz_str, x86_reg_str[pr], (unsigned)address(arg2).cont.uval);
     } else if (address(arg2).kind == StrLitKind) {
         emitln("mov %s [%s], _@S%d", siz_str, x86_reg_str[pr], new_string_literal(arg2));
     } else {
@@ -2383,7 +2368,7 @@ linear_search:
             break;
         }
 
-        emitln("cmp %s, %lu", x86_reg_str[res], address(tar).cont.uval);
+        emitln("cmp %s, %u", x86_reg_str[res], (unsigned)address(tar).cont.uval);
         emit_jmpeq(address(arg1).cont.val);
     }
 }
@@ -2400,9 +2385,9 @@ static void (*instruction_handlers[])(int, unsigned, unsigned, unsigned) = {
     x86_lt, x86_let, x86_gt, x86_get,
 
     x86_neg, x86_cmpl, x86_not, x86_ch,
-    x86_uch, x86_sh, x86_ush, /*x86_int,*/
-    x86_sxll, x86_zxll, x86_addr_of,
-    x86_ind, x86_asn, x86_call, x86_indcall,
+    x86_uch, x86_sh, x86_ush, x86_llsx,
+    x86_llzx, x86_addr_of, x86_ind, x86_asn,
+    x86_call, x86_indcall,
 
     x86_ind_asn, x86_lab, x86_jmp, x86_arg,
     x86_ret, x86_switch, x86_case, x86_cbr,
@@ -2483,7 +2468,7 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
 
         instruction_handlers[instruction(i).op](i, tar, arg1, arg2);
     }
-    size_of_local_area -= temp_struct_size;
+    size_of_local_area -= round_up(temp_struct_size, 4);
     pos_tmp = string_get_pos(func_body);
     while (--calls_to_fix_counter >= 0) {
         int n;

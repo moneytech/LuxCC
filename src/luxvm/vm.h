@@ -2,7 +2,6 @@
 #define VM_H_
 
 /*
-
         Possible Extensions
 
     Note: X = B, UB, W, UW, DW.

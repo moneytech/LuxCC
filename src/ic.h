@@ -46,8 +46,9 @@ typedef enum {
     OpSh,
     OpUSh,
     /*OpInt,*/
-    OpSXLL,
-    OpZXLL,
+    /*OpUInt,*/
+    OpLLSX,
+    OpLLZX,
     OpAddrOf,
     OpInd,
     OpAsn,      /* x = y */

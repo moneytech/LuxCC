@@ -329,8 +329,8 @@ void live_init_block(unsigned b, int exit_bb)
             && (address(tar).cont.var.e->attr.var.duration == DURATION_STATIC))
                 bset_insert(modified_static_objects, address_nid(tar));
         case OpNeg: case OpCmpl: case OpNot: case OpCh:
-        case OpUCh: case OpSh: case OpUSh:
-        case OpSXLL: case OpZXLL:
+        case OpUCh: case OpSh: case OpUSh:  case OpLLSX:
+        case OpLLZX:
             if (!const_addr(arg1))
                 add_UEVar(arg1);
             add_VarKill(tar);
@@ -593,8 +593,8 @@ static void compute_function_liveness_and_next_use(unsigned fn)
                 continue;
 
             case OpNeg: case OpCmpl: case OpNot: case OpCh:
-            case OpUCh: case OpSh: case OpUSh: case OpAsn:
-            case OpSXLL: case OpZXLL:
+            case OpAsn: case OpUCh: case OpSh: case OpUSh:
+            case OpLLSX: case OpLLZX:
                 update_tar();
                 if (!const_addr(arg1))
                     update_arg1();

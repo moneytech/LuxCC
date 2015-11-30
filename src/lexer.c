@@ -147,6 +147,7 @@ const char *token_table[] = {
     "FUNC_NAME", "__func__",
     "STATIC_ASSERT", "__static_assert",
     "ASM", "__asm",
+    "BUILTIN_VA_START", "__builtin_va_start",
 };
 
 static const struct Keyword {
@@ -154,6 +155,7 @@ static const struct Keyword {
     Token tok;
 } keywords_table[] = { /* sorted for bsearch() */
     {"__asm", TOK_ASM},
+    {"__builtin_va_start", TOK_BUILTIN_VA_START},
     {"__func__", TOK_FUNC_NAME},
     {"__static_assert", TOK_STATIC_ASSERT},
     {"auto", TOK_AUTO},

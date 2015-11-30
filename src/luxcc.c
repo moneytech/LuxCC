@@ -8,6 +8,7 @@
 #include "vm32_cgen/vm32_cgen.h"
 #include "vm64_cgen/vm64_cgen.h"
 #include "x86_cgen/x86_cgen.h"
+#include "x64_cgen/x64_cgen.h"
 #include "util.h"
 
 unsigned warning_count, error_count;
@@ -43,9 +44,11 @@ enum {
     OPT_PRINT_AST       = 0x010,
     OPT_PRINT_CG        = 0x020,
     OPT_X86_TARGET      = 0x040,
-    OPT_VM32_TARGET     = 0x080,
-    OPT_VM64_TARGET     = 0x100,
+    OPT_X64_TARGET      = 0x080,
+    OPT_VM32_TARGET     = 0x100,
+    OPT_VM64_TARGET     = 0x200,
 };
+#define TARGET_MASK (OPT_X86_TARGET|OPT_X64_TARGET|OPT_VM32_TARGET|OPT_VM64_TARGET)
 
 int main(int argc, char *argv[])
 {
@@ -115,6 +118,8 @@ int main(int argc, char *argv[])
                 targ = argv[++i];
             if (equal(targ, "x86"))
                 flags |= OPT_X86_TARGET;
+            else if (equal(targ, "x64"))
+                flags |= OPT_X64_TARGET;
             else if (equal(targ, "vm32"))
                 flags |= OPT_VM32_TARGET;
             else if (equal(targ, "vm64"))
@@ -182,15 +187,24 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    if (flags & OPT_VM32_TARGET) {
+    switch (flags & TARGET_MASK) {
+    case OPT_VM32_TARGET:
         install_macro(SIMPLE_MACRO, "__LuxVM__", &one_node, NULL);
-    } else if (flags & OPT_VM64_TARGET) {
+        break;
+    case OPT_VM64_TARGET:
         install_macro(SIMPLE_MACRO, "__LuxVM__", &one_node, NULL);
         install_macro(SIMPLE_MACRO, "__LP64__", &one_node, NULL);
         targeting_arch64 = TRUE;
-    } else { /* default target: x86 */
+        break;
+    case OPT_X64_TARGET:
+        install_macro(SIMPLE_MACRO, "__x86_64__", &one_node, NULL);
+        install_macro(SIMPLE_MACRO, "__LP64__", &one_node, NULL);
+        targeting_arch64 = TRUE;
+        break;
+    default:
         flags |= OPT_X86_TARGET;
-        install_macro(SIMPLE_MACRO, "__x86_32__", &one_node, NULL);
+        install_macro(SIMPLE_MACRO, "__i386__", &one_node, NULL);
+        break;
     }
 
     pre = preprocess(inpath);
@@ -234,24 +248,28 @@ int main(int argc, char *argv[])
 
     if (error_count == 0) {
         fp = (outpath == NULL) ? stdout : fopen(outpath, "wb");
-        if (flags & OPT_X86_TARGET) {
-            if (ic_function_to_print != NULL)
-                ic_outpath = replace_extension(inpath, ".ic");
-            if (cfg_function_to_print != NULL)
-                cfg_outpath = replace_extension(inpath, ".cfg.dot");
-            if (flags & OPT_PRINT_CG)
-                cg_outpath = replace_extension(inpath, ".cg.dot");
-            x86_cgen(fp);
-            if (ic_function_to_print != NULL)
-                free(ic_outpath);
-            if (cfg_outpath != NULL)
-                free(cfg_outpath);
-            if (cg_outpath != NULL)
-                free(cg_outpath);
-        } else if (flags & OPT_VM32_TARGET) {
+        switch (flags & TARGET_MASK) {
+        case OPT_X86_TARGET:
+        case OPT_X64_TARGET:
+            if (ic_function_to_print != NULL)  ic_outpath = replace_extension(inpath, ".ic");
+            if (cfg_function_to_print != NULL) cfg_outpath = replace_extension(inpath, ".cfg.dot");
+            if (flags & OPT_PRINT_CG)          cg_outpath = replace_extension(inpath, ".cg.dot");
+
+            if ((flags&TARGET_MASK) == OPT_X86_TARGET)
+                x86_cgen(fp);
+            else
+                x64_cgen(fp);
+
+            if (ic_function_to_print != NULL) free(ic_outpath);
+            if (cfg_outpath != NULL)          free(cfg_outpath);
+            if (cg_outpath != NULL)           free(cg_outpath);
+            break;
+        case OPT_VM32_TARGET:
             vm32_cgen(fp);
-        } else if (flags & OPT_VM64_TARGET) {
+            break;
+        case OPT_VM64_TARGET:
             vm64_cgen(fp);
+            break;
         }
     } else {
         return 1;

@@ -80,16 +80,17 @@ enum {
 };
 
 enum {
-    DVR_HELP            = 0x01,
-    DVR_PREP_ONLY       = 0x02,
-    DVR_COMP_ONLY       = 0x04,
-    DVR_NOLINK          = 0x08,
-    DVR_ANALYZE_ONLY    = 0x10,
-    DVR_VM32_TARGET     = 0x20,
-    DVR_VM64_TARGET     = 0x40,
-    DVR_X86_TARGET      = 0x80,
+    DVR_HELP            = 0x001,
+    DVR_PREP_ONLY       = 0x002,
+    DVR_COMP_ONLY       = 0x004,
+    DVR_NOLINK          = 0x008,
+    DVR_ANALYZE_ONLY    = 0x010,
+    DVR_VM32_TARGET     = 0x020,
+    DVR_VM64_TARGET     = 0x040,
+    DVR_X86_TARGET      = 0x080,
+    DVR_X64_TARGET      = 0x100,
 };
-#define DVR_TARGETS (DVR_VM32_TARGET+DVR_VM64_TARGET+DVR_X86_TARGET)
+#define DVR_TARGETS (DVR_VM32_TARGET+DVR_VM64_TARGET+DVR_X86_TARGET+DVR_X64_TARGET)
 
 typedef struct InFile InFile;
 struct InFile {
@@ -425,6 +426,9 @@ int main(int argc, char *argv[])
                 if (equal(m, "x86")) {
                     driver_flags &= ~DVR_TARGETS;
                     driver_flags |= DVR_X86_TARGET;
+                } else if (equal(m, "x64")) {
+                    driver_flags &= ~DVR_TARGETS;
+                    driver_flags |= DVR_X64_TARGET;
                 } else if (equal(m, "vm32")) {
                     driver_flags &= ~DVR_TARGETS;
                     driver_flags |= DVR_VM32_TARGET;
@@ -497,6 +501,9 @@ ok_1:
         string_printf(ld_cmd, " -vm64");
         string_printf(ld_cmd, " %s", get_path(VM64_CRT));
         string_printf(ld_cmd, " %s", get_path(VM_LIBC));
+    } else if (driver_flags & DVR_X64_TARGET) {
+        string_printf(as_cmd, "nasm -f elf64");
+        string_printf(ld_cmd, GNU_LD);
     } else {
         char *p;
 
@@ -661,6 +668,13 @@ ok_1:
                     string_printf(ld_cmd, " %s", get_path(X86_LIBC));
                 else
                     string_printf(ld_cmd, " %s -I/lib/ld-linux.so.2", get_path(X86_LIBC));
+            } else if (driver_flags & DVR_X64_TARGET) {
+                string_printf(ld_cmd, " /usr/lib/x86_64-linux-gnu/crt1.o"
+									  " /usr/lib/x86_64-linux-gnu/crti.o"
+									  " /usr/lib/x86_64-linux-gnu/crtn.o"
+									  " /lib/x86_64-linux-gnu/libc.so.6"
+									  " /usr/lib/x86_64-linux-gnu/libc_nonshared.a"
+									  " -I/lib64/ld-linux-x86-64.so.2");
             }
             exst = !!exec_cmd(strbuf(ld_cmd));
         }

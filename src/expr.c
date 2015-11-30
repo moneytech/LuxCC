@@ -179,7 +179,6 @@ static int is_modif_struct_union(TypeExp *type)
     return TRUE;
 }
 
-// static int is_modif_lvalue(ExecNode *e)
 int is_modif_lvalue(ExecNode *e)
 {
     /*
@@ -250,21 +249,21 @@ int get_rank(Token ty)
     switch (ty) {
     case TOK_LONG_LONG:
     case TOK_UNSIGNED_LONG_LONG:
-        return 5;
+        return LLONG_RANK;
     case TOK_LONG:
     case TOK_UNSIGNED_LONG:
-        return 4;
+        return LONG_RANK;
     case TOK_INT:
     case TOK_UNSIGNED:
     case TOK_ENUM: /* the standard does not require this (see 6.7.2.2#4) */
-        return 3;
+        return INT_RANK;
     case TOK_SHORT:
     case TOK_UNSIGNED_SHORT:
-        return 2;
+        return SHORT_RANK;
     case TOK_CHAR:
     case TOK_SIGNED_CHAR:
     case TOK_UNSIGNED_CHAR:
-        return 1;
+        return CHAR_RANK;
     }
 
     assert(0);
@@ -554,10 +553,14 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
 
             rank_d = get_rank(cat_d);
             rank_s = get_rank(cat_s);
-            if (!targeting_arch64) {
+            if (targeting_arch64) {
+                /* consider long and long long as having the same rank */
+                rank_d = (rank_d==LLONG_RANK)?LONG_RANK:rank_d;
+                rank_s = (rank_s==LLONG_RANK)?LONG_RANK:rank_s;
+            } else {
                 /* consider int and long as having the same rank */
-                rank_d = (rank_d==4)?3:rank_d;
-                rank_s = (rank_s==4)?3:rank_s;
+                rank_d = (rank_d==LONG_RANK)?INT_RANK:rank_d;
+                rank_s = (rank_s==LONG_RANK)?INT_RANK:rank_s;
             }
 
             /*

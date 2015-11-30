@@ -1141,11 +1141,11 @@ ExecNode *initializer_list(void)
 // =============================================================================
 
 /*
- * static_assert = "__static_assert" "(" constant "," ssexpr ")" ";"
+ * static_assert_statement = "__static_assert" "(" constant "," ssexpr ")" ";"
  * ssexpr = assignment_expression |
  *          assignment_expression "," type_name
  */
-void do_static_assert(void)
+static void static_assert_statement(void)
 {
     long c;
     char *ep;
@@ -1187,9 +1187,9 @@ void do_static_assert(void)
 }
 
 /*
- * "__asm" "(" string-literal ")" ";"
+ * asm_statement = "__asm" "(" string-literal ")" ";"
  */
-ExecNode *asm_statement(void)
+static ExecNode *asm_statement(void)
 {
     ExecNode *n;
 
@@ -1199,6 +1199,27 @@ ExecNode *asm_statement(void)
     if (lookahead(1) == TOK_STRLIT)
         n->attr.str = get_lexeme(1);
     match(TOK_STRLIT);
+    match(TOK_RPAREN);
+    match(TOK_SEMICOLON);
+    return n;
+}
+
+/*
+ * va_buitin_start_statement = "__builtin_va_start" "(" identifier ")" ";"
+ */
+static ExecNode *va_buitin_start_statement(void)
+{
+    ExecNode *n;
+    TokenNode *va_start_tok;
+
+    va_start_tok = curr_tok;
+    match(TOK_BUILTIN_VA_START);
+    match(TOK_LPAREN);
+    n = new_stmt_node(BuiltinVaStartStmt);
+    if ((n->child[0]=assignment_expression())->kind.exp != IdExp) {
+        curr_tok = va_start_tok;
+        ERROR("__builtin_va_start: va_list object expected");
+    }
     match(TOK_RPAREN);
     match(TOK_SEMICOLON);
     return n;
@@ -1218,8 +1239,10 @@ start:
     switch (lookahead(1)) {
     case TOK_ASM:
         return asm_statement();
+    case TOK_BUILTIN_VA_START:
+        return va_buitin_start_statement();
     case TOK_STATIC_ASSERT:
-        do_static_assert();
+        static_assert_statement();
         goto start;
     case TOK_LBRACE:
         return compound_statement(TRUE, in_loop, in_switch);

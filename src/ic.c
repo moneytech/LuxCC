@@ -69,9 +69,26 @@ static FILE *cfg_dotfile;
 static FILE *ic_file;
 
 /*
- * X86 stuff.
+ * x86 stuff.
  */
 #define X86_PARAM_END 8 /* ebp+8 */
+/* ---- */
+
+/*
+ * x64 stuff.
+ */
+#define X64_PARAM_END 16 /* rbp+16 */
+static ExecNode *base_node;
+static struct {
+    unsigned gp_offset;         /* offset from reg_save_area */
+    unsigned reg_save_area;     /* offset from rbp */
+    unsigned overflow_arg_area; /* offset from rbp */
+} va_arg_data;
+/* ---- */
+
+/*
+ * x86/x64 stuff.
+ */
 /* the amount of space to allocate for the current function's local variables */
 int size_of_local_area = 0;
 /* used to compute the addresses of local variables */
@@ -372,9 +389,10 @@ out_mem:
 static void ic_reset(void)
 {
     label_counter = 0;
-    /* x86 stuff */
+    /* x86/x64 stuff */
     size_of_local_area = 0;
     local_offset = 0;
+    base_node = NULL;
 }
 
 #if 0
@@ -406,7 +424,7 @@ static void ic_free_all(void)
 }
 #endif
 
-/* Find address-taken variables in a single static initializer expression. */
+/* find address-taken variables in a single static initializer expression */
 static void ic_find_atv_in_expr(ExecNode *e)
 {
     if (e->kind.exp == OpExp) {
@@ -438,7 +456,7 @@ static void ic_find_atv_in_expr(ExecNode *e)
     }
 }
 
-/* Find address-taken variables in static initializer (scalar or bracketed). */
+/* find address-taken variables in static initializer (scalar or bracketed) */
 static void ic_find_atv_in_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
 {
     TypeExp *ts;
@@ -473,7 +491,7 @@ scalar:
     }
 }
 
-/* Find address-taken variables in static initializers. */
+/* find address-taken variables in static initializers */
 static void ic_find_atv(void)
 {
     ExternId *np;
@@ -800,6 +818,14 @@ address(arg1).cont.val = _op_ address(arg1).cont.val
             if (is_iconst(arg1))
                 fold(i, (unsigned short));
             break;
+        case OpLLSX:
+            if (is_iconst(arg1))
+                fold(i, (int));
+            break;
+        case OpLLZX:
+            if (is_iconst(arg1))
+                fold(i, (unsigned));
+            break;
         // case OpAddrOf:
         // case OpInd:
         // case OpAsn:
@@ -849,56 +875,129 @@ static void ic_expression_statement(ExecNode *s);
 static void ic_label_statement(ExecNode *s);
 static void ic_statement(ExecNode *s);
 static void fix_gotos(void);
+static void ic_builtin_va_start_statement(ExecNode *s);
 
 void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
 {
     Token cat;
     DeclList *p;
     Declaration ty;
-    int param_offs;
+    int param_offs, reg_param_offs;
+    int nfree_reg;
     unsigned entry_label;
+
+    nfree_reg = 6;
+
+    ty.decl_specs = decl_specs;
+    ty.idl = header->child->child;
+    if ((cat=get_type_category(&ty))==TOK_STRUCT || cat==TOK_UNION) {
+        /* allocate space for the 'return value address' */
+        if (targeting_arch64) {
+            if (get_sizeof(&ty) > 16) {
+                local_offset -= 8;
+                --nfree_reg; /* rdi becomes unavailable */
+            }
+        } else {
+            local_offset -= 4;
+        }
+    }
 
     location_push_scope();
     p = header->child->attr.dl;
     if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID && p->decl->idl==NULL)
         p = NULL; /* function with no parameters */
 
-    param_offs = X86_PARAM_END;
-    while (p != NULL) {
-        if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
-            break; /* start of optional parameters (`...') */
+    if (targeting_arch64) {
+        DeclList *tmp;
+        int is_vararg;
 
-        location_new(p->decl->idl->str, param_offs);
-        DEBUG_PRINTF("==> param:`%s', offset:%d\n", p->decl->idl->str, param_offs);
-        ty.decl_specs = p->decl->decl_specs;
-        ty.idl = p->decl->idl->child;
-        param_offs += round_up(get_sizeof(&ty), 4);
-
-#if 0
-        if (cg_node(curr_cg_node).pn == NULL) {
-            cg_node(curr_cg_node).pn = malloc(sizeof(ParamNid));
-            cg_node(curr_cg_node).pn->sid = p->decl->idl->str;
-            cg_node(curr_cg_node).pn->nid = -1;
-            cg_node(curr_cg_node).pn->next = NULL;
-        } else {
-            ParamNid *pn;
-
-            for (pn = cg_node(curr_cg_node).pn; pn->next != NULL; pn = pn->next);
-            pn->next = malloc(sizeof(ParamNid));
-            pn = pn->next;
-            pn->sid = p->decl->idl->str;
-            pn->nid = -1;
-            pn->next = NULL;
+        is_vararg = FALSE;
+        for (tmp = p; tmp != NULL; tmp = tmp->next) {
+            if (tmp->decl->idl!=NULL && tmp->decl->idl->op==TOK_ELLIPSIS)
+                is_vararg = TRUE;
         }
-#endif
 
-        p = p->next;
+        param_offs = X64_PARAM_END;
+        reg_param_offs = is_vararg ? -48 : local_offset-8;
+        while (p != NULL) {
+            unsigned siz;
+
+            if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
+                break; /* start of optional parameters (`...') */
+
+            ty.decl_specs = p->decl->decl_specs;
+            ty.idl = p->decl->idl->child;
+            if ((siz=get_sizeof(&ty))>16 || siz>nfree_reg*8) { /* passed on the stack */
+                location_new(p->decl->idl->str, param_offs);
+                DEBUG_PRINTF("==> param:`%s', offset:%d\n", p->decl->idl->str, param_offs);
+                param_offs += round_up(siz, 8);
+            } else { /* passed on registers (and spilled upon entry) */
+                if (is_vararg) {
+                    location_new(p->decl->idl->str, reg_param_offs);
+                    DEBUG_PRINTF("==> param:`%s', offset:%d\n", p->decl->idl->str, reg_param_offs);
+                    reg_param_offs += 8;
+                    --nfree_reg;
+                    if (siz > 8) {
+                        reg_param_offs += 8;
+                        --nfree_reg;
+                    }
+                } else {
+                    if (siz > 8) {
+                        reg_param_offs -= 8;
+                        --nfree_reg;
+                    }
+                    location_new(p->decl->idl->str, reg_param_offs);
+                    DEBUG_PRINTF("==> param:`%s', offset:%d\n", p->decl->idl->str, reg_param_offs);
+                    reg_param_offs -= 8;
+                    --nfree_reg;
+                }
+
+            }
+
+            p = p->next;
+        }
+        if (is_vararg) {
+            va_arg_data.reg_save_area = local_offset-48;
+            va_arg_data.gp_offset = 48-nfree_reg*8;
+            va_arg_data.overflow_arg_area = param_offs;
+            DEBUG_PRINTF("reg_save_area=%d\n", va_arg_data.reg_save_area);
+            DEBUG_PRINTF("gp_offset=%d\n", va_arg_data.gp_offset);
+            DEBUG_PRINTF("overflow_arg_area=%d\n", va_arg_data.overflow_arg_area);
+            local_offset -= 48;
+        } else {
+            local_offset = reg_param_offs+8;
+        }
+    } else {
+        param_offs = X86_PARAM_END;
+        while (p != NULL) {
+            if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
+                break; /* start of optional parameters (`...') */
+
+            location_new(p->decl->idl->str, param_offs);
+            DEBUG_PRINTF("==> param:`%s', offset:%d\n", p->decl->idl->str, param_offs);
+            ty.decl_specs = p->decl->decl_specs;
+            ty.idl = p->decl->idl->child;
+            param_offs += round_up(get_sizeof(&ty), 4);
+
+            /*if (cg_node(curr_cg_node).pn == NULL) {
+                cg_node(curr_cg_node).pn = malloc(sizeof(ParamNid));
+                cg_node(curr_cg_node).pn->sid = p->decl->idl->str;
+                cg_node(curr_cg_node).pn->nid = -1;
+                cg_node(curr_cg_node).pn->next = NULL;
+            } else {
+                ParamNid *pn;
+
+                for (pn = cg_node(curr_cg_node).pn; pn->next != NULL; pn = pn->next);
+                pn->next = malloc(sizeof(ParamNid));
+                pn = pn->next;
+                pn->sid = p->decl->idl->str;
+                pn->nid = -1;
+                pn->next = NULL;
+            }*/
+
+            p = p->next;
+        }
     }
-
-    ty.decl_specs = decl_specs;
-    ty.idl = header->child->child;
-    if ((cat=get_type_category(&ty))==TOK_STRUCT || cat==TOK_UNION)
-        local_offset -= 4; /* allocate space for the 'return value address' */
 
     entry_label = new_label();
     exit_label = new_label();
@@ -1292,6 +1391,9 @@ static void pop_continue_target(void)
 void ic_statement(ExecNode *s)
 {
     switch (s->kind.stmt) {
+    case BuiltinVaStartStmt:
+        ic_builtin_va_start_statement(s);
+        break;
     case CmpndStmt:
         ic_compound_statement(s, TRUE);
         break;
@@ -1335,6 +1437,89 @@ void ic_statement(ExecNode *s)
         ic_label_statement(s);
         break;
     }
+}
+
+/*
+ * Model in IC the assembly code required
+ * to implement va_start() in x64.
+ */
+void ic_builtin_va_start_statement(ExecNode *s)
+{
+    /*
+     va_start(ap, l):
+
+        t1 = &base
+
+        t2 = &ap
+        *t2 = gp_offset
+
+        t3 = t2+8
+        t4 = t1-overflow_arg_area
+        *t3 = t4
+
+        t5 = t2+16
+        t6 = t1-reg_save_area
+        *t5 = t6
+    */
+    unsigned t1, t2, t3, t4, t5, t6;
+    unsigned gp_offset_addr, overflow_arg_area_addr, reg_save_area_addr;
+    static unsigned mem_offs1 = 0, mem_offs2 = 0;
+    static int base_counter;
+    static unsigned base_addr;
+
+    t1 = new_temp_addr();
+    t2 = new_temp_addr();
+    t3 = new_temp_addr();
+    t4 = new_temp_addr();
+    t5 = new_temp_addr();
+    t6 = new_temp_addr();
+
+    gp_offset_addr = new_address(IConstKind);
+    address(gp_offset_addr).cont.uval = va_arg_data.gp_offset;
+    overflow_arg_area_addr = new_address(IConstKind);
+    address(overflow_arg_area_addr).cont.uval = va_arg_data.overflow_arg_area;
+    reg_save_area_addr = new_address(IConstKind);
+    address(reg_save_area_addr).cont.uval = -va_arg_data.reg_save_area;
+
+    if (mem_offs1 == 0) {
+        mem_offs1 = new_address(IConstKind);
+        address(mem_offs1).cont.uval = 8;
+
+        mem_offs2 = new_address(IConstKind);
+        address(mem_offs2).cont.uval = 16;
+    }
+
+    if (base_node == NULL) {
+        char *base_name;
+
+        base_name = malloc(16);
+        sprintf(base_name, "base@%d", base_counter++);
+
+        base_node = new_exec_node();
+        base_node->node_kind = ExpNode;
+        base_node->kind.exp = IdExp;
+        base_node->attr.var.id = base_name;
+        base_node->attr.var.scope = 0;
+        base_node->attr.var.linkage = LINKAGE_NONE;
+        base_node->attr.var.duration = DURATION_AUTO;
+
+        base_addr = new_address(IdKind);
+        address(base_addr).cont.var.e = base_node;
+        address(base_addr).cont.nid = get_var_nid(base_name, 0);
+        address(base_addr).cont.var.offset = 0; /* &base == rbp */
+    }
+    emit_i(OpAddrOf, NULL, t1, base_addr, 0);
+
+    t2 = ic_expression(s->child[0], FALSE, NOLAB, NOLAB); /* [!] assume va_list is defined as an array */
+    emit_i(OpIndAsn, &int_ty, 0, t2, gp_offset_addr);
+
+    emit_i(OpAdd, &long_ty, t3, t2, mem_offs1);
+    emit_i(OpAdd, &long_ty, t4, t1, overflow_arg_area_addr);
+    emit_i(OpIndAsn, &long_ty, 0, t3, t4);
+
+    emit_i(OpAdd, &long_ty, t5, t2, mem_offs2);
+    emit_i(OpSub, &long_ty, t6, t1, reg_save_area_addr);
+    emit_i(OpIndAsn, &long_ty, 0, t5, t6);
 }
 
 void ic_if_statement(ExecNode *s)
@@ -1833,7 +2018,9 @@ void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned 
                 a1 = a3;
             }
             emit_i(OpArg, &int_ty, 0, a1, 0);
-            emit_i(OpCall, &int_ty, new_temp_addr(), memcpy_addr, 3);
+            a1 = new_address(IConstKind);
+            address(a1).cont.val = 3;
+            emit_i(OpCall, &int_ty, new_temp_addr(), memcpy_addr, a1);
             if (nfill > 0)
                 ic_zero(id, offset+n, nfill);
         } else {
@@ -2105,15 +2292,26 @@ static int function_argument(ExecNode *arg, DeclList *param)
     return n;
 }
 
-/*
- * Evaluate expression `e' and convert the result to type `dest'.
- */
-static unsigned ic_expr_convert(ExecNode *e, Declaration *dest)
+static int is_wideval(Token cat)
 {
-    /*
-     * XXX: this all assumes an ILP32 data model.
-     */
+    if (targeting_arch64) {
+        switch (cat) {
+        case TOK_STAR: case TOK_SUBSCRIPT: case TOK_FUNCTION:
+        case TOK_LONG: case TOK_UNSIGNED_LONG:
+        case TOK_LONG_LONG: case TOK_UNSIGNED_LONG_LONG:
+        /*case TOK_STRUCT: case TOK_UNION:*/
+            return TRUE;
+        default:
+            return FALSE;
+        }
+    } else {
+        return (cat==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG);
+    }
+}
 
+/* do ic_expr_convert() according to an ILP32 data model */
+static unsigned do_expr_convert32(ExecNode *e, Declaration *dest)
+{
     OpKind op;
     unsigned a1, a2;
     Token cat_dest, cat_src;
@@ -2158,9 +2356,9 @@ static unsigned ic_expr_convert(ExecNode *e, Declaration *dest)
     case TOK_UNSIGNED_LONG_LONG:
         if (cat_src!=TOK_LONG_LONG && cat_src!=TOK_UNSIGNED_LONG_LONG) {
             if (is_unsigned_int(cat_src))
-                op = OpZXLL;
+                op = OpLLZX;
             else
-                op = OpSXLL;
+                op = OpLLSX;
             break;
         }
         return a1; /* no conversion */
@@ -2174,10 +2372,79 @@ static unsigned ic_expr_convert(ExecNode *e, Declaration *dest)
     return a2;
 }
 
-int is_wideval(Token cat)
+/* do ic_expr_convert() according to a LP64 data model */
+static unsigned do_expr_convert64(ExecNode *e, Declaration *dest)
 {
-    // TOFIX for 64-bit target
-    return (cat==TOK_LONG_LONG || cat==TOK_UNSIGNED_LONG_LONG);
+    OpKind op;
+    unsigned a1, a2;
+    Token cat_dest, cat_src;
+
+    a1 = ic_expression(e, FALSE, NOLAB, NOLAB);
+
+    cat_src  = get_type_category(&e->type);
+    cat_dest = get_type_category(dest);
+
+    switch (cat_dest) {
+    case TOK_CHAR:
+    case TOK_SIGNED_CHAR:
+        if (cat_src!=TOK_CHAR && cat_src!=TOK_SIGNED_CHAR) {
+            op = OpCh;
+            break;
+        }
+        return a1; /* no conversion */
+    case TOK_UNSIGNED_CHAR:
+        if (cat_src != TOK_UNSIGNED_CHAR) {
+            op = OpUCh;
+            break;
+        }
+        return a1; /* no conversion */
+    case TOK_SHORT:
+        switch (cat_src) {
+        case TOK_CHAR: case TOK_SIGNED_CHAR:
+        case TOK_UNSIGNED_CHAR:
+        case TOK_SHORT:
+            return a1; /* no conversion */
+        default:
+            op = OpSh;
+            break;
+        }
+        break;
+    case TOK_UNSIGNED_SHORT:
+        if (cat_src!=TOK_UNSIGNED_CHAR && cat_src!=TOK_UNSIGNED_SHORT) {
+            op = OpUSh;
+            break;
+        }
+        return a1; /* no conversion */
+    case TOK_INT:
+    case TOK_ENUM:
+    case TOK_UNSIGNED:
+        return a1; /* no conversion */
+    default:
+        if (is_integer(cat_src) && get_rank(cat_src)==INT_RANK) {
+            if (is_unsigned_int(cat_src))
+                op = OpLLZX;
+            else
+                op = OpLLSX;
+            break;
+        }
+        return a1; /* no conversion */
+    }
+    /* fall through */
+    /* convert */
+    a2 = new_temp_addr();
+    emit_i(op, dest, a2, a1, 0);
+    return a2;
+}
+
+/*
+ * Evaluate expression `e' and convert the result to type `dest'.
+ */
+static unsigned ic_expr_convert(ExecNode *e, Declaration *dest)
+{
+    if (targeting_arch64)
+        return do_expr_convert64(e, dest);
+    else
+        return do_expr_convert32(e, dest);
 }
 
 unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned false_lab)
@@ -2645,10 +2912,24 @@ unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned fal
             OpKind op;
             ExecNode *tmp;
             unsigned a1, a2;
+            DeclList *p;
 
             a2 = new_address(IConstKind);
             na = function_argument(e->child[1], e->locals);
             address(a2).cont.val = na;
+
+            /*
+             * An OpNOp right before an OpCall/OpIndCall indicates that the
+             * function being called has a variable number of arguments. The
+             * x64 code generator uses this to know if it must set rax to zero
+             * or not.
+             */
+            for (p = e->locals; p != NULL; p = p->next) {
+				if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS) {
+					emit_i(OpNOp, NULL, 0, 0, 0);
+					break;
+				}
+			}
 
             tmp = e->child[0];
             while (tmp->kind.exp==OpExp /*&& tmp->attr.op==TOK_STAR*/)
@@ -2732,8 +3013,8 @@ unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned fal
         address(a1).cont.nid = get_var_nid(e->attr.str, e->attr.var.scope);
         if (e->attr.var.duration == DURATION_AUTO)
             address(a1).cont.var.offset = location_get_offset(e->attr.str);
-#if 0
-        if (e->attr.var.is_param) {
+
+        /*if (e->attr.var.is_param) {
             ParamNid *pn;
 
             for (pn = cg_node(curr_cg_node).pn; pn != NULL; pn = pn->next) {
@@ -2743,8 +3024,7 @@ unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned fal
                 }
             }
             assert(pn != NULL);
-        }
-#endif
+        }*/
 
         if (is_addr || (cat=get_type_category(&e->type))==TOK_SUBSCRIPT || cat==TOK_FUNCTION) {
             unsigned a2;
@@ -2769,7 +3049,7 @@ static void print_addr(unsigned addr)
 
     switch (address(addr).kind) {
     case IConstKind:
-        fprintf(ic_file, "%ld", address(addr).cont.val);
+        fprintf(ic_file, "%lld", address(addr).cont.val);
         break;
     case TempKind:
     case IdKind:
@@ -2838,8 +3118,9 @@ static void dump_ic(unsigned fn)
         case OpSh:   print_unaop(p, "(short)");          break;
         case OpUSh:  print_unaop(p, "(unsigned short)"); break;
         /*case OpInt:  print_unaop(p, "(int)"); break;*/
-        case OpSXLL: print_unaop(p, "(sign-extend)"); break;
-        case OpZXLL: print_unaop(p, "(zero-extend)"); break;
+        /*case OpUInt: print_unaop(p, "(unsigned)"); break;*/
+        case OpLLSX: print_unaop(p, "(sign-extend to LL)"); break;
+        case OpLLZX: print_unaop(p, "(zero-extend to LL)"); break;
         case OpIndAsn:
             fprintf(ic_file, "*");
             print_addr(p->arg1);
@@ -2851,10 +3132,10 @@ static void dump_ic(unsigned fn)
         case OpInd:    print_unaop(p, "*"); break;
 
         case OpLab:
-            fprintf(ic_file, "L%ld:", address(p->tar).cont.val);
+            fprintf(ic_file, "L%lld:", address(p->tar).cont.val);
             break;
         case OpJmp:
-            fprintf(ic_file, "jmp L%ld", address(p->tar).cont.val);
+            fprintf(ic_file, "jmp L%lld", address(p->tar).cont.val);
             break;
         case OpSwitch:
             fprintf(ic_file, "switch ");
@@ -2866,12 +3147,12 @@ static void dump_ic(unsigned fn)
         case OpCase:
             fprintf(ic_file, "case ");
             print_addr(p->tar);
-            fprintf(ic_file, ", L%ld, %ld", address(p->arg1).cont.val, address(p->arg2).cont.val);
+            fprintf(ic_file, ", L%lld, %lld", address(p->arg1).cont.val, address(p->arg2).cont.val);
             break;
         case OpCBr:
-            fprintf(ic_file, "cbr L%ld, ", address(p->tar).cont.val);
+            fprintf(ic_file, "cbr L%lld, ", address(p->tar).cont.val);
             print_addr(p->arg1);
-            fprintf(ic_file, ", L%ld", address(p->arg2).cont.val);
+            fprintf(ic_file, ", L%lld", address(p->arg2).cont.val);
             break;
 
         case OpArg:
