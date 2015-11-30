@@ -16,11 +16,10 @@ int targeting_vm64;
 /*
  * Segments.
  */
-#define TEXT_SEG_MAX    524288
-#define DATA_SEG_MAX    65536
-char text_seg[TEXT_SEG_MAX];
-char data_seg[DATA_SEG_MAX];
+char *text_seg;
+char *data_seg;
 int text_size, data_size, bss_size;
+int text_max, data_max;
 #define SEG_SIZ(seg) ((seg==DATA_SEG)?data_size:(seg==TEXT_SEG)?text_size:bss_size)
 #define MAX_ALIGN32     4
 #define MAX_ALIGN64     8
@@ -168,17 +167,24 @@ Symbol *lookup_symbol(char *name)
 /*
  * Relocations.
  */
-#define TEXT_RELOC_TABLE_SIZE   32768
-#define DATA_RELOC_TABLE_SIZE   8192
 typedef struct Reloc Reloc;
 struct Reloc {
     int segment, offset;
     char *symbol;
-} text_relocation_table[TEXT_RELOC_TABLE_SIZE], data_relocation_table[DATA_RELOC_TABLE_SIZE];
+} *text_relocation_table, *data_relocation_table;
 int ntreloc, ndreloc;
+int treloc_max, dreloc_max;
 
 void append_text_reloc(int segment, int offset, char *symbol)
 {
+    if (ntreloc >= treloc_max) {
+        Reloc *p;
+
+        treloc_max *= 2;
+        if ((p=realloc(text_relocation_table, treloc_max*sizeof(Reloc))) == NULL)
+            TERMINATE("out of memory");
+        text_relocation_table = p;
+    }
     text_relocation_table[ntreloc].segment = segment;
     text_relocation_table[ntreloc].offset = offset;
     text_relocation_table[ntreloc].symbol = symbol;
@@ -187,6 +193,14 @@ void append_text_reloc(int segment, int offset, char *symbol)
 
 void append_data_reloc(int segment, int offset, char *symbol)
 {
+    if (ndreloc >= dreloc_max) {
+        Reloc *p;
+
+        dreloc_max *= 2;
+        if ((p=realloc(data_relocation_table, dreloc_max*sizeof(Reloc))) == NULL)
+            TERMINATE("out of memory");
+        data_relocation_table = p;
+    }
     data_relocation_table[ndreloc].segment = segment;
     data_relocation_table[ndreloc].offset = offset;
     data_relocation_table[ndreloc].symbol = symbol;
@@ -298,6 +312,16 @@ int main(int argc, char *argv[])
     if (ninf == 0)
         err_no_input();
 
+    init_local_table();
+    text_max = 65536;
+    text_seg = malloc(text_max);
+    data_max = 65536;
+    data_seg = malloc(data_max);
+    dreloc_max = 8192;
+    data_relocation_table = malloc(sizeof(Reloc)*dreloc_max);
+    treloc_max = 8192;
+    text_relocation_table = malloc(sizeof(Reloc)*treloc_max);
+
     /*
      * crt.o must be the first file (crt.o's code must be physically at the
      * beginning of the resulting executable). An alternative would be to label
@@ -305,7 +329,6 @@ int main(int argc, char *argv[])
      * program's code.
      * crt.o has code to initialize some variables and call main.
      */
-    init_local_table();
     for (i = 0; i < ninf; i++) {
         FILE *fin;
         char name[MAX_SYM_LEN], *cp;
@@ -345,7 +368,23 @@ int main(int argc, char *argv[])
         }
 
         /* data&text */
+        if (data_size+curr_data_size > data_max) {
+            char *p;
+
+            data_max = data_max*2+curr_data_size;
+            if ((p=realloc(data_seg, data_max)) == NULL)
+                TERMINATE("out of memory");
+            data_seg = p;
+        }
         fread(data_seg+data_size, curr_data_size, 1, fin);
+        if (text_size+curr_text_size > text_max) {
+            char *p;
+
+            text_max = text_max*2+curr_text_size;
+            if ((p=realloc(text_seg, text_max)) == NULL)
+                TERMINATE("out of memory");
+            text_seg = p;
+        }
         fread(text_seg+text_size, curr_text_size, 1, fin);
 
         /* relocation table entries */
@@ -460,6 +499,11 @@ int main(int argc, char *argv[])
         printf("Number of text relocations: %d\n", ntreloc);
         printf("Number of data relocations: %d\n", ndreloc);
     }
+
+    free(data_seg);
+    free(text_seg);
+    free(data_relocation_table);
+    free(text_relocation_table);
 
     return 0;
 }

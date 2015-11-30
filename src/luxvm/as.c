@@ -35,11 +35,8 @@
 
 #define MAX_LINE_BUF        4096
 #define MAX_LEXEME          512
-#define TEXT_SEG_MAX        65536
-#define DATA_SEG_MAX        65536
 #define HASH_SIZE           1009
 #define HASH(s)             (hash(s)%HASH_SIZE)
-#define RELOC_TABLE_SIZE    8192
 
 typedef struct Reloc Reloc;
 typedef struct Symbol Symbol;
@@ -79,10 +76,11 @@ void init(char *file_path);
 /*
  * Segments.
  */
-char text_seg[TEXT_SEG_MAX];
-char data_seg[DATA_SEG_MAX];
+char *text_seg;
+char *data_seg;
 int curr_segment = TEXT_SEG;
 int text_size, data_size, bss_size;
+int text_max, data_max;
 #define CURR_OFFS() ((curr_segment==DATA_SEG)?data_size:(curr_segment==TEXT_SEG)?text_size:bss_size)
 
 int get_int32(char *s)
@@ -104,23 +102,52 @@ void bss_err(void)
     ASSEMBLER_ERR("trying to write into .bss segment");
 }
 
+void expand_curr_segment(void)
+{
+    char *p;
+
+    if (curr_segment == TEXT_SEG) {
+        text_max *= 2;
+        if ((p=realloc(text_seg, text_max)) != NULL) {
+            text_seg = p;
+            return;
+        }
+    } else {
+        data_max *= 2;
+        if ((p=realloc(data_seg, data_max)) != NULL) {
+            data_seg = p;
+            return;
+        }
+    }
+    TERMINATE("out of memory");
+}
+
 void write_byte(int b)
 {
-    if (curr_segment == TEXT_SEG)
+    if (curr_segment == TEXT_SEG) {
+        if (text_size+1 > text_max)
+            expand_curr_segment();
         text_seg[text_size++] = (char)b;
-    else if (curr_segment == DATA_SEG)
+    } else if (curr_segment == DATA_SEG) {
+        if (data_size+1 > data_max)
+            expand_curr_segment();
         data_seg[data_size++] = (char)b;
-    else
+    } else {
         bss_err();
+    }
 
 }
 
 void write_word(int w)
 {
     if (curr_segment == TEXT_SEG) {
+        if (text_size+2 > text_max)
+            expand_curr_segment();
         *(short *)&text_seg[text_size] = (short)w;
         text_size += 2;
     } else if (curr_segment == DATA_SEG) {
+        if (data_size+2 > data_max)
+            expand_curr_segment();
         *(short *)&data_seg[data_size] = (short)w;
         data_size += 2;
     } else {
@@ -131,9 +158,13 @@ void write_word(int w)
 void write_dword(int d)
 {
     if (curr_segment == TEXT_SEG) {
+        if (text_size+4 > text_max)
+            expand_curr_segment();
         *(int *)&text_seg[text_size] = d;
         text_size += 4;
     } else if (curr_segment == DATA_SEG) {
+        if (data_size+4 > data_max)
+            expand_curr_segment();
         *(int *)&data_seg[data_size] = d;
         data_size += 4;
     } else {
@@ -144,9 +175,13 @@ void write_dword(int d)
 void write_qword(long long q)
 {
     if (curr_segment == TEXT_SEG) {
+        if (text_size+8 > text_max)
+            expand_curr_segment();
         *(long long *)&text_seg[text_size] = q;
         text_size += 8;
     } else if (curr_segment == DATA_SEG) {
+        if (data_size+8 > data_max)
+            expand_curr_segment();
         *(long long *)&data_seg[data_size] = q;
         data_size += 8;
     } else {
@@ -214,11 +249,19 @@ Symbol *define_symbol(char *name, int kind, int segment, int offset)
 struct Reloc {
     int segment, offset; /* segment+offset is where the fix must be made */
     char *symbol;        /* the information about what symbol must be fixed */
-} relocation_table[RELOC_TABLE_SIZE];
-int nreloc;
+} *relocation_table;
+int nreloc, reloc_max;
 
 void append_reloc(int segment, int offset, char *symbol)
 {
+    if (nreloc >= reloc_max) {
+        Reloc *p;
+
+        reloc_max *= 2;
+        if ((p=realloc(relocation_table, reloc_max*sizeof(Reloc))) == NULL)
+            TERMINATE("out of memory");
+        relocation_table = p;
+    }
     relocation_table[nreloc].segment = segment;
     relocation_table[nreloc].offset = offset;
     relocation_table[nreloc].symbol = strdup(symbol);
@@ -328,6 +371,12 @@ int main(int argc, char *argv[])
     if (inpath == NULL)
         err_no_input();
     init(equal(inpath, "-") ? NULL : inpath);
+    text_max = 65536;
+    text_seg = malloc(text_max);
+    data_max = 65536;
+    data_seg = malloc(data_max);
+    reloc_max = 8192;
+    relocation_table = malloc(sizeof(Reloc)*reloc_max);
 
     curr_tok = get_token();
     program();
@@ -387,6 +436,10 @@ int main(int argc, char *argv[])
         printf("Bss size: %d\n", bss_size);
         printf("Number of relocations: %d\n", nreloc);
     }
+
+    free(text_seg);
+    free(data_seg);
+    free(relocation_table);
 
     return 0;
 }
@@ -741,9 +794,9 @@ void init(char *file_path)
         fseek(fp, 0, SEEK_END);
         len = ftell(fp);
         rewind(fp);
-        curr = buf = malloc(len+1);
+        curr = buf = malloc(len+2);
         len = fread(buf, 1, len, fp);
-        buf[len] = '\0';
+        buf[len] = buf[len+1] = '\0';
     } else {
         reading_from_stdin = TRUE;
         read_line();
