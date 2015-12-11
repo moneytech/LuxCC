@@ -8,7 +8,7 @@
         - i386 psABI: http://www.sco.com/developers/devspecs/abi386-4.pdf
 
     Notes:
-        - The linker behaves as GNU ld when invoked with the switch `--no-allow-shlib-undefined',
+        - The linker behaves as GNU ld when invoked with the switch `--allow-shlib-undefined',
           that is, it doesn't check for undefined symbol references in shared libraries.
         - Currently it only supports .hash sections (not .gnu.hash).
         - I haven't been able to link against glibc. The reason being that in the version of the

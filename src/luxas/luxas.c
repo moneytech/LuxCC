@@ -1,5 +1,5 @@
 /*
-    LUXAS: small nasm-like x86-32 assembler.
+    LUXAS: small nasm-like x86/x64 assembler.
 
                         ASM grammar
     program = line { line } EOF
@@ -7,7 +7,7 @@
     source_line = [ prefix ] ( [ instruction [ operand [ "," operand ] ] ] | pseudo_instruction )
     label = ID ":"
     operand = [ size_specifier ] ( REG | "[" eff_addr "]" | OR_expr )
-    size_specifier = "byte" | "word" | "dword"
+    size_specifier = "byte" | "word" | "dword" | "qword"
     eff_addr = REG "+" REG [ "*" NUM ] "+" OR_expr
     OR_expr = XOR_expr { "|" XOR_expr }
     XOR_expr = AND_expr { "^" AND_expr }
@@ -60,6 +60,7 @@
 #include <assert.h>
 #include <setjmp.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <elf.h>
 #include "ELF_util.h"
 #include "../util.h"
@@ -81,6 +82,7 @@ typedef enum {
     TOK_BYTE,
     TOK_WORD,
     TOK_DWORD,
+    TOK_QWORD,
     TOK_SECTION,
     TOK_EXTERN,
     TOK_GLOBAL,
@@ -120,37 +122,136 @@ typedef enum {
     TOK_UNARY_PLUS,
     TOK_UNARY_MINUS,
     TOK_AL,
-    TOK_CL,
-    TOK_DL,
-    TOK_BL,
-    TOK_AH,
-    TOK_CH,
-    TOK_DH,
-    TOK_BH,
+    TOK_R8B,
     TOK_AX,
-    TOK_CX,
-    TOK_DX,
-    TOK_BX,
-    TOK_SP,
-    TOK_BP,
-    TOK_SI,
-    TOK_DI,
+    TOK_R8W,
     TOK_EAX,
+    TOK_R8D,
+    TOK_RAX,
+    TOK_R8,
+    TOK_CL,
+    TOK_R9B,
+    TOK_CX,
+    TOK_R9W,
     TOK_ECX,
+    TOK_R9D,
+    TOK_RCX,
+    TOK_R9,
+    TOK_DL,
+    TOK_R10B,
+    TOK_DX,
+    TOK_R10W,
     TOK_EDX,
+    TOK_R10D,
+    TOK_RDX,
+    TOK_R10,
+    TOK_BL,
+    TOK_R11B,
+    TOK_BX,
+    TOK_R11W,
     TOK_EBX,
+    TOK_R11D,
+    TOK_RBX,
+    TOK_R11,
+    TOK_AH,
+    TOK_SPL,
+    TOK_R12B,
+    TOK_SP,
+    TOK_R12W,
     TOK_ESP,
+    TOK_R12D,
+    TOK_RSP,
+    TOK_R12,
+    TOK_CH,
+    TOK_BPL,
+    TOK_R13B,
+    TOK_BP,
+    TOK_R13W,
     TOK_EBP,
+    TOK_R13D,
+    TOK_RBP,
+    TOK_R13,
+    TOK_DH,
+    TOK_SIL,
+    TOK_R14B,
+    TOK_SI,
+    TOK_R14W,
     TOK_ESI,
+    TOK_R14D,
+    TOK_RSI,
+    TOK_R14,
+    TOK_BH,
+    TOK_DIL,
+    TOK_R15B,
+    TOK_DI,
+    TOK_R15W,
     TOK_EDI,
+    TOK_R15D,
+    TOK_RDI,
+    TOK_R15,
 } Token;
 
-#define ISSIZ(tok) (tok>=TOK_BYTE    && tok<=TOK_DWORD)
-#define ISDIR(tok) (tok>=TOK_SECTION && tok<=TOK_ALIGNB)
-#define ISPSE(tok) (tok>=TOK_RESB    && tok<=TOK_DQ)
-#define ISPRE(tok) (tok>=TOK_REP     && tok<=TOK_TIMES)
-#define ISREG(tok) (tok>=TOK_AL      && tok<=TOK_EDI)
-#define REGENC(r)  ((r<TOK_AX) ? r-TOK_AL : (r<TOK_EAX) ? r-TOK_AX : r-TOK_EAX)
+int regenctab[] = {
+    0, 0, 0, 0,
+    0, 0, 0, 0,
+    1, 1, 1, 1,
+    1, 1, 1, 1,
+    2, 2, 2, 2,
+    2, 2, 2, 2,
+    3, 3, 3, 3,
+    3, 3, 3, 3,
+    4, 4, 4, 4,
+    4, 4, 4, 4,
+    4,
+    5, 5, 5, 5,
+    5, 5, 5, 5,
+    5,
+    6, 6, 6, 6,
+    6, 6, 6, 6,
+    6,
+    7, 7, 7, 7,
+    7, 7, 7, 7,
+    7,
+};
+
+/*
+ * Meanings:
+ *  0: doesn't need REX
+ *  1: needs REX.(R|X|B)
+ *  2: needs REX to be present
+ *  -1: cannot be used with REX
+ */
+int regrextab[] = {
+    0, 1, 0, 1,
+    0, 1, 0, 1,
+    0, 1, 0, 1,
+    0, 1, 0, 1,
+    0, 1, 0, 1,
+    0, 1, 0, 1,
+    0, 1, 0, 1,
+    0, 1, 0, 1,
+   -1, 2, 1, 0,
+    1, 0, 1, 0,
+    1,
+   -1, 2, 1, 0,
+    1, 0, 1, 0,
+    1,
+   -1, 2, 1, 0,
+    1, 0, 1, 0,
+    1,
+   -1, 2, 1, 0,
+    1, 0, 1, 0,
+    1,
+};
+
+#define ISSIZ(tok)  (tok>=TOK_BYTE    && tok<=TOK_QWORD)
+#define ISDIR(tok)  (tok>=TOK_SECTION && tok<=TOK_ALIGNB)
+#define ISPSE(tok)  (tok>=TOK_RESB    && tok<=TOK_DQ)
+#define ISPRE(tok)  (tok>=TOK_REP     && tok<=TOK_TIMES)
+#define ISREG(tok)  (tok>=TOK_AL      && tok<=TOK_R15)
+#define REGENC(r)   regenctab[(r)-TOK_AL]
+#define REGREX(r)   regrextab[(r)-TOK_AL]
+#define REGSIZ(r)   regsiztab[(r)-TOK_AL]
 
 typedef struct SBlock SBlock;
 typedef struct Section Section;
@@ -174,6 +275,7 @@ char *non_local_label;
 Arena *opnd_arena;
 jmp_buf env;
 FILE *output_file;
+bool targeting_x64;
 void err1(char *fmt, ...);
 void err2(Operand *op, char *fmt, ...);
 
@@ -192,13 +294,13 @@ struct Symbol {
     SymKind kind;
     SymBind bind;
     char *name;
-    int val;
-    Section *sec;       /* symbol's associated section (NULL for 'extern' symbols) */
-    Elf32_Half ndx;     /* index into ELF file's symbol table */
+    uint64_t val;
+    Section *sec;   /* symbol's associated section (NULL for 'extern' symbols) */
+    uint16_t ndx;   /* index into ELF file's symbol table */
     Symbol *next;
 } *symbols[HASH_SIZE];
 
-Symbol *define_symbol(SymKind kind, SymBind bind, char *name, int val, Section *sec)
+Symbol *define_symbol(SymKind kind, SymBind bind, char *name, uint64_t val, Section *sec)
 {
     unsigned h;
     Symbol *np;
@@ -259,9 +361,15 @@ struct Section {
     SBlock *first, *last;
     Reloc *relocs;          /* relocations applied to this section */
     Symbol *sym;            /* symbol table entry for this section */
-    Elf32_Shdr hdr;
-    Elf32_Shdr rhdr;        /* section header for the associated relocation section (if any) */
-    Elf32_Half shndx;       /* index into section header table */
+    union {
+        Elf32_Shdr hdr32;
+        Elf64_Shdr hdr64;
+    } h;
+    union {
+        Elf32_Shdr rhdr32;
+        Elf64_Shdr rhdr64;
+    } rh;                   /* section header for the associated relocation section (if any) */
+    uint16_t shndx;         /* index into section header table */
     Section *next;
 } *sections, *curr_section;
 
@@ -293,8 +401,8 @@ void set_curr_section(char *name)
         s->last = s->first;
         s->relocs = NULL;
         s->sym = define_symbol(SectionKind, LocalBind, lexeme, 0, s);
-        memset(&s->hdr, 0, sizeof(Elf32_Shdr));
-        memset(&s->rhdr, 0, sizeof(Elf32_Shdr));
+        memset(&s->h.hdr64, 0, sizeof(Elf64_Shdr));
+        memset(&s->rh.rhdr64, 0, sizeof(Elf64_Shdr));
         s->shndx = shndx++;
         s->next = NULL;
         if (sections == NULL) {
@@ -381,10 +489,13 @@ void write_qword(long long q)
 #define Byte                0x000400
 #define Word                0x000800
 #define Dword               0x001000
+#define Qword               0x002000
+#define SIZE_MASK           (Byte|Word|Dword|Qword)
 /* special */
-#define Reg_CL_mode         0x002000
-#define Imm_1_mode          0x004000
-#define Qword               0x008000
+#define Reg_CL_mode         0x004000
+#define Imm_1_mode          0x008000
+#define HasSizSpe_mode      0x010000 /* used only with immediates */
+#define NeedsREX_mode       0x020000
 /* r/m operand */
 #define rm  (Reg_mode|Dir_mode|RegInd_mode|Based_mode|Index_mode|BasedIndex_mode|BasedIndexDisp_mode)
 /* assembling instructions */
@@ -409,12 +520,14 @@ enum {
 typedef enum {
     op_adc,
     op_add,     op_and,     op_call,    op_cdq,
-    op_cmp,     op_dec,     op_div,     op_idiv,
+    op_cmp,     op_cqo, 	op_dec,     op_div,
+    op_idiv,
     op_imul,    op_inc,     op_ja,      op_jae,
     op_jb,      op_jbe,     op_je,      op_jg,
     op_jge,     op_jl,      op_jle,     op_jmp,
     op_jne,     op_lea,     op_mov,     op_movsb,
-    op_movsd,   op_movsw,   op_movsx,   op_movzx,
+    op_movsd,   op_movsq,   op_movsw,   op_movsx,
+    op_movzx,
     op_neg,     op_nop,     op_not,     op_or,
     op_pop,     op_push,    op_ret,     op_sal,
     op_sar,     op_sbb,     op_seta,    op_setae,
@@ -435,249 +548,265 @@ struct {
     unsigned char opc_ext;  /* opcode extension (ModRM:reg) */
     unsigned op1, op2;
     int asm_instr;          /* assembling instructions */
-} opcode_table[] = {
-    /* ADD */
-    { op_add,  0,  0x83,   0x00,   rm|Word|Dword,      Imm_mode|Byte,          I_MI },
-    { op_add,  0,  0x04,   -1,     Acc_mode|Byte,      Imm_mode|Byte,          I_AI },
-    { op_add,  0,  0x05,   -1,     Acc_mode|Word,      Imm_mode|Word,          I_AI },
-    { op_add,  0,  0x05,   -1,     Acc_mode|Dword,     Imm_mode|Dword,         I_AI },
-    { op_add,  0,  0x80,   0x00,   rm|Byte,            Imm_mode|Byte,          I_MI },
-    { op_add,  0,  0x81,   0x00,   rm|Word,            Imm_mode|Word,          I_MI },
-    { op_add,  0,  0x81,   0x00,   rm|Dword,           Imm_mode|Dword,         I_MI },
-    { op_add,  0,  0x00,   -1,     rm|Byte,            Reg_mode|Byte,          I_MR },
-    { op_add,  0,  0x01,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
-    { op_add,  0,  0x02,   -1,     Reg_mode|Byte,      rm|Byte,                I_RM },
-    { op_add,  0,  0x03,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
-    /* AND */
-    { op_and,  0,  0x83,   0x04,   rm|Word|Dword,      Imm_mode|Byte,          I_MI },
-    { op_and,  0,  0x24,   -1,     Acc_mode|Byte,      Imm_mode|Byte,          I_AI },
-    { op_and,  0,  0x25,   -1,     Acc_mode|Word,      Imm_mode|Word,          I_AI },
-    { op_and,  0,  0x25,   -1,     Acc_mode|Dword,     Imm_mode|Dword,         I_AI },
-    { op_and,  0,  0x80,   0x04,   rm|Byte,            Imm_mode|Byte,          I_MI },
-    { op_and,  0,  0x81,   0x04,   rm|Word,            Imm_mode|Word,          I_MI },
-    { op_and,  0,  0x81,   0x04,   rm|Dword,           Imm_mode|Dword,         I_MI },
-    { op_and,  0,  0x20,   -1,     rm|Byte,            Reg_mode|Byte,          I_MR },
-    { op_and,  0,  0x21,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
-    { op_and,  0,  0x22,   -1,     Reg_mode|Byte,      rm|Byte,                I_RM },
-    { op_and,  0,  0x23,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
-    /* CALL */
-    { op_call, 0,  0xE8,   -1,     Imm_mode|Dword,     None_mode,              I_REL32 },
-    { op_call, 0,  0xFF,   0x02,   rm|Dword,           None_mode,              I_M },
-    /* CDQ */
-    { op_cdq,  0,  0x99,   -1,     None_mode,          None_mode,              -1 },
-    /* CMP */
-    { op_cmp,  0,  0x83,   0x07,   rm|Word|Dword,      Imm_mode|Byte,          I_MI },
-    { op_cmp,  0,  0x3C,   -1,     Acc_mode|Byte,      Imm_mode|Byte,          I_AI },
-    { op_cmp,  0,  0x3D,   -1,     Acc_mode|Word,      Imm_mode|Word,          I_AI },
-    { op_cmp,  0,  0x3D,   -1,     Acc_mode|Dword,     Imm_mode|Dword,         I_AI },
-    { op_cmp,  0,  0x80,   0x07,   rm|Byte,            Imm_mode|Byte,          I_MI },
-    { op_cmp,  0,  0x81,   0x07,   rm|Word,            Imm_mode|Word,          I_MI },
-    { op_cmp,  0,  0x81,   0x07,   rm|Dword,           Imm_mode|Dword,         I_MI },
-    { op_cmp,  0,  0x38,   -1,     rm|Byte,            Reg_mode|Byte,          I_MR },
-    { op_cmp,  0,  0x39,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
-    { op_cmp,  0,  0x3A,   -1,     Reg_mode|Byte,      rm|Byte,                I_RM },
-    { op_cmp,  0,  0x3B,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
-    /* DEC */
-    { op_dec,  0,  0x48,   -1,     Reg_mode|Word|Dword,None_mode,              I_R },
-    { op_dec,  0,  0xFE,   0x01,   rm|Byte,            None_mode,              I_M },
-    { op_dec,  0,  0xFF,   0x01,   rm|Word|Dword,      None_mode,              I_M },
-    /* DIV */
-    { op_div,  0,  0xF6,   0x06,   rm|Byte,            None_mode,              I_M },
-    { op_div,  0,  0xF7,   0x06,   rm|Word|Dword,      None_mode,              I_M },
-    /* IDIV */
-    { op_idiv, 0,  0xF6,   0x07,   rm|Byte,            None_mode,              I_M },
-    { op_idiv, 0,  0xF7,   0x07,   rm|Word|Dword,      None_mode,              I_M },
-    /* IMUL */
-    { op_imul, 0,  0xF6,   0x05,   rm|Byte,            None_mode,              I_M },
-    { op_imul, 0,  0xF7,   0x05,   rm|Word|Dword,      None_mode,              I_M },
-    { op_imul, 0,  0x6B,   -1,     Reg_mode|Word|Dword,Imm_mode|Byte,          I_RMI },
-    { op_imul, 0,  0x69,   -1,     Reg_mode|Word,      Imm_mode|Word,          I_RMI },
-    { op_imul, 0,  0x69,   -1,     Reg_mode|Dword,     Imm_mode|Dword,         I_RMI },
-    { op_imul, 1,  0xAF,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
-    /* INC */
-    { op_inc,  0,  0x40,   -1,     Reg_mode|Word|Dword,None_mode,              I_R },
-    { op_inc,  0,  0xFE,   0x00,   rm|Byte,            None_mode,              I_M },
-    { op_inc,  0,  0xFF,   0x00,   rm|Word|Dword,      None_mode,              I_M },
-    /* Jcc */
-    { op_ja,   0,  0x77,   -1,     Imm_mode|Byte,      None_mode,              I_REL8 },
-    { op_ja,   1,  0x87,   -1,     Imm_mode|Dword,     None_mode,              I_REL32 },
-    { op_jae,  0,  0x73,   -1,     Imm_mode|Byte,      None_mode,              I_REL8 },
-    { op_jae,  1,  0x83,   -1,     Imm_mode|Dword,     None_mode,              I_REL32 },
-    { op_jb,   0,  0x72,   -1,     Imm_mode|Byte,      None_mode,              I_REL8 },
-    { op_jb,   1,  0x82,   -1,     Imm_mode|Dword,     None_mode,              I_REL32 },
-    { op_jbe,  0,  0x76,   -1,     Imm_mode|Byte,      None_mode,              I_REL8 },
-    { op_jbe,  1,  0x86,   -1,     Imm_mode|Dword,     None_mode,              I_REL32 },
-    { op_je,   0,  0x74,   -1,     Imm_mode|Byte,      None_mode,              I_REL8 },
-    { op_je,   1,  0x84,   -1,     Imm_mode|Dword,     None_mode,              I_REL32 },
-    { op_jg,   0,  0x7F,   -1,     Imm_mode|Byte,      None_mode,              I_REL8 },
-    { op_jg,   1,  0x8F,   -1,     Imm_mode|Dword,     None_mode,              I_REL32 },
-    { op_jge,  0,  0x7D,   -1,     Imm_mode|Byte,      None_mode,              I_REL8 },
-    { op_jge,  1,  0x8D,   -1,     Imm_mode|Dword,     None_mode,              I_REL32 },
-    { op_jl,   0,  0x7C,   -1,     Imm_mode|Byte,      None_mode,              I_REL8 },
-    { op_jl,   1,  0x8C,   -1,     Imm_mode|Dword,     None_mode,              I_REL32 },
-    { op_jle,  0,  0x7E,   -1,     Imm_mode|Byte,      None_mode,              I_REL8 },
-    { op_jle,  1,  0x8E,   -1,     Imm_mode|Dword,     None_mode,              I_REL32 },
-    { op_jne,  0,  0x75,   -1,     Imm_mode|Byte,      None_mode,              I_REL8 },
-    { op_jne,  1,  0x85,   -1,     Imm_mode|Dword,     None_mode,              I_REL32 },
-    /* JMP */
-    { op_jmp,  0,  0xEB,   -1,     Imm_mode|Byte,      None_mode,              I_REL8 },
-    { op_jmp,  0,  0xE9,   -1,     Imm_mode|Dword,     None_mode,              I_REL32 },
-    { op_jmp,  0,  0xFF,   0x04,   rm|Dword,           None_mode,              I_M },
-    /* LEA */
-    { op_lea,  0,  0x8D,   -1,     Reg_mode|Dword,     rm&~Reg_mode|Dword,     I_RM },
-    /* MOV */
-    { op_mov,  0,  0x88,   -1,     rm|Byte,            Reg_mode|Byte,          I_MR },
-    { op_mov,  0,  0x89,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
-    { op_mov,  0,  0x8A,   -1,     Reg_mode|Byte,      rm|Byte,                I_RM },
-    { op_mov,  0,  0x8B,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
-    { op_mov,  0,  0xB0,   -1,     Reg_mode|Byte,      Imm_mode|Byte,          I_RI },
-    { op_mov,  0,  0xB8,   -1,     Reg_mode|Word,      Imm_mode|Word,          I_RI },
-    { op_mov,  0,  0xB8,   -1,     Reg_mode|Dword,     Imm_mode|Dword,         I_RI },
-    { op_mov,  0,  0xC6,   0x00,   rm|Byte,            Imm_mode|Byte,          I_MI },
-    { op_mov,  0,  0xC7,   0x00,   rm|Word,            Imm_mode|Word,          I_MI },
-    { op_mov,  0,  0xC7,   0x00,   rm|Dword,           Imm_mode|Dword,         I_MI },
-    /* MOVSB */
-    { op_movsb,0,  0xA4,   -1,     None_mode,          None_mode,              -1 },
-    /* MOVSD */
-    { op_movsd,0,  0xA5,   -1,     None_mode,          None_mode,              -1 },
-    /* MOVSW */
-    { op_movsw,0,  0xA5,   -1,     None_mode,          None_mode,              -1 }, /* requires 0x66 prefix */
-    /* MOVSX */
-    { op_movsx,1,  0xBE,   -1,     Reg_mode|Word|Dword,rm|Byte,                I_RM },
-    { op_movsx,1,  0xBF,   -1,     Reg_mode|Dword,     rm|Word,                I_RM },
-    /* MOVZX */
-    { op_movzx,1,  0xB6,   -1,     Reg_mode|Word|Dword,rm|Byte,                I_RM },
-    { op_movzx,1,  0xB7,   -1,     Reg_mode|Dword,     rm|Word,                I_RM },
-    /* NEG */
-    { op_neg,  0,  0xF6,   0x03,   rm|Byte,            None_mode,              I_M },
-    { op_neg,  0,  0xF7,   0x03,   rm|Word|Dword,      None_mode,              I_M },
-    /* NOP */
-    { op_nop,  0,  0x90,   -1,     None_mode,          None_mode,              -1 },
-    /* NOT */
-    { op_not,  0,  0xF6,   0x02,   rm|Byte,            None_mode,              I_M },
-    { op_not,  0,  0xF7,   0x02,   rm|Word|Dword,      None_mode,              I_M },
-    /* OR */
-    { op_or,   0,  0x83,   0x01,   rm|Word|Dword,      Imm_mode|Byte,          I_MI },
-    { op_or,   0,  0x0C,   -1,     Acc_mode|Byte,      Imm_mode|Byte,          I_AI },
-    { op_or,   0,  0x0D,   -1,     Acc_mode|Word,      Imm_mode|Word,          I_AI },
-    { op_or,   0,  0x0D,   -1,     Acc_mode|Dword,     Imm_mode|Dword,         I_AI },
-    { op_or,   0,  0x80,   0x01,   rm|Byte,            Imm_mode|Byte,          I_MI },
-    { op_or,   0,  0x81,   0x01,   rm|Word,            Imm_mode|Word,          I_MI },
-    { op_or,   0,  0x81,   0x01,   rm|Dword,           Imm_mode|Dword,         I_MI },
-    { op_or,   0,  0x08,   -1,     rm|Byte,            Reg_mode|Byte,          I_MR },
-    { op_or,   0,  0x09,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
-    { op_or,   0,  0x0A,   -1,     Reg_mode|Byte,      rm|Byte,                I_RM },
-    { op_or,   0,  0x0B,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
-    /* POP */
-    { op_pop,  0,  0x58,   -1,     Reg_mode|Word|Dword,None_mode,              I_R },
-    { op_pop,  0,  0x8F,   0x00,   rm|Word|Dword,      None_mode,              I_M },
-    /* PUSH */
-    { op_push, 0,  0x50,   -1,     Reg_mode|Word|Dword,None_mode,              I_R },
-    { op_push, 0,  0xFF,   0x06,   rm|Word|Dword,      None_mode,              I_M },
-    { op_push, 0,  0x6A,   -1,     Imm_mode|Byte,      None_mode,              I_I },
-    { op_push, 0,  0x68,   -1,     Imm_mode|Word,      None_mode,              I_I },
-    { op_push, 0,  0x68,   -1,     Imm_mode|Dword,     None_mode,              I_I },
-    /* RET */
-    { op_ret,  0,  0xC3,   -1,     None_mode,          None_mode,              -1 },
-    { op_ret,  0,  0xC2,   -1,     Imm_mode|Byte|Word, None_mode,              I_I },
-    /* SAL/SHL */
-    { op_sal,  0,  0xD0,   0x04,   rm|Byte,            Imm_1_mode|Byte,        I_MX },
-    { op_sal,  0,  0xD2,   0x04,   rm|Byte,            Reg_CL_mode|Byte,       I_MX },
-    { op_sal,  0,  0xC0,   0x04,   rm|Byte,            Imm_mode|Byte,          I_MI },
-    { op_sal,  0,  0xD1,   0x04,   rm|Word|Dword,      Imm_1_mode|Byte,        I_MX },
-    { op_sal,  0,  0xD3,   0x04,   rm|Word|Dword,      Reg_CL_mode|Byte,       I_MX },
-    { op_sal,  0,  0xC1,   0x04,   rm|Word|Dword,      Imm_mode|Byte,          I_MI },
-    /* SAR */
-    { op_sar,  0,  0xD0,   0x07,   rm|Byte,            Imm_1_mode|Byte,        I_MX },
-    { op_sar,  0,  0xD2,   0x07,   rm|Byte,            Reg_CL_mode|Byte,       I_MX },
-    { op_sar,  0,  0xC0,   0x07,   rm|Byte,            Imm_mode|Byte,          I_MI },
-    { op_sar,  0,  0xD1,   0x07,   rm|Word|Dword,      Imm_1_mode|Byte,        I_MX },
-    { op_sar,  0,  0xD3,   0x07,   rm|Word|Dword,      Reg_CL_mode|Byte,       I_MX },
-    { op_sar,  0,  0xC1,   0x07,   rm|Word|Dword,      Imm_mode|Byte,          I_MI },
-    /* SETcc */
-    { op_seta, 1,  0x97,   -1,     rm|Byte,            None_mode,              I_M },
-    { op_setae,1,  0x93,   -1,     rm|Byte,            None_mode,              I_M },
-    { op_setb, 1,  0x92,   -1,     rm|Byte,            None_mode,              I_M },
-    { op_setbe,1,  0x96,   -1,     rm|Byte,            None_mode,              I_M },
-    { op_sete, 1,  0x94,   -1,     rm|Byte,            None_mode,              I_M },
-    { op_setg, 1,  0x9F,   -1,     rm|Byte,            None_mode,              I_M },
-    { op_setge,1,  0x9D,   -1,     rm|Byte,            None_mode,              I_M },
-    { op_setl, 1,  0x9C,   -1,     rm|Byte,            None_mode,              I_M },
-    { op_setle,1,  0x9E,   -1,     rm|Byte,            None_mode,              I_M },
-    { op_setne,1,  0x95,   -1,     rm|Byte,            None_mode,              I_M },
-    /* SHR */
-    { op_shr,  0,  0xD0,   0x05,   rm|Byte,            Imm_1_mode|Byte,        I_MX },
-    { op_shr,  0,  0xD2,   0x05,   rm|Byte,            Reg_CL_mode|Byte,       I_MX },
-    { op_shr,  0,  0xC0,   0x05,   rm|Byte,            Imm_mode|Byte,          I_MI },
-    { op_shr,  0,  0xD1,   0x05,   rm|Word|Dword,      Imm_1_mode|Byte,        I_MX },
-    { op_shr,  0,  0xD3,   0x05,   rm|Word|Dword,      Reg_CL_mode|Byte,       I_MX },
-    { op_shr,  0,  0xC1,   0x05,   rm|Word|Dword,      Imm_mode|Byte,          I_MI },
-    /* SUB */
-    { op_sub,  0,  0x83,   0x05,   rm|Word|Dword,      Imm_mode|Byte,          I_MI },
-    { op_sub,  0,  0x2C,   -1,     Acc_mode|Byte,      Imm_mode|Byte,          I_AI },
-    { op_sub,  0,  0x2D,   -1,     Acc_mode|Word,      Imm_mode|Word,          I_AI },
-    { op_sub,  0,  0x2D,   -1,     Acc_mode|Dword,     Imm_mode|Dword,         I_AI },
-    { op_sub,  0,  0x80,   0x05,   rm|Byte,            Imm_mode|Byte,          I_MI },
-    { op_sub,  0,  0x81,   0x05,   rm|Word,            Imm_mode|Word,          I_MI },
-    { op_sub,  0,  0x81,   0x05,   rm|Dword,           Imm_mode|Dword,         I_MI },
-    { op_sub,  0,  0x28,   -1,     rm|Byte,            Reg_mode|Byte,          I_MR },
-    { op_sub,  0,  0x29,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
-    { op_sub,  0,  0x2A,   -1,     Reg_mode|Byte,      rm|Byte,                I_RM },
-    { op_sub,  0,  0x2B,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
-    /* TEST */
-    { op_test, 0,  0xA8,   -1,     Acc_mode|Byte,      Imm_mode|Byte,          I_AI },
-    { op_test, 0,  0xA9,   -1,     Acc_mode|Word,      Imm_mode|Word,          I_AI },
-    { op_test, 0,  0xA9,   -1,     Acc_mode|Dword,     Imm_mode|Dword,         I_AI },
-    { op_test, 0,  0xF6,   0x00,   rm|Byte,            Imm_mode|Byte,          I_MI },
-    { op_test, 0,  0xF7,   0x00,   rm|Word,            Imm_mode|Word,          I_MI },
-    { op_test, 0,  0xF7,   0x00,   rm|Dword,           Imm_mode|Dword,         I_MI },
-    { op_test, 0,  0x84,   -1,     rm|Byte,            Reg_mode|Byte,          I_MR },
-    { op_test, 0,  0x85,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
-    /* XCHG */
-    { op_xchg, 0,  0x90,   -1,     Acc_mode|Word|Dword,Reg_mode|Word|Dword,    I_AR },
-    { op_xchg, 0,  0x90,   -1,     Reg_mode|Word|Dword,Acc_mode|Word|Dword,    I_RA },
-    { op_xchg, 0,  0x86,   -1,     rm|Byte,            Reg_mode|Byte,          I_MR },
-    { op_xchg, 0,  0x86,   -1,     Reg_mode|Byte,      rm|Byte,                I_RM },
-    { op_xchg, 0,  0x87,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
-    { op_xchg, 0,  0x87,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
-    /* XOR */
-    { op_xor,  0,  0x83,   0x06,   rm|Word|Dword,      Imm_mode|Byte,          I_MI },
-    { op_xor,  0,  0x34,   -1,     Acc_mode|Byte,      Imm_mode|Byte,          I_AI },
-    { op_xor,  0,  0x35,   -1,     Acc_mode|Word,      Imm_mode|Word,          I_AI },
-    { op_xor,  0,  0x35,   -1,     Acc_mode|Dword,     Imm_mode|Dword,         I_AI },
-    { op_xor,  0,  0x80,   0x06,   rm|Byte,            Imm_mode|Byte,          I_MI },
-    { op_xor,  0,  0x81,   0x06,   rm|Word,            Imm_mode|Word,          I_MI },
-    { op_xor,  0,  0x81,   0x06,   rm|Dword,           Imm_mode|Dword,         I_MI },
-    { op_xor,  0,  0x30,   -1,     rm|Byte,            Reg_mode|Byte,          I_MR },
-    { op_xor,  0,  0x31,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
-    { op_xor,  0,  0x32,   -1,     Reg_mode|Byte,      rm|Byte,                I_RM },
-    { op_xor,  0,  0x33,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
+} opcode_table[] = { /* sorted for bsearch() */
     /* ADC */
-    { op_adc,  0,  0x83,   0x02,   rm|Word|Dword,      Imm_mode|Byte,          I_MI },
-    { op_adc,  0,  0x14,   -1,     Acc_mode|Byte,      Imm_mode|Byte,          I_AI },
-    { op_adc,  0,  0x15,   -1,     Acc_mode|Word,      Imm_mode|Word,          I_AI },
-    { op_adc,  0,  0x15,   -1,     Acc_mode|Dword,     Imm_mode|Dword,         I_AI },
-    { op_adc,  0,  0x80,   0x02,   rm|Byte,            Imm_mode|Byte,          I_MI },
-    { op_adc,  0,  0x81,   0x02,   rm|Word,            Imm_mode|Word,          I_MI },
-    { op_adc,  0,  0x81,   0x02,   rm|Dword,           Imm_mode|Dword,         I_MI },
-    { op_adc,  0,  0x10,   -1,     rm|Byte,            Reg_mode|Byte,          I_MR },
-    { op_adc,  0,  0x11,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
-    { op_adc,  0,  0x12,   -1,     Reg_mode|Byte,      rm|Byte,                I_RM },
-    { op_adc,  0,  0x13,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
+    { op_adc,   0,  0x83,   0x02,   rm|Word|Dword|Qword,        Imm_mode|Byte,              I_MI },
+    { op_adc,   0,  0x14,   -1,     Acc_mode|Byte,              Imm_mode|Byte,              I_AI },
+    { op_adc,   0,  0x15,   -1,     Acc_mode|Word,              Imm_mode|Word,              I_AI },
+    { op_adc,   0,  0x15,   -1,     Acc_mode|Dword|Qword,       Imm_mode|Dword,             I_AI },
+    { op_adc,   0,  0x80,   0x02,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_adc,   0,  0x81,   0x02,   rm|Word,                    Imm_mode|Word,              I_MI },
+    { op_adc,   0,  0x81,   0x02,   rm|Dword|Qword,             Imm_mode|Dword,             I_MI },
+    { op_adc,   0,  0x10,   -1,     rm|Byte,                    Reg_mode|Byte,              I_MR },
+    { op_adc,   0,  0x11,   -1,     rm|Word|Dword|Qword,        Reg_mode|Word|Dword|Qword,  I_MR },
+    { op_adc,   0,  0x12,   -1,     Reg_mode|Byte,              rm|Byte,                    I_RM },
+    { op_adc,   0,  0x13,   -1,     Reg_mode|Word|Dword|Qword,  rm|Word|Dword|Qword,        I_RM },
+    /* ADD */
+    { op_add,   0,  0x83,   0x00,   rm|Word|Dword|Qword,        Imm_mode|Byte,              I_MI },
+    { op_add,   0,  0x04,   -1,     Acc_mode|Byte,              Imm_mode|Byte,              I_AI },
+    { op_add,   0,  0x05,   -1,     Acc_mode|Word,              Imm_mode|Word,              I_AI },
+    { op_add,   0,  0x05,   -1,     Acc_mode|Dword|Qword,       Imm_mode|Dword,             I_AI },
+    { op_add,   0,  0x80,   0x00,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_add,   0,  0x81,   0x00,   rm|Word,                    Imm_mode|Word,              I_MI },
+    { op_add,   0,  0x81,   0x00,   rm|Dword|Qword,             Imm_mode|Dword,             I_MI },
+    { op_add,   0,  0x00,   -1,     rm|Byte,                    Reg_mode|Byte,              I_MR },
+    { op_add,   0,  0x01,   -1,     rm|Word|Dword|Qword,        Reg_mode|Word|Dword|Qword,  I_MR },
+    { op_add,   0,  0x02,   -1,     Reg_mode|Byte,              rm|Byte,                    I_RM },
+    { op_add,   0,  0x03,   -1,     Reg_mode|Word|Dword|Qword,  rm|Word|Dword|Qword,        I_RM },
+    /* AND */
+    { op_and,   0,  0x83,   0x04,   rm|Word|Dword|Qword,        Imm_mode|Byte,              I_MI },
+    { op_and,   0,  0x24,   -1,     Acc_mode|Byte,              Imm_mode|Byte,              I_AI },
+    { op_and,   0,  0x25,   -1,     Acc_mode|Word,              Imm_mode|Word,              I_AI },
+    { op_and,   0,  0x25,   -1,     Acc_mode|Dword|Qword,       Imm_mode|Dword,             I_AI },
+    { op_and,   0,  0x80,   0x04,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_and,   0,  0x81,   0x04,   rm|Word,                    Imm_mode|Word,              I_MI },
+    { op_and,   0,  0x81,   0x04,   rm|Dword|Qword,             Imm_mode|Dword,             I_MI },
+    { op_and,   0,  0x20,   -1,     rm|Byte,                    Reg_mode|Byte,              I_MR },
+    { op_and,   0,  0x21,   -1,     rm|Word|Dword|Qword,        Reg_mode|Word|Dword|Qword,  I_MR },
+    { op_and,   0,  0x22,   -1,     Reg_mode|Byte,              rm|Byte,                    I_RM },
+    { op_and,   0,  0x23,   -1,     Reg_mode|Word|Dword|Qword,  rm|Word|Dword|Qword,        I_RM },
+    /* CALL */
+    { op_call,  0,  0xE8,   -1,     Imm_mode|Dword,             None_mode,                  I_REL32 },
+    { op_call,  0,  0xFF,   0x02,   rm|Dword|Qword,             None_mode,                  I_M },
+    /* CDQ */
+    { op_cdq,   0,  0x99,   -1,     None_mode,                  None_mode,                  -1 },
+    /* CMP */
+    { op_cmp,   0,  0x83,   0x07,   rm|Word|Dword|Qword,        Imm_mode|Byte,              I_MI },
+    { op_cmp,   0,  0x3C,   -1,     Acc_mode|Byte,              Imm_mode|Byte,              I_AI },
+    { op_cmp,   0,  0x3D,   -1,     Acc_mode|Word,              Imm_mode|Word,              I_AI },
+    { op_cmp,   0,  0x3D,   -1,     Acc_mode|Dword|Qword,       Imm_mode|Dword,             I_AI },
+    { op_cmp,   0,  0x80,   0x07,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_cmp,   0,  0x81,   0x07,   rm|Word,                    Imm_mode|Word,              I_MI },
+    { op_cmp,   0,  0x81,   0x07,   rm|Dword|Qword,             Imm_mode|Dword,             I_MI },
+    { op_cmp,   0,  0x38,   -1,     rm|Byte,                    Reg_mode|Byte,              I_MR },
+    { op_cmp,   0,  0x39,   -1,     rm|Word|Dword|Qword,        Reg_mode|Word|Dword|Qword,  I_MR },
+    { op_cmp,   0,  0x3A,   -1,     Reg_mode|Byte,              rm|Byte,                    I_RM },
+    { op_cmp,   0,  0x3B,   -1,     Reg_mode|Word|Dword|Qword,  rm|Word|Dword|Qword,        I_RM },
+    /* CQO */
+    { op_cqo,	0,	0x99,	-1,		None_mode,					None_mode,					-1 }, /* requires 0x48 prefix */
+    /* DEC */
+    /*  Not encodable in 64-bit mode                                                                */
+    /*{ op_dec,  0,  0x48,   -1,      Reg_mode|Word|Dword,        None_mode,                  I_R },*/
+    { op_dec,   0,  0xFE,   0x01,   rm|Byte,                    None_mode,                  I_M },
+    { op_dec,   0,  0xFF,   0x01,   rm|Word|Dword|Qword,        None_mode,                  I_M },
+    /* DIV */
+    { op_div,   0,  0xF6,   0x06,   rm|Byte,                    None_mode,                  I_M },
+    { op_div,   0,  0xF7,   0x06,   rm|Word|Dword|Qword,        None_mode,                  I_M },
+    /* IDIV */
+    { op_idiv,  0,  0xF6,   0x07,   rm|Byte,                    None_mode,                  I_M },
+    { op_idiv,  0,  0xF7,   0x07,   rm|Word|Dword|Qword,        None_mode,                  I_M },
+    /* IMUL */
+    { op_imul,  0,  0xF6,   0x05,   rm|Byte,                    None_mode,                  I_M },
+    { op_imul,  0,  0xF7,   0x05,   rm|Word|Dword|Qword,        None_mode,                  I_M },
+    { op_imul,  0,  0x6B,   -1,     Reg_mode|Word|Dword|Qword,  Imm_mode|Byte,              I_RMI },
+    { op_imul,  0,  0x69,   -1,     Reg_mode|Word,              Imm_mode|Word,              I_RMI },
+    { op_imul,  0,  0x69,   -1,     Reg_mode|Dword|Qword,       Imm_mode|Dword,             I_RMI },
+    { op_imul,  1,  0xAF,   -1,     Reg_mode|Word|Dword|Qword,  rm|Word|Dword|Qword,        I_RM },
+    /* INC */
+    /*  Not encodable in 64-bit mode                                                                */
+    /*{ op_inc,  0,  0x40,   -1,      Reg_mode|Word|Dword,        None_mode,                  I_R },*/
+    { op_inc,   0,  0xFE,   0x00,   rm|Byte,                    None_mode,                  I_M },
+    { op_inc,   0,  0xFF,   0x00,   rm|Word|Dword|Qword,        None_mode,                  I_M },
+    /* Jcc */
+    { op_ja,    0,  0x77,   -1,     Imm_mode|Byte,              None_mode,                  I_REL8 },
+    { op_ja,    1,  0x87,   -1,     Imm_mode|Dword,             None_mode,                  I_REL32 },
+    { op_jae,   0,  0x73,   -1,     Imm_mode|Byte,              None_mode,                  I_REL8 },
+    { op_jae,   1,  0x83,   -1,     Imm_mode|Dword,             None_mode,                  I_REL32 },
+    { op_jb,    0,  0x72,   -1,     Imm_mode|Byte,              None_mode,                  I_REL8 },
+    { op_jb,    1,  0x82,   -1,     Imm_mode|Dword,             None_mode,                  I_REL32 },
+    { op_jbe,   0,  0x76,   -1,     Imm_mode|Byte,              None_mode,                  I_REL8 },
+    { op_jbe,   1,  0x86,   -1,     Imm_mode|Dword,             None_mode,                  I_REL32 },
+    { op_je,    0,  0x74,   -1,     Imm_mode|Byte,              None_mode,                  I_REL8 },
+    { op_je,    1,  0x84,   -1,     Imm_mode|Dword,             None_mode,                  I_REL32 },
+    { op_jg,    0,  0x7F,   -1,     Imm_mode|Byte,              None_mode,                  I_REL8 },
+    { op_jg,    1,  0x8F,   -1,     Imm_mode|Dword,             None_mode,                  I_REL32 },
+    { op_jge,   0,  0x7D,   -1,     Imm_mode|Byte,              None_mode,                  I_REL8 },
+    { op_jge,   1,  0x8D,   -1,     Imm_mode|Dword,             None_mode,                  I_REL32 },
+    { op_jl,    0,  0x7C,   -1,     Imm_mode|Byte,              None_mode,                  I_REL8 },
+    { op_jl,    1,  0x8C,   -1,     Imm_mode|Dword,             None_mode,                  I_REL32 },
+    { op_jle,   0,  0x7E,   -1,     Imm_mode|Byte,              None_mode,                  I_REL8 },
+    { op_jle,   1,  0x8E,   -1,     Imm_mode|Dword,             None_mode,                  I_REL32 },
+    /* JMP */
+    { op_jmp,   0,  0xEB,   -1,     Imm_mode|Byte,              None_mode,                  I_REL8 },
+    { op_jmp,   0,  0xE9,   -1,     Imm_mode|Dword,             None_mode,                  I_REL32 },
+    { op_jmp,   0,  0xFF,   0x04,   rm|Dword|Qword,             None_mode,                  I_M },
+    /* Jcc (cont.) */
+    { op_jne,   0,  0x75,   -1,     Imm_mode|Byte,              None_mode,                  I_REL8 },
+    { op_jne,   1,  0x85,   -1,     Imm_mode|Dword,             None_mode,                  I_REL32 },
+    /* LEA */
+    { op_lea,   0,  0x8D,   -1,     Reg_mode|Word|Dword|Qword,  rm&~Reg_mode|SIZE_MASK,     I_RM },
+    /* MOV */
+    { op_mov,   0,  0x88,   -1,     rm|Byte,                    Reg_mode|Byte,              I_MR },
+    { op_mov,   0,  0x89,   -1,     rm|Word|Dword|Qword,        Reg_mode|Word|Dword|Qword,  I_MR },
+    { op_mov,   0,  0x8A,   -1,     Reg_mode|Byte,              rm|Byte,                    I_RM },
+    { op_mov,   0,  0x8B,   -1,     Reg_mode|Word|Dword|Qword,  rm|Word|Dword|Qword,        I_RM },
+    { op_mov,   0,  0xB0,   -1,     Reg_mode|Byte,              Imm_mode|Byte,              I_RI },
+    { op_mov,   0,  0xB8,   -1,     Reg_mode|Word,              Imm_mode|Word,              I_RI },
+    { op_mov,   0,  0xB8,   -1,     Reg_mode|Dword,             Imm_mode|Dword,             I_RI },
+    { op_mov,   0,  0xB8,   -1,     Reg_mode|Qword,             Imm_mode|Qword,             I_RI },
+    { op_mov,   0,  0xC6,   0x00,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_mov,   0,  0xC7,   0x00,   rm|Word,                    Imm_mode|Word,              I_MI },
+    { op_mov,   0,  0xC7,   0x00,   rm|Dword|Qword,             Imm_mode|Dword,             I_MI },
+    /* MOVSB */
+    { op_movsb, 0,  0xA4,   -1,     None_mode,                  None_mode,                  -1 },
+    /* MOVSD */
+    { op_movsd, 0,  0xA5,   -1,     None_mode,                  None_mode,                  -1 },
+    /* MOVSQ */
+    { op_movsq, 0,  0xA5,   -1,     None_mode,                  None_mode,                  -1 }, /* requires 0x48 prefix */
+    /* MOVSW */
+    { op_movsw, 0,  0xA5,   -1,     None_mode,                  None_mode,                  -1 }, /* requires 0x66 prefix */
+    /* MOVSX */
+    { op_movsx, 1,  0xBE,   -1,     Reg_mode|Word|Dword|Qword,  rm|Byte,                    I_RM },
+    { op_movsx, 1,  0xBF,   -1,     Reg_mode|Dword|Qword,       rm|Word,                    I_RM },
+    { op_movsx, 0,  0x63,   -1,     Reg_mode|Qword,             rm|Dword,                   I_RM },
+    /* MOVZX */
+    { op_movzx, 1,  0xB6,   -1,     Reg_mode|Word|Dword|Qword,  rm|Byte,                    I_RM },
+    { op_movzx, 1,  0xB7,   -1,     Reg_mode|Dword|Qword,       rm|Word,                    I_RM },
+    /* NEG */
+    { op_neg,   0,  0xF6,   0x03,   rm|Byte,                    None_mode,                  I_M },
+    { op_neg,   0,  0xF7,   0x03,   rm|Word|Dword|Qword,        None_mode,                  I_M },
+    /* NOP */
+    { op_nop,   0,  0x90,   -1,     None_mode,                  None_mode,                  -1 },
+    /* NOT */
+    { op_not,   0,  0xF6,   0x02,   rm|Byte,                    None_mode,                  I_M },
+    { op_not,   0,  0xF7,   0x02,   rm|Word|Dword|Qword,        None_mode,                  I_M },
+    /* OR */
+    { op_or,    0,  0x83,   0x01,   rm|Word|Dword|Qword,        Imm_mode|Byte,              I_MI },
+    { op_or,    0,  0x0C,   -1,     Acc_mode|Byte,              Imm_mode|Byte,              I_AI },
+    { op_or,    0,  0x0D,   -1,     Acc_mode|Word,              Imm_mode|Word,              I_AI },
+    { op_or,    0,  0x0D,   -1,     Acc_mode|Dword|Qword,       Imm_mode|Dword,             I_AI },
+    { op_or,    0,  0x80,   0x01,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_or,    0,  0x81,   0x01,   rm|Word,                    Imm_mode|Word,              I_MI },
+    { op_or,    0,  0x81,   0x01,   rm|Dword|Qword,             Imm_mode|Dword,             I_MI },
+    { op_or,    0,  0x08,   -1,     rm|Byte,                    Reg_mode|Byte,              I_MR },
+    { op_or,    0,  0x09,   -1,     rm|Word|Dword|Qword,        Reg_mode|Word|Dword|Qword,  I_MR },
+    { op_or,    0,  0x0A,   -1,     Reg_mode|Byte,              rm|Byte,                    I_RM },
+    { op_or,    0,  0x0B,   -1,     Reg_mode|Word|Dword|Qword,  rm|Word|Dword|Qword,        I_RM },
+    /* POP */
+    { op_pop,   0,  0x58,   -1,     Reg_mode|Word|Dword|Qword,  None_mode,                  I_R },
+    { op_pop,   0,  0x8F,   0x00,   rm|Word|Dword|Qword,        None_mode,                  I_M },
+    /* PUSH */
+    { op_push,  0,  0x50,   -1,     Reg_mode|Word|Dword|Qword,  None_mode,                  I_R },
+    { op_push,  0,  0xFF,   0x06,   rm|Word|Dword|Qword,        None_mode,                  I_M },
+    { op_push,  0,  0x6A,   -1,     Imm_mode|Byte,              None_mode,                  I_I },
+    /*{ op_push,  0,  0x68,   -1,     Imm_mode|Word,              None_mode,                  I_I },*/
+    { op_push,  0,  0x68,   -1,     Imm_mode|Dword,             None_mode,                  I_I },
+    /* RET */
+    { op_ret,   0,  0xC3,   -1,     None_mode,                  None_mode,                  -1 },
+    { op_ret,   0,  0xC2,   -1,     Imm_mode|Word,              None_mode,                  I_I },
+    /* SAL */
+    { op_sal,   0,  0xD0,   0x04,   rm|Byte,                    Imm_1_mode|Byte,            I_MX },
+    { op_sal,   0,  0xD2,   0x04,   rm|Byte,                    Reg_CL_mode|Byte,           I_MX },
+    { op_sal,   0,  0xC0,   0x04,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_sal,   0,  0xD1,   0x04,   rm|Word|Dword|Qword,        Imm_1_mode|Byte,            I_MX },
+    { op_sal,   0,  0xD3,   0x04,   rm|Word|Dword|Qword,        Reg_CL_mode|Byte,           I_MX },
+    { op_sal,   0,  0xC1,   0x04,   rm|Word|Dword|Qword,        Imm_mode|Byte,              I_MI },
+    /* SAR */
+    { op_sar,   0,  0xD0,   0x07,   rm|Byte,                    Imm_1_mode|Byte,            I_MX },
+    { op_sar,   0,  0xD2,   0x07,   rm|Byte,                    Reg_CL_mode|Byte,           I_MX },
+    { op_sar,   0,  0xC0,   0x07,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_sar,   0,  0xD1,   0x07,   rm|Word|Dword|Qword,        Imm_1_mode|Byte,            I_MX },
+    { op_sar,   0,  0xD3,   0x07,   rm|Word|Dword|Qword,        Reg_CL_mode|Byte,           I_MX },
+    { op_sar,   0,  0xC1,   0x07,   rm|Word|Dword|Qword,        Imm_mode|Byte,              I_MI },
     /* SBB */
-    { op_sbb,  0,  0x83,   0x03,   rm|Word|Dword,      Imm_mode|Byte,          I_MI },
-    { op_sbb,  0,  0x1C,   -1,     Acc_mode|Byte,      Imm_mode|Byte,          I_AI },
-    { op_sbb,  0,  0x1D,   -1,     Acc_mode|Word,      Imm_mode|Word,          I_AI },
-    { op_sbb,  0,  0x1D,   -1,     Acc_mode|Dword,     Imm_mode|Dword,         I_AI },
-    { op_sbb,  0,  0x80,   0x03,   rm|Byte,            Imm_mode|Byte,          I_MI },
-    { op_sbb,  0,  0x81,   0x03,   rm|Word,            Imm_mode|Word,          I_MI },
-    { op_sbb,  0,  0x81,   0x03,   rm|Dword,           Imm_mode|Dword,         I_MI },
-    { op_sbb,  0,  0x18,   -1,     rm|Byte,            Reg_mode|Byte,          I_MR },
-    { op_sbb,  0,  0x19,   -1,     rm|Word|Dword,      Reg_mode|Word|Dword,    I_MR },
-    { op_sbb,  0,  0x1A,   -1,     Reg_mode|Byte,      rm|Byte,                I_RM },
-    { op_sbb,  0,  0x1B,   -1,     Reg_mode|Word|Dword,rm|Word|Dword,          I_RM },
+    { op_sbb,   0,  0x83,   0x03,   rm|Word|Dword,              Imm_mode|Byte,              I_MI },
+    { op_sbb,   0,  0x1C,   -1,     Acc_mode|Byte,              Imm_mode|Byte,              I_AI },
+    { op_sbb,   0,  0x1D,   -1,     Acc_mode|Word,              Imm_mode|Word,              I_AI },
+    { op_sbb,   0,  0x1D,   -1,     Acc_mode|Dword|Qword,       Imm_mode|Dword,             I_AI },
+    { op_sbb,   0,  0x80,   0x03,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_sbb,   0,  0x81,   0x03,   rm|Word,                    Imm_mode|Word,              I_MI },
+    { op_sbb,   0,  0x81,   0x03,   rm|Dword|Qword,             Imm_mode|Dword,             I_MI },
+    { op_sbb,   0,  0x18,   -1,     rm|Byte,                    Reg_mode|Byte,              I_MR },
+    { op_sbb,   0,  0x19,   -1,     rm|Word|Dword|Qword,        Reg_mode|Word|Dword|Qword,  I_MR },
+    { op_sbb,   0,  0x1A,   -1,     Reg_mode|Byte,              rm|Byte,                    I_RM },
+    { op_sbb,   0,  0x1B,   -1,     Reg_mode|Word|Dword|Qword,  rm|Word|Dword|Qword,        I_RM },
+    /* SETcc */
+    { op_seta,  1,  0x97,   -1,     rm|Byte,                    None_mode,                  I_M },
+    { op_setae, 1,  0x93,   -1,     rm|Byte,                    None_mode,                  I_M },
+    { op_setb,  1,  0x92,   -1,     rm|Byte,                    None_mode,                  I_M },
+    { op_setbe, 1,  0x96,   -1,     rm|Byte,                    None_mode,                  I_M },
+    { op_sete,  1,  0x94,   -1,     rm|Byte,                    None_mode,                  I_M },
+    { op_setg,  1,  0x9F,   -1,     rm|Byte,                    None_mode,                  I_M },
+    { op_setge, 1,  0x9D,   -1,     rm|Byte,                    None_mode,                  I_M },
+    { op_setl,  1,  0x9C,   -1,     rm|Byte,                    None_mode,                  I_M },
+    { op_setle, 1,  0x9E,   -1,     rm|Byte,                    None_mode,                  I_M },
+    { op_setne, 1,  0x95,   -1,     rm|Byte,                    None_mode,                  I_M },
+    /* SHL */
+    { op_sal,   0,  0xD0,   0x04,   rm|Byte,                    Imm_1_mode|Byte,            I_MX },
+    { op_sal,   0,  0xD2,   0x04,   rm|Byte,                    Reg_CL_mode|Byte,           I_MX },
+    { op_sal,   0,  0xC0,   0x04,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_sal,   0,  0xD1,   0x04,   rm|Word|Dword|Qword,        Imm_1_mode|Byte,            I_MX },
+    { op_sal,   0,  0xD3,   0x04,   rm|Word|Dword|Qword,        Reg_CL_mode|Byte,           I_MX },
+    { op_sal,   0,  0xC1,   0x04,   rm|Word|Dword|Qword,        Imm_mode|Byte,              I_MI },
+    /* SHR */
+    { op_shr,   0,  0xD0,   0x05,   rm|Byte,                    Imm_1_mode|Byte,            I_MX },
+    { op_shr,   0,  0xD2,   0x05,   rm|Byte,                    Reg_CL_mode|Byte,           I_MX },
+    { op_shr,   0,  0xC0,   0x05,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_shr,   0,  0xD1,   0x05,   rm|Word|Dword|Qword,        Imm_1_mode|Byte,            I_MX },
+    { op_shr,   0,  0xD3,   0x05,   rm|Word|Dword|Qword,        Reg_CL_mode|Byte,           I_MX },
+    { op_shr,   0,  0xC1,   0x05,   rm|Word|Dword|Qword,        Imm_mode|Byte,              I_MI },
+    /* SUB */
+    { op_sub,   0,  0x83,   0x05,   rm|Word|Dword|Qword,        Imm_mode|Byte,              I_MI },
+    { op_sub,   0,  0x2C,   -1,     Acc_mode|Byte,              Imm_mode|Byte,              I_AI },
+    { op_sub,   0,  0x2D,   -1,     Acc_mode|Word,              Imm_mode|Word,              I_AI },
+    { op_sub,   0,  0x2D,   -1,     Acc_mode|Dword|Qword,       Imm_mode|Dword,             I_AI },
+    { op_sub,   0,  0x80,   0x05,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_sub,   0,  0x81,   0x05,   rm|Word,                    Imm_mode|Word,              I_MI },
+    { op_sub,   0,  0x81,   0x05,   rm|Dword|Qword,             Imm_mode|Dword,             I_MI },
+    { op_sub,   0,  0x28,   -1,     rm|Byte,                    Reg_mode|Byte,              I_MR },
+    { op_sub,   0,  0x29,   -1,     rm|Word|Dword|Qword,        Reg_mode|Word|Dword|Qword,  I_MR },
+    { op_sub,   0,  0x2A,   -1,     Reg_mode|Byte,              rm|Byte,                    I_RM },
+    { op_sub,   0,  0x2B,   -1,     Reg_mode|Word|Dword|Qword,  rm|Word|Dword|Qword,        I_RM },
+    /* TEST */
+    { op_test,  0,  0xA8,   -1,     Acc_mode|Byte,              Imm_mode|Byte,              I_AI },
+    { op_test,  0,  0xA9,   -1,     Acc_mode|Word,              Imm_mode|Word,              I_AI },
+    { op_test,  0,  0xA9,   -1,     Acc_mode|Dword|Qword,       Imm_mode|Dword,             I_AI },
+    { op_test,  0,  0xF6,   0x00,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_test,  0,  0xF7,   0x00,   rm|Word,                    Imm_mode|Word,              I_MI },
+    { op_test,  0,  0xF7,   0x00,   rm|Dword|Qword,             Imm_mode|Dword,             I_MI },
+    { op_test,  0,  0x84,   -1,     rm|Byte,                    Reg_mode|Byte,              I_MR },
+    { op_test,  0,  0x85,   -1,     rm|Word|Dword|Qword,        Reg_mode|Word|Dword|Qword,  I_MR },
+    /* XCHG */
+    { op_xchg,  0,  0x90,   -1,     Acc_mode|Word|Dword|Qword,  Reg_mode|Word|Dword|Qword,  I_AR },
+    { op_xchg,  0,  0x90,   -1,     Reg_mode|Word|Dword|Qword,  Acc_mode|Word|Dword|Qword,  I_RA },
+    { op_xchg,  0,  0x86,   -1,     rm|Byte,                    Reg_mode|Byte,              I_MR },
+    { op_xchg,  0,  0x86,   -1,     Reg_mode|Byte,              rm|Byte,                    I_RM },
+    { op_xchg,  0,  0x87,   -1,     rm|Word|Dword|Qword,        Reg_mode|Word|Dword|Qword,  I_MR },
+    { op_xchg,  0,  0x87,   -1,     Reg_mode|Word|Dword|Qword,  rm|Word|Dword|Qword,        I_RM },
+    /* XOR */
+    { op_xor,   0,  0x83,   0x06,   rm|Word|Dword|Qword,        Imm_mode|Byte,              I_MI },
+    { op_xor,   0,  0x34,   -1,     Acc_mode|Byte,              Imm_mode|Byte,              I_AI },
+    { op_xor,   0,  0x35,   -1,     Acc_mode|Word,              Imm_mode|Word,              I_AI },
+    { op_xor,   0,  0x35,   -1,     Acc_mode|Dword|Qword,       Imm_mode|Dword,             I_AI },
+    { op_xor,   0,  0x80,   0x06,   rm|Byte,                    Imm_mode|Byte,              I_MI },
+    { op_xor,   0,  0x81,   0x06,   rm|Word,                    Imm_mode|Word,              I_MI },
+    { op_xor,   0,  0x81,   0x06,   rm|Dword|Qword,             Imm_mode|Dword,             I_MI },
+    { op_xor,   0,  0x30,   -1,     rm|Byte,                    Reg_mode|Byte,              I_MR },
+    { op_xor,   0,  0x31,   -1,     rm|Word|Dword|Qword,        Reg_mode|Word|Dword|Qword,  I_MR },
+    { op_xor,   0,  0x32,   -1,     Reg_mode|Byte,              rm|Byte,                    I_RM },
+    { op_xor,   0,  0x33,   -1,     Reg_mode|Word|Dword|Qword,  rm|Word|Dword|Qword,        I_RM },
     /* DUMMY ENTRY */
-    { -1,      0,      0,  -1,     0,                  0,                      0 }
+    { -1,       0,  0,      -1,     0,                          0,                          0 }
 };
 
 /* map of mnemonics to opcode table entries */
@@ -685,61 +814,101 @@ struct {
     char *mne;
     int ote;
 } mne2ote[] = { /* sorted for bsearch() */
-    { "adc",    182 },
-    { "add",    0 },
-    { "and",    11 },
-    { "call",   22 },
-    { "cdq",    24 },
-    { "cmp",    25 },
-    { "dec",    36 },
-    { "div",    39 },
-    { "idiv",   41 },
-    { "imul",   43 },
-    { "inc",    49 },
-    { "ja",     52 },
-    { "jae",    54 },
-    { "jb",     56 },
-    { "jbe",    58 },
-    { "je",     60 },
-    { "jg",     62 },
-    { "jge",    64 },
-    { "jl",     66 },
-    { "jle",    68 },
-    { "jmp",    72 },
-    { "jne",    70 },
-    { "lea",    75 },
-    { "mov",    76 },
-    { "movsb",  86 },
-    { "movsd",  87 },
-    { "movsw",  88 },
-    { "movsx",  89 },
-    { "movzx",  91 },
-    { "neg",    93 },
-    { "nop",    95 },
-    { "not",    96 },
-    { "or",     98 },
-    { "pop",    109 },
-    { "push",   111 },
-    { "ret",    116 },
-    { "sal",    118 },
-    { "sar",    124 },
-    { "sbb",    193 },
-    { "seta",   130 },
-    { "setae",  131 },
-    { "setb",   132 },
-    { "setbe",  133 },
-    { "sete",   134 },
-    { "setg",   135 },
-    { "setge",  136 },
-    { "setl",   137 },
-    { "setle",  138 },
-    { "setne",  139 },
-    { "shl",    118 },
-    { "shr",    140 },
-    { "sub",    146 },
-    { "test",   157 },
-    { "xchg",   165 },
-    { "xor",    171 },
+    { "adc" },
+    { "add" },
+    { "and" },
+    { "call" },
+    { "cdq" },
+    { "cmp" },
+    { "cqo" },
+    { "dec" },
+    { "div" },
+    { "idiv" },
+    { "imul" },
+    { "inc" },
+    { "ja" },
+    { "jae" },
+    { "jb" },
+    { "jbe" },
+    { "je" },
+    { "jg" },
+    { "jge" },
+    { "jl" },
+    { "jle" },
+    { "jmp" },
+    { "jne" },
+    { "lea" },
+    { "mov" },
+    { "movsb" },
+    { "movsd" },
+    { "movsq" },
+    { "movsw" },
+    { "movsx" },
+    { "movzx" },
+    { "neg" },
+    { "nop" },
+    { "not" },
+    { "or" },
+    { "pop" },
+    { "push" },
+    { "ret" },
+    { "sal" },
+    { "sar" },
+    { "sbb" },
+    { "seta" },
+    { "setae" },
+    { "setb" },
+    { "setbe" },
+    { "sete" },
+    { "setg" },
+    { "setge" },
+    { "setl" },
+    { "setle" },
+    { "setne" },
+    { "shl" },
+    { "shr" },
+    { "sub" },
+    { "test" },
+    { "xchg" },
+    { "xor" },
+};
+
+void init_tables(void)
+{
+    int i, j, lim;
+
+    j = 0;
+    lim = NELEMS(mne2ote);
+    for (i = 0; i < lim; i++) {
+        InstrClass cl;
+
+        mne2ote[i].ote = j;
+        for (cl = opcode_table[j].iclass; cl == opcode_table[j].iclass; j++)
+            ;
+    }
+}
+
+int regsiztab[] = {
+    Byte,   Byte,   Word,   Word,
+    Dword,  Dword,  Qword,  Qword,
+    Byte,   Byte,   Word,   Word,
+    Dword,  Dword,  Qword,  Qword,
+    Byte,   Byte,   Word,   Word,
+    Dword,  Dword,  Qword,  Qword,
+    Byte,   Byte,   Word,   Word,
+    Dword,  Dword,  Qword,  Qword,
+    Byte,   Byte,   Byte,   Word,
+    Word,   Dword,  Dword,  Qword,
+    Qword,
+    Byte,   Byte,   Byte,   Word,
+    Word,   Dword,  Dword,  Qword,
+    Qword,
+    Byte,   Byte,   Byte,   Word,
+    Word,   Dword,  Dword,  Qword,
+    Qword,
+    Byte,   Byte,   Byte,   Word,
+    Word,   Dword,  Dword,  Qword,
+    Qword,
 };
 
 #define ABS_EXPR 0
@@ -780,14 +949,29 @@ Operand *new_opnd(Token op)
     return n;
 }
 
-#define RELOC_ABS   0x01 /* S+A */
-#define RELOC_REL   0x02 /* S+A-P */
-#define RELOC_SIZ8  0x04
-#define RELOC_SIZ16 0x08
-#define RELOC_SIZ32 0x10
+#define RELOC_ABS    0x01 /* S+A */
+#define RELOC_REL    0x02 /* S+A-P */
+#define RELOC_SIZ8   0x04
+#define RELOC_SIZ16  0x08
+#define RELOC_SIZ32  0x10
+#define RELOC_SIZ64  0x20
+/*
+ * For x86-64 the following causes sign-extending relocations (R_X86_64_32S):
+ *      -> Effective address calculations that involve symbols.
+ *           e.g. mov rax, [sym] ; the displacement is sign-extended to 64 bits (Intel #2.2.1.3)
+ *      -> Any instruction that sign-extends the second immediate operand to 64 bits.
+ *           e.g. mov rax, dword sym
+ *      -> Push of 32 bits immediates.
+ *           e.g. push sym
+ *
+ * For all other cases a zero-extending relocations (R_X86_64_32) is generated:
+ *      -> e.g. mov eax, sym
+ */
+#define RELOC_SIGNED 0x40
 struct Reloc {
-    unsigned attr;  /* abs/rel, siz8/16/32 */
-    int offs;       /* where to do the fix */
+    unsigned attr;          /* abs/rel, siz8/16/32/64, signed/unsigned */
+    int offs;               /* where to do the fix */
+    Elf64_Sxword add;
     Symbol *sym;
     Reloc *next;
 };
@@ -975,10 +1159,11 @@ struct UnrExpr {
         Section *sec;
     } loc;          /* sec+offs is where the expression is located */
     bool reldisp;   /* is the expression a relative displacement? */
+    bool signext;   /* sign extend the expression when extending to 64-bits? */
     UnrExpr *next;
 } *unresolved_expressions_list;
 
-void new_unr_expr(Operand *expr, void *dest, int size, int offs, Section *sec, bool reldisp)
+void new_unr_expr(Operand *expr, void *dest, int size, int offs, Section *sec, bool reldisp, bool signext)
 {
     UnrExpr *n;
 
@@ -989,6 +1174,7 @@ void new_unr_expr(Operand *expr, void *dest, int size, int offs, Section *sec, b
     n->loc.offs = offs;
     n->loc.sec = sec;
     n->reldisp = reldisp;
+    n->signext = signext;
     n->next = unresolved_expressions_list;
     unresolved_expressions_list = n;
 }
@@ -1013,19 +1199,28 @@ void resolve_expressions(void)
                     s = s->sec->sym; /* relocate with respect to section */
                 switch (n->size) {
                 case Byte:
-                    *(char *)n->dest = (char)(res-1);
                     r = new_reloc(RELOC_REL|RELOC_SIZ8, n->loc.offs, s);
+                    if (targeting_x64)
+                        r->add = res-1;
+                    else
+                        *(char *)n->dest = (char)(res-1);
                     break;
                 /*case Word:
-                    *(short *)n->dest = (short)(res-2);
                     r = new_reloc(RELOC_REL|RELOC_SIZ16, n->loc.offs, s);
+                    if (targeting_x64)
+                        r->add = res-2;
+                    else
+                        *(short *)n->dest = (short)(res-2);
                     break;*/
                 case Dword:
-                    *(int *)n->dest = (int)(res-4);
                     r = new_reloc(RELOC_REL|RELOC_SIZ32, n->loc.offs, s);
+                    if (targeting_x64)
+                        r->add = res-4;
+                    else
+                        *(int *)n->dest = (int)(res-4);
                     break;
-                case Qword:
-                    assert(0); /* TBD */
+                default:
+                    assert(0);
                 }
             } else { /* target is absolute or relocatable with respect to this same section */
                 switch (n->size) {
@@ -1038,24 +1233,26 @@ void resolve_expressions(void)
                 case Dword:
                     *(int *)n->dest = (int)(res-(n->loc.offs+4));
                     break;
-                case Qword:
-                    assert(0); /* TBD */
+                default:
+                    assert(0);
                 }
             }
         } else {
-            switch (n->size) {
-            case Byte:
-                *(char *)n->dest = (char)res;
-                break;
-            case Word:
-                *(short *)n->dest = (short)res;
-                break;
-            case Dword:
-                *(int *)n->dest = (int)res;
-                break;
-            case Qword:
-                *(long long *)n->dest = res;
-                break;
+            if (!targeting_x64 || EXPRKIND(n->expr)==ABS_EXPR) {
+                switch (n->size) {
+                case Byte:
+                    *(char *)n->dest = (char)res;
+                    break;
+                case Word:
+                    *(short *)n->dest = (short)res;
+                    break;
+                case Dword:
+                    *(int *)n->dest = (int)res;
+                    break;
+                case Qword:
+                    *(long long *)n->dest = res;
+                    break;
+                }
             }
 
             if (EXPRKIND(n->expr) == REL_EXPR) {
@@ -1069,11 +1266,14 @@ void resolve_expressions(void)
                     r = new_reloc(RELOC_ABS|RELOC_SIZ16, n->loc.offs, s);
                     break;
                 case Dword:
-                    r = new_reloc(RELOC_ABS|RELOC_SIZ32, n->loc.offs, s);
+                    r = new_reloc(RELOC_ABS|RELOC_SIZ32|(n->signext?RELOC_SIGNED:0), n->loc.offs, s);
                     break;
                 case Qword:
-                    assert(0); /* TBD */
+                    r = new_reloc(RELOC_ABS|RELOC_SIZ64, n->loc.offs, s);
+                    break;
                 }
+                if (targeting_x64)
+                    r->add = res;
             }
         }
         if (r != NULL) {
@@ -1114,7 +1314,8 @@ void init(char *file_path);
 Token curr_tok;
 Token get_token(void);
 void program(void);
-void write_ELF_file(void);
+void write_ELF32_file(void);
+void write_ELF64_file(void);
 
 void err_no_input(void)
 {
@@ -1147,15 +1348,26 @@ int main(int argc, char *argv[])
                 outpath = argv[++i];
             }
             break;
+        case 'm':
+            if (equal(argv[i], "-m32"))
+                ;
+            else if (equal(argv[i], "-m64"))
+                targeting_x64 = TRUE;
+            else
+                goto unk_opt;
+            break;
         case 'h':
             printf("usage: %s [ options ] <input-file>\n"
                    "  The available options are:\n"
                    "    -o<file>    write output to <file>\n"
+                   "    -m32        target x86-32 (default)\n"
+                   "    -m64        target x86-64\n"
                    "    -h          print this help\n"
                    "\nnote: if the input file is - the program is read from the standard input\n", prog_name);
             exit(0);
             break;
         default:
+        unk_opt:
             fprintf(stderr, "%s: unknown option `%s'\n", prog_name, argv[i]);
             exit(1);
         }
@@ -1171,6 +1383,7 @@ int main(int argc, char *argv[])
 
     opnd_arena = arena_new(sizeof(Operand)*256, FALSE);
     arena_set_nom_siz(opnd_arena, sizeof(Operand)*256);
+    init_tables();
 
     lexeme = lexeme_buf1;
     curr_tok = get_token();
@@ -1185,7 +1398,10 @@ int main(int argc, char *argv[])
     } else {
         output_file = fopen(outpath, "wb");
     }
-    write_ELF_file();
+    if (targeting_x64)
+        write_ELF64_file();
+    else
+        write_ELF32_file();
     fclose(output_file);
 
     arena_destroy(opnd_arena);
@@ -1210,9 +1426,9 @@ Operand *UNARY_expr(void);
 Operand *PRIMARY_expr(void);
 Operand *eff_addr(void);
 void match(Token expected);
-void encode_rm_opnd(char *mod_rm, Operand *op, unsigned addr_mode);
-void encode_sib(int scale, Token index, Token base);
-void encode_imm_opnd(Operand *e, unsigned size);
+void encode_rm_opnd(char *mod_rm, char *rex, Operand *op, unsigned addr_mode);
+void encode_sib(int scale, Token index, Token base, char *rex);
+void encode_imm_opnd(Operand *e, unsigned size, unsigned op1_siz);
 void emit_i(int opc, Operand *op1, Operand *op2);
 
 int get_opcode_table_entry(char *s)
@@ -1226,27 +1442,33 @@ int get_opcode_table_entry(char *s)
 }
 
 /* encode immediate operand */
-void encode_imm_opnd(Operand *e, unsigned size)
+void encode_imm_opnd(Operand *e, unsigned size, unsigned op1_siz)
 {
     switch (size) {
     case Byte:
         write_byte(0);
-        new_unr_expr(e, GET_POS()-1, Byte, LC()-1, curr_section, FALSE);
+        new_unr_expr(e, GET_POS()-1, Byte, LC()-1, curr_section, FALSE, -1);
         break;
     case Word:
         write_word(0);
-        new_unr_expr(e, GET_POS()-2, Word, LC()-2, curr_section, FALSE);
+        new_unr_expr(e, GET_POS()-2, Word, LC()-2, curr_section, FALSE, -1);
         break;
     case Dword:
         write_dword(0);
-        new_unr_expr(e, GET_POS()-4, Dword, LC()-4, curr_section, FALSE);
+        new_unr_expr(e, GET_POS()-4, Dword, LC()-4, curr_section, FALSE, op1_siz==Qword);
+        break;
+    case Qword:
+        write_qword(0);
+        new_unr_expr(e, GET_POS()-8, Qword, LC()-8, curr_section, FALSE, -1);
         break;
     }
 }
 
 /* encode the sib field of an operand */
-void encode_sib(int scale, Token index, Token base)
+void encode_sib(int scale, Token index, Token base, char *rex)
 {
+    if (index==TOK_ESP || index==TOK_RSP)
+        goto invsib;
     switch (scale) {
     case 1:
         write_byte(REGENC(index)<<3|REGENC(base));
@@ -1261,14 +1483,21 @@ void encode_sib(int scale, Token index, Token base)
         write_byte(REGENC(index)<<3|REGENC(base)|0xC0);
         break;
     default:
-        err1("invalid effective address");
-        break;
+        goto invsib;
     }
+    if (REGREX(index) == 1)
+        *rex |= 0x02;
+    if (REGREX(base) == 1)
+        *rex |= 0x01;
+    return;
+invsib:
+    err1("invalid effective address");
 }
 
 /* encode r/m operand */
-void encode_rm_opnd(char *mod_rm, Operand *op, unsigned addr_mode)
+void encode_rm_opnd(char *mod_rm, char *rex, Operand *op, unsigned addr_mode)
 {
+    int renc;
     int scale;
     Token reg, base, index;
 
@@ -1279,6 +1508,8 @@ void encode_rm_opnd(char *mod_rm, Operand *op, unsigned addr_mode)
     case Reg_mode: /* reg */
         reg = op->op;
         *mod_rm |= REGENC(reg)|0xC0;
+        if (REGREX(reg) == 1)
+            *rex |= 0x01;
         break;
 
     /*
@@ -1287,9 +1518,14 @@ void encode_rm_opnd(char *mod_rm, Operand *op, unsigned addr_mode)
          disp
      */
     case Dir_mode: /* [ disp32 ] */
-        *mod_rm |= 0x05; /* mod=00, r/m=101 */
+        if (targeting_x64) {
+            *mod_rm |= 0x04;  /* mod=00, r/m=100 */
+            write_byte(0x25); /* sib */
+        } else {
+            *mod_rm |= 0x05;  /* mod=00, r/m=101 */
+        }
         write_dword(0);
-        new_unr_expr(LCHILD(op), GET_POS()-4, Dword, LC()-4, curr_section, FALSE);
+        new_unr_expr(LCHILD(op), GET_POS()-4, Dword, LC()-4, curr_section, FALSE, TRUE);
         break;
 
     /*
@@ -1299,15 +1535,18 @@ void encode_rm_opnd(char *mod_rm, Operand *op, unsigned addr_mode)
      */
     case RegInd_mode: /* [ reg ] */
         reg = LCHILD(op)->op;
-        if (reg == TOK_ESP) {
+        renc = REGENC(reg);
+        if (renc == 4) { /* ESP, RSP, or R12 */
             *mod_rm |= 0x04;  /* mod=00, r/m=100 */
             write_byte(0x24); /* sib: scale=00, index=100, base=100 */
-        } else if (reg == TOK_EBP) {
+        } else if (renc == 5) { /* EBP, RBP, or R13 */
             write_byte(0);   /* disp8=0 */
             *mod_rm |= 0x45; /* mod=01 */
         } else {
-            *mod_rm |= REGENC(reg);
+            *mod_rm |= renc;
         }
+        if (REGREX(reg) == 1)
+            *rex |= 0x01;
         break;
 
     /*
@@ -1319,20 +1558,23 @@ void encode_rm_opnd(char *mod_rm, Operand *op, unsigned addr_mode)
      */
     case Based_mode: /* [ reg+disp8/32 ] */
         reg = LCHILD(LCHILD(op))->op;
-        if (reg == TOK_ESP) {
+        renc = REGENC(reg);
+        if (renc == 4) {
             *mod_rm |= 0x04;
             write_byte(0x24); /* sib */
         } else {
-            *mod_rm |= REGENC(reg);
+            *mod_rm |= renc;
         }
+        if (REGREX(reg) == 1)
+            *rex |= 0x01;
         if (RCHILD(LCHILD(op))->addr_mode & Byte) {
             *mod_rm |= 0x40; /* disp8 */
             write_byte(0);
-            new_unr_expr(RCHILD(LCHILD(op)), GET_POS()-1, Byte, LC()-1, curr_section, FALSE);
+            new_unr_expr(RCHILD(LCHILD(op)), GET_POS()-1, Byte, LC()-1, curr_section, FALSE, FALSE);
         } else {
             *mod_rm |= 0x80; /* disp32 */
             write_dword(0);
-            new_unr_expr(RCHILD(LCHILD(op)), GET_POS()-4, Dword, LC()-4, curr_section, FALSE);
+            new_unr_expr(RCHILD(LCHILD(op)), GET_POS()-4, Dword, LC()-4, curr_section, FALSE, TRUE);
         }
         break;
 
@@ -1350,18 +1592,14 @@ void encode_rm_opnd(char *mod_rm, Operand *op, unsigned addr_mode)
         if (LCHILD(op)->op == TOK_MUL) {
             index = LCHILD(LCHILD(op))->op;
             scale = EXPRVAL(RCHILD(LCHILD(op)));
-            if (index == TOK_ESP)
-                err1("invalid effective address");
-            encode_sib(scale, index, TOK_EBP);
+            encode_sib(scale, index, TOK_EBP, rex);
             write_dword(0); /* disp32 */
         } else {
             index = LCHILD(LCHILD(LCHILD(op)))->op;
             scale = EXPRVAL(RCHILD(LCHILD(LCHILD(op))));
-            if (index == TOK_ESP)
-                err1("invalid effective address");
-            encode_sib(scale, index, TOK_EBP);
+            encode_sib(scale, index, TOK_EBP, rex);
             write_dword(0); /* disp32 */
-            new_unr_expr(RCHILD(LCHILD(op)), GET_POS()-4, Dword, LC()-4, curr_section, FALSE);
+            new_unr_expr(RCHILD(LCHILD(op)), GET_POS()-4, Dword, LC()-4, curr_section, FALSE, TRUE);
         }
         break;
 
@@ -1383,10 +1621,8 @@ void encode_rm_opnd(char *mod_rm, Operand *op, unsigned addr_mode)
             index = RCHILD(LCHILD(op))->op;
             scale = 1;
         }
-        if (index == TOK_ESP)
-            err1("invalid effective address");
-        encode_sib(scale, index, base);
-        if (base == TOK_EBP) {
+        encode_sib(scale, index, base, rex);
+        if (base==TOK_EBP || base==TOK_RBP || base==TOK_R13) {
             *mod_rm |= 0x44;
             write_byte(0); /* disp8 */
         } else {
@@ -1414,20 +1650,23 @@ void encode_rm_opnd(char *mod_rm, Operand *op, unsigned addr_mode)
             index = RCHILD(LCHILD(LCHILD(op)))->op;
             scale = 1;
         }
-        if (index == TOK_ESP)
-            err1("invalid effective address");
-        encode_sib(scale, index, base);
+        encode_sib(scale, index, base, rex);
         if (RCHILD(LCHILD(op))->addr_mode & Byte) {
             *mod_rm |= 0x44;
             write_byte(0); /* disp8 */
-            new_unr_expr(RCHILD(LCHILD(op)), GET_POS()-1, Byte, LC()-1, curr_section, FALSE);
+            new_unr_expr(RCHILD(LCHILD(op)), GET_POS()-1, Byte, LC()-1, curr_section, FALSE, FALSE);
         } else {
             *mod_rm |= 0x84;
             write_dword(0); /* disp32 */
-            new_unr_expr(RCHILD(LCHILD(op)), GET_POS()-4, Dword, LC()-4, curr_section, FALSE);
+            new_unr_expr(RCHILD(LCHILD(op)), GET_POS()-4, Dword, LC()-4, curr_section, FALSE, TRUE);
         }
         break;
     }
+}
+
+void rex_err(void)
+{
+    err1("cannot use high register in rex instruction");
 }
 
 void emit_i(int ote, Operand *op1, Operand *op2)
@@ -1437,7 +1676,7 @@ void emit_i(int ote, Operand *op1, Operand *op2)
     unsigned _op1, _op2;
     unsigned op1_am, op2_am;
     unsigned op1_siz, op2_siz;
-    char *opcode;
+    char *opcode, *rex = NULL;
     unsigned char mod_rm = 0;
 
     --line_number; /* the lexer has already read the '\n' that follows the instruction */
@@ -1447,8 +1686,8 @@ void emit_i(int ote, Operand *op1, Operand *op2)
 
         op1_am = op1->addr_mode;
         op2_am = op2->addr_mode;
-        op1_siz = op1_am&(Byte|Word|Dword);
-        op2_siz = op2_am&(Byte|Word|Dword);
+        op1_siz = op1_am&SIZE_MASK;
+        op2_siz = op2_am&SIZE_MASK;
         op1_am &= ~op1_siz;
         op2_am &= ~op2_siz;
 
@@ -1465,8 +1704,10 @@ void emit_i(int ote, Operand *op1, Operand *op2)
             } else { /* mem, imm */
                 if (op1_siz)
                     op2_siz |= op1_siz;
-                else /* guess size from immediate value */
+                else if (op2_am & HasSizSpe_mode)
                     op1_siz = op2_siz;
+                else
+                    err1("operation size not specified");
             }
         } else if (ISREG(op1->op)) {
             if (op2->op == TOK_DEREF) { /* reg, mem */
@@ -1480,7 +1721,16 @@ void emit_i(int ote, Operand *op1, Operand *op2)
                 if (op1_siz != op2_siz)
                     size_mismatch = TRUE;
             } else { /* reg, imm */
-                op2_siz |= op1_siz;
+                /*
+                 * When the user writes 'mov rax, dword 1',
+                 * the form of mov instruction selected
+                 * should be
+                 *      mov r64, imm32
+                 * instead of
+                 *      mov r64, imm64
+                 */
+                if (!(op2_am&HasSizSpe_mode))
+                    op2_siz |= op1_siz;
             }
         } else { /* imm, ... */
             err1("invalid combination of opcode and operands");
@@ -1497,11 +1747,22 @@ void emit_i(int ote, Operand *op1, Operand *op2)
         if (size_mismatch
         && opcode_table[ote].asm_instr != I_MX
         && opcode_table[ote].iclass != op_movsx
-        && opcode_table[ote].iclass != op_movzx)
+        && opcode_table[ote].iclass != op_movzx
+        && opcode_table[ote].iclass != op_lea)
             err1("mismatch in operand sizes");
 
-        if (op1_siz & Word)
+        if (op1_siz == Word) {
             write_byte(0x66);
+        } else if (op1_siz == Qword) {
+            write_byte(0x48);
+            rex = GET_POS()-1;
+        }
+        if (rex==NULL && (op1_am&NeedsREX_mode || op2_am&NeedsREX_mode)) {
+            write_byte(0x40);
+            rex = GET_POS()-1;
+        }
+        if (!targeting_x64 && rex!=NULL)
+            err1("instruction not supported in 32-bit mode");
         if (opcode_table[ote].esc_opc)
             write_byte(0x0F);
         write_byte(opcode_table[ote].opcode);
@@ -1514,61 +1775,99 @@ void emit_i(int ote, Operand *op1, Operand *op2)
             reg = op1->op;
             mod_rm |= REGENC(reg)<<3;
             write_byte(mod_rm);
-            encode_rm_opnd(GET_POS()-1, op2, op2_am&_op2);
+            switch (REGREX(reg)) {
+            case 1:
+                if (ISREG(op2->op) && REGREX(op2->op)==-1)
+                    rex_err();
+                *rex |= 0x04;
+                break;
+            case 2:
+                if (ISREG(op2->op) && REGREX(op2->op)==-1)
+                    rex_err();
+                break;
+            case -1:
+                if (op2_am & NeedsREX_mode)
+                    rex_err();
+                break;
+            }
+            encode_rm_opnd(GET_POS()-1, rex, op2, op2_am&_op2);
             break;
 
         case I_MR:  /* r/m <- reg ; ModRM:reg=operand2, ModRM:r/m=operand1 */
             reg = op2->op;
             mod_rm |= REGENC(reg)<<3;
             write_byte(mod_rm);
-            encode_rm_opnd(GET_POS()-1, op1, op1_am&_op1);
+            switch (REGREX(reg)) {
+            case 1:
+                if (ISREG(op1->op) && REGREX(op1->op)==-1)
+                    rex_err();
+                *rex |= 0x04;
+                break;
+            case 2:
+                if (ISREG(op1->op) && REGREX(op1->op)==-1)
+                    rex_err();
+                break;
+            case -1:
+                if (op1_am & NeedsREX_mode)
+                    rex_err();
+                break;
+            }
+            encode_rm_opnd(GET_POS()-1, rex, op1, op1_am&_op1);
             break;
 
         case I_MX:  /* ModRM:r/m=operand1, second operand 1 or CL */
             write_byte(mod_rm);
-            encode_rm_opnd(GET_POS()-1, op1, op1_am&_op1);
+            encode_rm_opnd(GET_POS()-1, rex, op1, op1_am&_op1);
             break;
 
         case I_MI: /* r/m <- imm ; ModRM:r/m=operand1 */
             write_byte(mod_rm);
-            encode_rm_opnd(GET_POS()-1, op1, op1_am&_op1);
-            encode_imm_opnd(op2, op2_siz&_op2);
+            encode_rm_opnd(GET_POS()-1, rex, op1, op1_am&_op1);
+            encode_imm_opnd(op2, op2_siz&_op2, op1_siz);
             break;
 
         case I_AI:  /* acc <- imm ; Acc=operand1 (No ModRM byte) */
-            encode_imm_opnd(op2, op2_siz&_op2);
+            encode_imm_opnd(op2, op2_siz&_op2, op1_siz);
             break;
 
         case I_RMI:  /* reg <- imm ; ModRM:reg=operand1, ModRM:r/m=operand1 */
             reg = op1->op;
             mod_rm |= REGENC(reg)<<3|REGENC(reg)|0xC0;
             write_byte(mod_rm);
-            encode_imm_opnd(op2, op2_siz&_op2);
+            if (REGREX(reg) == 1)
+                *rex |= 0x05;
+            encode_imm_opnd(op2, op2_siz&_op2, op1_siz);
             break;
 
         case I_AR:  /* acc <- reg ; Acc=operand1, Lower3Bits(opcode)=operand2 (No ModRM byte) */
             reg = op2->op;
             *opcode |= REGENC(reg);
+            if (REGREX(reg) == 1)
+                *rex |= 0x01;
             break;
 
         case I_RA:  /* reg <- acc ; Acc=operand2, Lower3Bits(opcode)=operand1 (No ModRM byte) */
             reg = op1->op;
             *opcode |= REGENC(reg);
+            if (REGREX(reg) == 1)
+                *rex |= 0x01;
             break;
 
         case I_RI:  /* reg <- imm ; Lower3Bits(opcode)=operand1 (No ModRM byte) */
             reg = op1->op;
             *opcode |= REGENC(reg);
-            encode_imm_opnd(op2, op2_siz&_op2);
+            if (REGREX(reg) == 1)
+                *rex |= 0x01;
+            encode_imm_opnd(op2, op2_siz&_op2, op1_siz);
             break;
         }
     } else if (op1 != NULL) {
         op1_am = op1->addr_mode;
-        op1_siz = op1_am&(Byte|Word|Dword);
+        op1_siz = op1_am&SIZE_MASK;
         op1_am &= ~op1_siz;
         /* assign a default size if none has been given (memory operand) */
         if (!op1_siz)
-            op1_siz = Dword;
+            op1_siz = targeting_x64?Qword:Dword;
 
         for (iclass = opcode_table[ote].iclass; iclass == opcode_table[ote].iclass; ote++) {
             _op1 = opcode_table[ote].op1;
@@ -1579,8 +1878,18 @@ void emit_i(int ote, Operand *op1, Operand *op2)
         if (iclass != opcode_table[ote].iclass)
             err1("invalid combination of opcode and operands");
 
-        if (op1_siz & Word)
+        if (op1_siz == Word) {
             write_byte(0x66);
+        } else if (op1_siz == Qword) {
+            write_byte(0x48);
+            rex = GET_POS()-1;
+        }
+        if (rex==NULL && op1_am&NeedsREX_mode) {
+            write_byte(0x40);
+            rex = GET_POS()-1;
+        }
+        if (!targeting_x64 && rex!=NULL)
+            err1("instruction not supported in 32-bit mode");
         if (opcode_table[ote].esc_opc)
             write_byte(0x0F);
         write_byte(opcode_table[ote].opcode);
@@ -1591,26 +1900,28 @@ void emit_i(int ote, Operand *op1, Operand *op2)
         switch(opcode_table[ote].asm_instr) {
         case I_M:   /* r/m ; ModRM:r/m=operand1 (generally ModRM:reg is an opcode extension) */
             write_byte(mod_rm);
-            encode_rm_opnd(GET_POS()-1, op1, op1_am&_op1);
+            encode_rm_opnd(GET_POS()-1, rex, op1, op1_am&_op1);
             break;
 
         case I_R:   /* reg ; Lower3Bits(opcode)=operand1 (No ModRM byte) */
             reg = op1->op;
             *opcode |= REGENC(reg);
+            if (REGREX(reg) == 1)
+                *rex |= 0x01;
             break;
 
         case I_I:   /* imm */
-            encode_imm_opnd(op1, op1_siz&_op1);
-            break;
+            encode_imm_opnd(op1, op1_siz&_op1, Qword); /* Qword because when doing 'push imm32' */
+            break;                                     /* imm32 is sign extended to imm64 */
 
         case I_REL8: /* 8-bit displacement relative to next instruction */
             write_byte(0);
-            new_unr_expr(op1, GET_POS()-1, Byte, LC()-1, curr_section, TRUE);
+            new_unr_expr(op1, GET_POS()-1, Byte, LC()-1, curr_section, TRUE, FALSE);
             break;
 
         case I_REL32: /* 32-bit displacement relative to next instruction */
             write_dword(0);
-            new_unr_expr(op1, GET_POS()-4, Dword, LC()-4, curr_section, TRUE);
+            new_unr_expr(op1, GET_POS()-4, Dword, LC()-4, curr_section, TRUE, FALSE);
             break;
         }
     } else {
@@ -1621,6 +1932,8 @@ void emit_i(int ote, Operand *op1, Operand *op2)
             err1("invalid combination of opcode and operands");
         if (iclass == op_movsw)
             write_byte(0x66);
+        else if (iclass==op_movsq || iclass==op_cqo)
+            write_byte(0x48);
         write_byte(opcode_table[ote].opcode);
     }
 
@@ -1853,11 +2166,11 @@ start:
             if (curr_section == NULL)
                 set_curr_section(DEF_SEC);
             write_byte(0);
-            new_unr_expr(OR_expr(), GET_POS()-1, Byte, LC()-1, curr_section, FALSE);
+            new_unr_expr(OR_expr(), GET_POS()-1, Byte, LC()-1, curr_section, FALSE, FALSE);
             while (curr_tok == TOK_COMMA) {
                 match(TOK_COMMA);
                 write_byte(0);
-                new_unr_expr(OR_expr(), GET_POS()-1, Byte, LC()-1, curr_section, FALSE);
+                new_unr_expr(OR_expr(), GET_POS()-1, Byte, LC()-1, curr_section, FALSE, FALSE);
             }
             break;
         case TOK_DW:
@@ -1865,11 +2178,11 @@ start:
             if (curr_section == NULL)
                 set_curr_section(DEF_SEC);
             write_word(0);
-            new_unr_expr(OR_expr(), GET_POS()-2, Word, LC()-2, curr_section, FALSE);
+            new_unr_expr(OR_expr(), GET_POS()-2, Word, LC()-2, curr_section, FALSE, FALSE);
             while (curr_tok == TOK_COMMA) {
                 match(TOK_COMMA);
                 write_word(0);
-                new_unr_expr(OR_expr(), GET_POS()-2, Word, LC()-2, curr_section, FALSE);
+                new_unr_expr(OR_expr(), GET_POS()-2, Word, LC()-2, curr_section, FALSE, FALSE);
             }
             break;
         case TOK_DD:
@@ -1877,11 +2190,11 @@ start:
             if (curr_section == NULL)
                 set_curr_section(DEF_SEC);
             write_dword(0);
-            new_unr_expr(OR_expr(), GET_POS()-4, Dword, LC()-4, curr_section, FALSE);
+            new_unr_expr(OR_expr(), GET_POS()-4, Dword, LC()-4, curr_section, FALSE, FALSE);
             while (curr_tok == TOK_COMMA) {
                 match(TOK_COMMA);
                 write_dword(0);
-                new_unr_expr(OR_expr(), GET_POS()-4, Dword, LC()-4, curr_section, FALSE);
+                new_unr_expr(OR_expr(), GET_POS()-4, Dword, LC()-4, curr_section, FALSE, FALSE);
             }
             break;
         case TOK_DQ:
@@ -1889,11 +2202,11 @@ start:
             if (curr_section == NULL)
                 set_curr_section(DEF_SEC);
             write_qword(0);
-            new_unr_expr(OR_expr(), GET_POS()-8, Qword, LC()-8, curr_section, FALSE);
+            new_unr_expr(OR_expr(), GET_POS()-8, Qword, LC()-8, curr_section, FALSE, FALSE);
             while (curr_tok == TOK_COMMA) {
                 match(TOK_COMMA);
                 write_qword(0);
-                new_unr_expr(OR_expr(), GET_POS()-8, Qword, LC()-8, curr_section, FALSE);
+                new_unr_expr(OR_expr(), GET_POS()-8, Qword, LC()-8, curr_section, FALSE, FALSE);
             }
             break;
         }
@@ -1957,24 +2270,36 @@ Operand *asm_expr(int reldisp)
     e = OR_expr();
 
     if (!setjmp(env)) {
-        int val;
+        long long val;
 
         val = eval_expr(e, FALSE);
         if (!reldisp) {
             if (EXPRKIND(e) == ABS_EXPR) {
                 if (val>=-128 && val<=127) {
-                    e->addr_mode = Imm_mode|Byte/*|Word|Dword*/;
+                    e->addr_mode = Imm_mode|Byte|Word|Dword|Qword;
                     if (val == 1)
                         e->addr_mode |= Imm_1_mode;
                 } else if (val>=-32768 && val<=32767) {
-                    e->addr_mode = Imm_mode|Word/*|Dword*/;
+                    e->addr_mode = Imm_mode|Word|Dword|Qword;
+                } else if (val>=-2147483648LL && val<=2147483647) {
+                    e->addr_mode = Imm_mode|Dword|Qword;
                 } else {
-                    e->addr_mode = Imm_mode|Dword;
+                    e->addr_mode = Imm_mode|Qword;
                 }
             } else {
-                e->addr_mode = Imm_mode|Dword;
+                e->addr_mode = Imm_mode|Dword|Qword;
             }
         } else if (reldisp == 8) {
+            if (EXPRKIND(e) == REL_EXPR) {
+                Symbol *s;
+
+                s = get_rel_sym(e);
+                if (s->bind==ExternBind || !equal(s->sec->name, curr_section->name)) {
+                    e->addr_mode = Imm_mode|Dword; /* disp32 */
+                    return e;
+                }
+            }
+
             /*
              * Currently, the only supported instructions
              * that use the rel8 mode are Jcc and Jmp.
@@ -1991,16 +2316,68 @@ Operand *asm_expr(int reldisp)
     } else {
         /*
          * The expression references a not-yet-defined label.
-         * Assume worst case, that is, dword-sized.
+         * Assume worst case, that is, the biggest size.
          */
-        e->addr_mode = Imm_mode|Dword;
+        e->addr_mode = Imm_mode|Dword|Qword;
     }
     return e;
 }
 
+int addr_mode_needs_REX(Operand *op)
+{
+    Token reg, base, index;
+
+    switch (op->addr_mode) {
+    case Reg_mode: /* reg */
+        reg = op->op;
+        if (REGREX(reg) >= 1)
+            return TRUE;
+        break;
+
+    case RegInd_mode: /* [ reg ] */
+        reg = LCHILD(op)->op;
+        if (REGREX(reg) >= 1)
+            return TRUE;
+        break;
+
+    case Based_mode: /* [ reg+disp8/32 ] */
+        reg = LCHILD(LCHILD(op))->op;
+        if (REGREX(reg) >= 1)
+            return TRUE;
+        break;
+
+    case Index_mode: /* [ reg*scale+disp32 ] */
+        index = (LCHILD(op)->op == TOK_MUL)
+            ? LCHILD(LCHILD(op))->op
+            : LCHILD(LCHILD(LCHILD(op)))->op;
+        if (REGREX(index) >= 1)
+            return TRUE;
+        break;
+
+    case BasedIndex_mode: /* [ reg+reg*scale ] */
+        base = LCHILD(LCHILD(op))->op;
+        index = (RCHILD(LCHILD(op))->op == TOK_MUL)
+        ? LCHILD(RCHILD(LCHILD(op)))->op
+        : RCHILD(LCHILD(op))->op;
+        if (REGREX(base)>=1 || REGREX(index)>=1)
+            return TRUE;
+        break;
+
+    case BasedIndexDisp_mode: /* [ reg+reg*scale+disp8/32 ] */
+        base = LCHILD(LCHILD(LCHILD(op)))->op;
+        index = (RCHILD(LCHILD(LCHILD(op)))->op == TOK_MUL)
+        ? LCHILD(RCHILD(LCHILD(LCHILD(op))))->op
+        : RCHILD(LCHILD(LCHILD(op)))->op;
+        if (REGREX(base)>=1 || REGREX(index)>=1)
+            return TRUE;
+        break;
+    }
+    return FALSE;
+}
+
 /*
  * operand = [ size_specifier ] ( REG | "[" eff_addr "]" | OR_expr )
- * size_specifier = "byte" | "word" | "dword"
+ * size_specifier = "byte" | "word" | "dword" | "qword"
  */
 Operand *operand(bool reldisp)
 {
@@ -2008,28 +2385,25 @@ Operand *operand(bool reldisp)
     unsigned siz;
 
     if (ISSIZ(curr_tok)) {
-        if (curr_tok == TOK_BYTE)
-            siz = Byte;
-        else if (curr_tok == TOK_WORD)
-            siz = Word;
-        else
-            siz = Dword;
+        switch (curr_tok) {
+        case TOK_BYTE:  siz = Byte;  break;
+        case TOK_WORD:  siz = Word;  break;
+        case TOK_DWORD: siz = Dword; break;
+        default:        siz = Qword; break;
+        }
         match(curr_tok);
     } else {
         siz = 0;
     }
     if (ISREG(curr_tok)) {
         op = new_opnd(curr_tok);
-        if (curr_tok>=TOK_AL && curr_tok<=TOK_BH)
-            op->addr_mode = Reg_mode|Byte;
-        else if (curr_tok>=TOK_AX && curr_tok<=TOK_DI)
-            op->addr_mode = Reg_mode|Word;
-        else
-            op->addr_mode = Reg_mode|Dword;
-        if (curr_tok==TOK_AL || curr_tok==TOK_AX || curr_tok==TOK_EAX)
+        op->addr_mode = Reg_mode|REGSIZ(curr_tok);
+        if (curr_tok==TOK_AL || curr_tok==TOK_AX || curr_tok==TOK_EAX || curr_tok==TOK_RAX)
             op->addr_mode |= Acc_mode;
         else if (curr_tok == TOK_CL)
             op->addr_mode |= Reg_CL_mode;
+        if (REGREX(curr_tok) >= 1)
+            op->addr_mode |= NeedsREX_mode;
         match(curr_tok);
     } else if (curr_tok == TOK_LBRACKET) {
         Operand *ea;
@@ -2040,14 +2414,16 @@ Operand *operand(bool reldisp)
         op = new_opnd(TOK_DEREF);
         LCHILD(op) = ea;
         op->addr_mode = ea->addr_mode;
+        if (addr_mode_needs_REX(op))
+            op->addr_mode |= NeedsREX_mode;
     } else {
         op = asm_expr(reldisp);
     }
     /* a size specifier applied to a register operand is ignored */
     if (siz && !(op->addr_mode&Reg_mode)) {
         if (op->addr_mode & Imm_mode) {
-            op->addr_mode &= ~(Byte|Word|Dword);
-            op->addr_mode |= siz;
+            op->addr_mode &= ~SIZE_MASK;
+            op->addr_mode |= siz+HasSizSpe_mode;
         } else {
             op->addr_mode |= siz;
         }
@@ -2354,6 +2730,7 @@ struct RWord {
     { "bh",     TOK_BH      },
     { "bl",     TOK_BL      },
     { "bp",     TOK_BP      },
+    { "bpl",    TOK_BPL     },
     { "bx",     TOK_BX      },
     { "byte",   TOK_BYTE    },
     { "ch",     TOK_CH      },
@@ -2363,6 +2740,7 @@ struct RWord {
     { "dd",     TOK_DD      },
     { "dh",     TOK_DH      },
     { "di",     TOK_DI      },
+    { "dil",    TOK_DIL     },
     { "dl",     TOK_DL      },
     { "dq",     TOK_DQ      },
     { "dw",     TOK_DW      },
@@ -2378,6 +2756,45 @@ struct RWord {
     { "esp",    TOK_ESP     },
     { "extern", TOK_EXTERN  },
     { "global", TOK_GLOBAL  },
+    { "qword",  TOK_QWORD   },
+    { "r10",    TOK_R10     },
+    { "r10b",   TOK_R10B    },
+    { "r10d",   TOK_R10D    },
+    { "r10w",   TOK_R10W    },
+    { "r11",    TOK_R11     },
+    { "r11b",   TOK_R11B    },
+    { "r11d",   TOK_R11D    },
+    { "r11w",   TOK_R11W    },
+    { "r12",    TOK_R12     },
+    { "r12b",   TOK_R12B    },
+    { "r12d",   TOK_R12D    },
+    { "r12w",   TOK_R12W    },
+    { "r13",    TOK_R13     },
+    { "r13b",   TOK_R13B    },
+    { "r13d",   TOK_R13D    },
+    { "r13w",   TOK_R13W    },
+    { "r14",    TOK_R14     },
+    { "r14b",   TOK_R14B    },
+    { "r14d",   TOK_R14D    },
+    { "r14w",   TOK_R14W    },
+    { "r15",    TOK_R15     },
+    { "r15b",   TOK_R15B    },
+    { "r15d",   TOK_R15D    },
+    { "r15w",   TOK_R15W    },
+    { "r8",     TOK_R8      },
+    { "r8b",    TOK_R8B     },
+    { "r8d",    TOK_R8D     },
+    { "r8w",    TOK_R8W     },
+    { "r9",     TOK_R9      },
+    { "r9b",    TOK_R9B     },
+    { "r9d",    TOK_R9D     },
+    { "r9w",    TOK_R9W     },
+    { "rax",    TOK_RAX     },
+    { "rbp",    TOK_RBP     },
+    { "rbx",    TOK_RBX     },
+    { "rcx",    TOK_RCX     },
+    { "rdi",    TOK_RDI     },
+    { "rdx",    TOK_RDX     },
     { "rep",    TOK_REP     },
     { "repe",   TOK_REPE    },
     { "repne",  TOK_REPNE   },
@@ -2387,10 +2804,14 @@ struct RWord {
     { "resd",   TOK_RESD    },
     { "resq",   TOK_RESQ    },
     { "resw",   TOK_RESW    },
+    { "rsi",    TOK_RSI     },
+    { "rsp",    TOK_RSP     },
     { "section",TOK_SECTION },
     { "segment",TOK_SECTION },
     { "si",     TOK_SI      },
+    { "sil",    TOK_SIL     },
     { "sp",     TOK_SP      },
+    { "spl",    TOK_SPL     },
     { "times",  TOK_TIMES   },
     { "word",   TOK_WORD    }
 };
@@ -2664,8 +3085,298 @@ void err2(Operand *op, char *fmt, ...)
     exit(EXIT_FAILURE);
 }
 
-void write_ELF_file(void)
+void write_ELF64_file(void)
 {
+    int i;
+    unsigned nsym;
+    Section *sec;
+    Elf64_Ehdr elf_header;
+    Elf64_Off curr = 0;
+    Elf64_Shdr symtab_header, shstrtab_header, strtab_header;
+    StrTab *shstrtab = strtab_new(), *strtab = strtab_new();
+    Elf64_Sym sym;
+
+#define ALIGN(n)\
+    do {\
+        int nb = round_up(curr, n)-curr;\
+        for (i = 0; i < nb; i++)\
+            fputc(0, output_file), ++curr;\
+    } while (0)
+
+    memset(&symtab_header, 0, sizeof(Elf64_Shdr));
+    memset(&shstrtab_header, 0, sizeof(Elf64_Shdr));
+    memset(&strtab_header, 0, sizeof(Elf64_Shdr));
+
+    /* =============
+     * Dummy ELF header
+     * ============= */
+    memset(&elf_header, 0, sizeof(Elf64_Ehdr));
+    fwrite(&elf_header, sizeof(Elf64_Ehdr), 1, output_file);
+    curr += sizeof(Elf64_Ehdr);
+
+    /* =============
+     * Sections
+     * ============= */
+    ALIGN(16);
+    elf_header.e_shnum = 1; /* SHN_UNDEF */
+
+    /*
+     * .shstrtab
+     */
+    shstrtab_header.sh_name = strtab_append(shstrtab, ".shstrtab");
+    symtab_header.sh_name = strtab_append(shstrtab, ".symtab");
+    strtab_header.sh_name = strtab_append(shstrtab, ".strtab");
+    shstrtab_header.sh_offset = curr;
+    for (sec = sections; sec != NULL; sec = sec->next) {
+        sec->h.hdr64.sh_name = strtab_append(shstrtab, sec->name);
+        if (sec->relocs != NULL) {
+            char rsname[64] = ".rela";
+
+            strcat(rsname, sec->name);
+            sec->rh.rhdr64.sh_name = strtab_append(shstrtab, strdup(rsname));
+        }
+    }
+    shstrtab_header.sh_size = strtab_write(shstrtab, output_file);
+    curr += shstrtab_header.sh_size;
+    ++elf_header.e_shnum;
+
+    /*
+     * .symtab
+     */
+    ALIGN(4);
+    symtab_header.sh_offset = curr;
+    /* first entry (STN_UNDEF) */
+    memset(&sym, 0, sizeof(Elf64_Sym));
+    fwrite(&sym, sizeof(Elf64_Sym), 1, output_file);
+    curr += sizeof(Elf64_Sym);
+    symtab_header.sh_size += sizeof(Elf64_Sym);
+    ++symtab_header.sh_info;
+    /* file symbol table entry */
+    memset(&sym, 0, sizeof(Elf64_Sym));
+    sym.st_name = strtab_append(strtab, inpath);
+    sym.st_info = ELF64_ST_INFO(STB_LOCAL, STT_FILE);
+    sym.st_shndx = SHN_ABS;
+    fwrite(&sym, sizeof(Elf64_Sym), 1, output_file);
+    curr += sizeof(Elf64_Sym);
+    symtab_header.sh_size += sizeof(Elf64_Sym);
+    ++symtab_header.sh_info;
+    /* remaining .symtab entries */
+    nsym = 2;
+    /* symbols with STB_LOCAL binding */
+    for (i = 0; i < HASH_SIZE; i++) {
+        if (symbols[i] != NULL) {
+            Symbol *np;
+
+            for (np = symbols[i]; np != NULL; np = np->next) {
+                if (np->kind == SectionKind) {
+                    memset(&sym, 0, sizeof(Elf64_Sym));
+                    sym.st_info = ELF64_ST_INFO(STB_LOCAL, STT_SECTION);
+                    sym.st_shndx = np->sec->shndx;
+                } else if (np->bind == LocalBind) {
+                    memset(&sym, 0, sizeof(Elf64_Sym));
+                    sym.st_name = strtab_append(strtab, np->name);
+                    sym.st_value = np->val;
+                    sym.st_info = ELF64_ST_INFO(STB_LOCAL, STT_NOTYPE);
+                    sym.st_shndx = np->sec->shndx;
+                } else {
+                    continue;
+                }
+                np->ndx = nsym++;
+                ++symtab_header.sh_info;
+                fwrite(&sym, sizeof(Elf64_Sym), 1, output_file);
+                curr += sizeof(Elf64_Sym);
+                symtab_header.sh_size += sizeof(Elf64_Sym);
+            }
+        }
+    }
+    /* symbols with STB_GLOBAL binding */
+    for (i = 0; i < HASH_SIZE; i++) {
+        if (symbols[i] != NULL) {
+            Symbol *np;
+
+            for (np = symbols[i]; np != NULL; np = np->next) {
+                if (np->bind == LocalBind)
+                    continue;
+                memset(&sym, 0, sizeof(Elf64_Sym));
+                sym.st_name = strtab_append(strtab, np->name);
+                sym.st_value = np->val;
+                sym.st_info = ELF64_ST_INFO(STB_GLOBAL, STT_NOTYPE);
+                if (np->bind == ExternBind) {
+                    sym.st_shndx = SHN_UNDEF;
+                } else {
+                    assert(np->sec != NULL); /* TBD: undefined 'global' */
+                    sym.st_shndx = np->sec->shndx;
+                }
+                np->ndx = nsym++;
+                fwrite(&sym, sizeof(Elf64_Sym), 1, output_file);
+                curr += sizeof(Elf64_Sym);
+                symtab_header.sh_size += sizeof(Elf64_Sym);
+            }
+        }
+    }
+    ++elf_header.e_shnum;
+
+    /*
+     * .strtab
+     */
+    strtab_header.sh_offset = curr;
+    strtab_header.sh_size = strtab_write(strtab, output_file);
+    curr += strtab_header.sh_size;
+    ++elf_header.e_shnum;;
+
+    /*
+     * Remaining sections.
+     */
+    for (sec = sections; sec != NULL; sec = sec->next) {
+        SBlock *sb;
+
+        if (sec->name[0] == '.') {
+            if (equal(sec->name, ".text")) {
+                sec->h.hdr64.sh_type = SHT_PROGBITS;
+                sec->h.hdr64.sh_flags = SHF_ALLOC|SHF_EXECINSTR;
+                sec->h.hdr64.sh_addralign = 16;
+            } else if (equal(sec->name, ".data")) {
+                sec->h.hdr64.sh_type = SHT_PROGBITS;
+                sec->h.hdr64.sh_flags = SHF_ALLOC|SHF_WRITE;
+                sec->h.hdr64.sh_addralign = 4;
+            } else if (equal(sec->name, ".rodata")) {
+                sec->h.hdr64.sh_type = SHT_PROGBITS;
+                sec->h.hdr64.sh_flags = SHF_ALLOC;
+                sec->h.hdr64.sh_addralign = 4;
+            } else if (equal(sec->name, ".bss")) {
+                sec->h.hdr64.sh_type = SHT_NOBITS;
+                sec->h.hdr64.sh_flags = SHF_ALLOC|SHF_WRITE;
+                sec->h.hdr64.sh_addralign = 4;
+                ALIGN(4);
+                sec->h.hdr64.sh_offset = curr;
+                sec->h.hdr64.sh_size = SBLOCK_SIZ(sec->first);
+                ++elf_header.e_shnum;
+                continue;
+            } else {
+                fprintf(stderr, "%s: warning: unknown system section `%s': defaulting attributes\n",
+                prog_name, sec->name);
+                goto unk_sec;
+            }
+        } else {
+unk_sec:    sec->h.hdr64.sh_type = SHT_PROGBITS;
+            sec->h.hdr64.sh_flags = SHF_ALLOC;
+            sec->h.hdr64.sh_addralign = 1;
+        }
+        ALIGN(4);
+        sec->h.hdr64.sh_offset = curr;
+        for (sb = sec->first; sb != NULL; sb = sb->next) {
+            unsigned n;
+
+            n = SBLOCK_SIZ(sb);
+            fwrite((char *)sb+sizeof(SBlock), n, 1, output_file);
+            sec->h.hdr64.sh_size += n;
+            curr += n;
+        }
+        ++elf_header.e_shnum;
+        if (sec->relocs != NULL) {
+            Reloc *r;
+
+            ALIGN(4);
+            sec->rh.rhdr64.sh_type = SHT_RELA;
+            sec->rh.rhdr64.sh_offset = curr;
+            sec->rh.rhdr64.sh_link = 2; /* .symtab */
+            sec->rh.rhdr64.sh_info = sec->shndx;
+            sec->rh.rhdr64.sh_addralign = 4;
+            sec->rh.rhdr64.sh_entsize = sizeof(Elf64_Rela);
+            for (r = sec->relocs; r != NULL; r = r->next) {
+                Elf64_Rela er;
+
+                er.r_offset = r->offs;
+                er.r_addend = r->add;
+                switch (r->attr & (RELOC_SIZ8|RELOC_SIZ16|RELOC_SIZ32|RELOC_SIZ64)) {
+                case RELOC_SIZ8:
+                    if (r->attr & RELOC_ABS)
+                        er.r_info = ELF64_R_INFO(r->sym->ndx, R_X86_64_8);
+                    else
+                        er.r_info = ELF64_R_INFO(r->sym->ndx, R_X86_64_PC8);
+                    break;
+                case RELOC_SIZ16:
+                    if (r->attr & RELOC_ABS)
+                        er.r_info = ELF64_R_INFO(r->sym->ndx, R_X86_64_16);
+                    else
+                        er.r_info = ELF64_R_INFO(r->sym->ndx, R_X86_64_PC16);
+                    break;
+                case RELOC_SIZ32:
+                    if (r->attr & RELOC_ABS)
+                        er.r_info = ELF64_R_INFO(r->sym->ndx, (r->attr&RELOC_SIGNED)?R_X86_64_32S:R_X86_64_32);
+                    else
+                        er.r_info = ELF64_R_INFO(r->sym->ndx, R_X86_64_PC32);
+                    break;
+                default:
+                    if (r->attr & RELOC_ABS)
+                        er.r_info = ELF64_R_INFO(r->sym->ndx, R_X86_64_64);
+                    else
+                        er.r_info = ELF64_R_INFO(r->sym->ndx, R_X86_64_PC64);
+                    break;
+                }
+                fwrite(&er, sizeof(Elf64_Rela), 1, output_file);
+                sec->rh.rhdr64.sh_size += sizeof(Elf64_Rela);
+                curr += sizeof(Elf64_Rela);
+            }
+            ++elf_header.e_shnum;
+        }
+    }
+
+    /* =============
+     * Section header table
+     * ============= */
+    ALIGN(4);
+    elf_header.e_shoff = curr;
+    /* first entry (SHN_UNDEF) */
+    for (i = 0; i < sizeof(Elf64_Shdr); i++)
+        fputc(0, output_file);
+    /* .shstrtab section header */
+    shstrtab_header.sh_type = SHT_STRTAB;
+    shstrtab_header.sh_addralign = 1;
+    fwrite(&shstrtab_header, sizeof(Elf64_Shdr), 1, output_file);
+    /* .symtab section header */
+    symtab_header.sh_type = SHT_SYMTAB;
+    symtab_header.sh_link = 3; /* .strtab */
+    symtab_header.sh_addralign = 4;
+    symtab_header.sh_entsize = sizeof(Elf64_Sym);
+    fwrite(&symtab_header, sizeof(Elf64_Shdr), 1, output_file);
+    /* .strtab section header */
+    strtab_header.sh_type = SHT_STRTAB;
+    strtab_header.sh_addralign = 1;
+    fwrite(&strtab_header, sizeof(Elf64_Shdr), 1, output_file);
+    /* remaining section headers */
+    for (sec = sections; sec != NULL; sec = sec->next)
+        fwrite(&sec->h.hdr64, sizeof(Elf64_Shdr), 1, output_file);
+    for (sec = sections; sec != NULL; sec = sec->next)
+        if (sec->relocs != NULL)
+            fwrite(&sec->rh.rhdr64, sizeof(Elf64_Shdr), 1, output_file);
+
+    /*
+     * Correct dummy ELF header
+     */
+    rewind(output_file);
+    elf_header.e_ident[EI_MAG0] = ELFMAG0;
+    elf_header.e_ident[EI_MAG1] = ELFMAG1;
+    elf_header.e_ident[EI_MAG2] = ELFMAG2;
+    elf_header.e_ident[EI_MAG3] = ELFMAG3;
+    elf_header.e_ident[EI_CLASS] = ELFCLASS64;
+    elf_header.e_ident[EI_DATA] = ELFDATA2LSB;
+    elf_header.e_ident[EI_VERSION] = EV_CURRENT;
+    elf_header.e_type = ET_REL;
+    elf_header.e_machine = EM_X86_64;
+    elf_header.e_version = EV_CURRENT;
+    elf_header.e_ehsize = sizeof(Elf64_Ehdr);
+    elf_header.e_shentsize = sizeof(Elf64_Shdr);
+    elf_header.e_shstrndx = 1;
+    fwrite(&elf_header, sizeof(Elf64_Ehdr), 1, output_file);
+    fseek(output_file, 0, SEEK_END);
+
+#undef ALIGN
+}
+
+void write_ELF32_file(void)
+{
+#if 0
     int i;
     unsigned nsym;
     Section *sec;
@@ -2944,4 +3655,5 @@ unk_sec:    sec->hdr.sh_type = SHT_PROGBITS;
     fseek(output_file, 0, SEEK_END);
 
 #undef ALIGN
+#endif
 }

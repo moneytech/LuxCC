@@ -8,10 +8,9 @@
  *  => Calling conventions: http://www.agner.org/optimize/calling_conventions.pdf
  *
  * TOFIX:
- *  - The ABI requires that before execute a call instruction the stack be aligned
- *    in a 16-byte boundary. Currently, this is not enforced and the stack is only
- *    aligned to a 8-byte boundary. Even so, seems like GLIBC has no problem with
- *    this and is working well.
+ *  - The ABI requires that the stack be aligned to a 16-byte boundary before execute
+ *    a call instruction. Currently, this is not enforced and the stack is only guaranteed
+ *    to be aligned to a 8-byte boundary (seems like GLIBC has no problem with this).
  */
 #define DEBUG 0
 #include "x64_cgen.h"
@@ -199,7 +198,7 @@ static void x64_load_addr(X64_Reg r, unsigned a);
 static char *x64_get_operand32(unsigned a);
 static char *x64_get_operand64(unsigned a);
 static void x64_store(X64_Reg r, unsigned a);
-static void x64_compare_against_constant(unsigned a, unsigned c);
+static void x64_compare_against_constant(unsigned a, int c);
 static void x64_function_definition(TypeExp *decl_specs, TypeExp *header);
 
 static void x64_static_expr(ExecNode *e);
@@ -407,7 +406,7 @@ void x64_load(X64_Reg r, unsigned a)
     need_to_extend = FALSE;
 
     if (address(a).kind == IConstKind) {
-        emitln("mov %s, %llu", x64_reg_str[r], address(a).cont.uval);
+        emitln("mov %s, %lld", x64_reg_str[r], address(a).cont.val);
     } else if (address(a).kind == StrLitKind) {
         emitln("mov %s, _@S%d", x64_reg_str[r], new_string_literal(a));
     } else if (address(a).kind == IdKind) {
@@ -493,7 +492,7 @@ char *x64_get_operand32(unsigned a)
     static char op[256];
 
     if (address(a).kind == IConstKind) {
-        sprintf(op, "dword %u", (unsigned)address(a).cont.uval);
+        sprintf(op, "%d", (int)address(a).cont.val);
     } else if (address(a).kind == StrLitKind) {
         sprintf(op, "_@S%d", new_string_literal(a)); /* generate R_X86_64_32 reloc */
     } else if (address(a).kind == IdKind) {
@@ -563,7 +562,7 @@ char *x64_get_operand64(unsigned a)
 
         val = address(a).cont.val;
         if (val>=INT_MIN && val<=INT_MAX) {
-            sprintf(op, "%u", (unsigned)val);
+            sprintf(op, "%d", (int)val);
         } else {
             X64_Reg r;
 
@@ -685,7 +684,7 @@ void x64_store(X64_Reg r, unsigned a)
                 cluttered |= 4;
                 emitln("push rcx");
             }
-            emitln("mov rcx, %u", get_sizeof(&e->type));
+            emitln("mov ecx, %u", get_sizeof(&e->type));
             emitln("rep movsb");
             /* restore all */
             if (cluttered & 4)
@@ -732,7 +731,7 @@ void x64_store(X64_Reg r, unsigned a)
     }
 }
 
-void x64_compare_against_constant(unsigned a, unsigned c)
+void x64_compare_against_constant(unsigned a, int c)
 {
     if (address(a).kind == IConstKind) {
         assert(0); /* can be folded */
@@ -743,7 +742,7 @@ void x64_compare_against_constant(unsigned a, unsigned c)
         char *siz_str;
 
         if (addr_reg(a) != -1) {
-            emitln("cmp %s, %u", x64_reg_str[addr_reg(a)], c);
+            emitln("cmp %s, %d", x64_reg_str[addr_reg(a)], c);
             return;
         }
 
@@ -770,17 +769,17 @@ void x64_compare_against_constant(unsigned a, unsigned c)
 
         if (e->attr.var.duration == DURATION_STATIC) {
             if (e->attr.var.linkage == LINKAGE_NONE)
-                emitln("cmp %s [$%s@%s], %u", siz_str, curr_func, e->attr.str, c);
+                emitln("cmp %s [$%s@%s], %d", siz_str, curr_func, e->attr.str, c);
             else
-                emitln("cmp %s [$%s], %u", siz_str, e->attr.str, c);
+                emitln("cmp %s [$%s], %d", siz_str, e->attr.str, c);
         } else {
-            emitln("cmp %s [rbp+%d], %u", siz_str, local_offset(a), c);
+            emitln("cmp %s [rbp+%d], %d", siz_str, local_offset(a), c);
         }
     } else if (address(a).kind == TempKind) {
         if (addr_reg(a) != -1)
-            emitln("cmp %s, %u", x64_reg_str[addr_reg(a)], c);
+            emitln("cmp %s, %d", x64_reg_str[addr_reg(a)], c);
         else
-            emitln("cmp qword [rbp+%d], %u", get_temp_offs(a), c);
+            emitln("cmp qword [rbp+%d], %d", get_temp_offs(a), c);
     }
 }
 
@@ -1653,7 +1652,7 @@ static void x64_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
             cluttered |= 4;
             emitln("push rcx");
         }
-        emitln("mov rcx, %u", get_sizeof(instruction(i).type));
+        emitln("mov ecx, %u", get_sizeof(instruction(i).type));
         emitln("rep movsb");
         if (cluttered & 4)
             emitln("pop rcx");
@@ -1701,7 +1700,7 @@ static void x64_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
         val = address(arg2).cont.uval;
         if (!equal("qword", siz_str) || val>=INT_MIN && val<=INT_MIN) {
-            emitln("mov %s [%s], %u", siz_str, x64_reg_str[pr], (unsigned)val);
+            emitln("mov %s [%s], %d", siz_str, x64_reg_str[pr], (int)val);
         } else {
             X64_Reg r;
 
@@ -1817,7 +1816,7 @@ static void x64_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
             cluttered |= 4;
             emitln("push rcx");
         }
-        emitln("mov rcx, %u", siz);
+        emitln("mov ecx, %u", siz);
         emitln("rep movsb");
         if (cluttered & 4)
             emitln("pop rcx");
@@ -1844,7 +1843,7 @@ static void x64_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
         emitln("mov rdi, qword [rbp+-8]");
         if (!reg_isempty(X64_RCX))
             spill_reg(X64_RCX);
-        emitln("mov rcx, %u", siz);
+        emitln("mov ecx, %u", siz);
         emitln("rep movsb");
     } else if (siz > 8) {
         x64_load(X64_RAX, arg1);
@@ -1868,7 +1867,7 @@ static void x64_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
             emitln("sub rsp, 8");
             emitln("lea rsi, [rax+8]");
             emitln("mov rdi, rsp");
-            emitln("mov rcx, %u", siz-8);
+            emitln("mov ecx, %u", siz-8);
             emitln("rep movsb");
             emitln("pop rdx");
             break;
@@ -1899,7 +1898,7 @@ static void x64_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
                 emitln("sub rsp, 8");
                 emitln("mov rsi, rax");
                 emitln("mov rdi, rsp");
-                emitln("mov rcx, %u", siz);
+                emitln("mov ecx, %u", siz);
                 emitln("rep movsb");
                 emitln("pop rax");
                 break;
@@ -1982,8 +1981,8 @@ static void x64_switch(int i, unsigned tar, unsigned arg1, unsigned arg2)
 jump_table:
     tr1 = get_reg0(); pin_reg(tr1);
     tr2 = get_reg0(); unpin_reg(tr1);
-    emitln("mov %s, %llu", x64_reg_str[tr1], min);
-    emitln("mov %s, %llu", x64_reg_str[tr2], max);
+    emitln("mov %s, %lld", x64_reg_str[tr1], min);
+    emitln("mov %s, %lld", x64_reg_str[tr2], max);
     emitln("cmp %s, %s", x64_reg_str[res], x64_reg_str[tr1]);
     emit_jl(def_val);
     emitln("cmp %s, %s", x64_reg_str[res], x64_reg_str[tr2]);
@@ -2042,11 +2041,11 @@ linear_search:
 
         val = address(tar).cont.uval;
         if (val>=INT_MIN && val<=INT_MAX) {
-            emitln("cmp %s, %u", x64_ldreg_str[res], (unsigned)val);
+            emitln("cmp %s, %d", x64_ldreg_str[res], (int)val);
         } else {
             if (tr1 == -1)
                 tr1 = get_reg0();
-            emitln("mov %s, %llu", x64_reg_str[tr1], val);
+            emitln("mov %s, %lld", x64_reg_str[tr1], val);
             emitln("cmp %s, %s", x64_reg_str[res], x64_reg_str[tr1]);
         }
         emit_jmpeq(address(arg1).cont.val);
@@ -2087,12 +2086,12 @@ static void x64_spill_reg_args(DeclList *p, int offs)
     /* if vararg function, just spill all argument registers in reverse order */
     for (tmp = p; tmp != NULL; tmp = tmp->next) {
         if (tmp->decl->idl!=NULL && tmp->decl->idl->op==TOK_ELLIPSIS) {
-            emit_prologln("mov [rbp-%d], r9", -offs);
-            emit_prologln("mov [rbp-%d], r8", -offs+8);
-            emit_prologln("mov [rbp-%d], rcx", -offs+16);
-            emit_prologln("mov [rbp-%d], rdx", -offs+24);
-            emit_prologln("mov [rbp-%d], rsi", -offs+32);
-            emit_prologln("mov [rbp-%d], rdi", -offs+40);
+            emit_prologln("mov [rbp+%d], r9", offs);
+            emit_prologln("mov [rbp+%d], r8", offs-8);
+            emit_prologln("mov [rbp+%d], rcx", offs-16);
+            emit_prologln("mov [rbp+%d], rdx", offs-24);
+            emit_prologln("mov [rbp+%d], rsi", offs-32);
+            emit_prologln("mov [rbp+%d], rdi", offs-40);
             return;
         }
     }
@@ -2110,15 +2109,15 @@ static void x64_spill_reg_args(DeclList *p, int offs)
         }
         if (siz > 8) {
             r = x64_arg_reg[6-nfree_reg+1];
-            emit_prologln("mov [rbp-%d], %s", -offs, x64_reg_str[r]);
+            emit_prologln("mov [rbp+%d], %s", offs, x64_reg_str[r]);
             offs -= 8;
             r = x64_arg_reg[6-nfree_reg];
-            emit_prologln("mov [rbp-%d], %s", -offs, x64_reg_str[r]);
+            emit_prologln("mov [rbp+%d], %s", offs, x64_reg_str[r]);
             nfree_reg -= 2;
             offs -= 8;
         } else {
             r = x64_arg_reg[6-nfree_reg];
-            emit_prologln("mov [rbp-%d], %s", -offs, x64_reg_str[r]);
+            emit_prologln("mov [rbp+%d], %s", offs, x64_reg_str[r]);
             --nfree_reg;
             offs -= 8;
         }
@@ -2367,7 +2366,7 @@ void x64_static_expr(ExecNode *e)
         }
         break;
     case IConstExp:
-        emit_decl("%llu", e->attr.uval);
+        emit_decl("%lld", e->attr.val);
         break;
     case StrLitExp:
         emit_strln("_@S%d:", string_literals_counter);
