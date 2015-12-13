@@ -1,0 +1,11 @@
+This directory contains:
+
+    a) C standard library functions used by the VM target.
+
+        The sources come mainly from:
+          * The Sanos kernel: http://www.jbox.dk/sanos/source/lib/
+          * The Linux kernel: https://www.kernel.org/pub/linux/kernel/
+
+    b) crt32.o and crt64.o used by the VM32 and VM64 targets, respectively.
+
+    c) liblux.o used to emulate 64-bits operation in x86-32.
