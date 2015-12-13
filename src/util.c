@@ -24,7 +24,7 @@ char *replace_extension(char *fname, char *newext)
     return p;
 }
 
-int file_exist(char *file_path)
+int file_exists(char *file_path)
 {
     struct stat st;
 

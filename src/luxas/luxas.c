@@ -3376,7 +3376,6 @@ unk_sec:    sec->h.hdr64.sh_type = SHT_PROGBITS;
 
 void write_ELF32_file(void)
 {
-#if 0
     int i;
     unsigned nsym;
     Section *sec;
@@ -3418,12 +3417,12 @@ void write_ELF32_file(void)
     strtab_header.sh_name = strtab_append(shstrtab, ".strtab");
     shstrtab_header.sh_offset = curr;
     for (sec = sections; sec != NULL; sec = sec->next) {
-        sec->hdr.sh_name = strtab_append(shstrtab, sec->name);
+        sec->h.hdr32.sh_name = strtab_append(shstrtab, sec->name);
         if (sec->relocs != NULL) {
             char rsname[64] = ".rel";
 
             strcat(rsname, sec->name);
-            sec->rhdr.sh_name = strtab_append(shstrtab, strdup(rsname));
+            sec->rh.rhdr32.sh_name = strtab_append(shstrtab, strdup(rsname));
         }
     }
     shstrtab_header.sh_size = strtab_write(shstrtab, output_file);
@@ -3522,24 +3521,24 @@ void write_ELF32_file(void)
 
         if (sec->name[0] == '.') {
             if (equal(sec->name, ".text")) {
-                sec->hdr.sh_type = SHT_PROGBITS;
-                sec->hdr.sh_flags = SHF_ALLOC|SHF_EXECINSTR;
-                sec->hdr.sh_addralign = 16;
+                sec->h.hdr32.sh_type = SHT_PROGBITS;
+                sec->h.hdr32.sh_flags = SHF_ALLOC|SHF_EXECINSTR;
+                sec->h.hdr32.sh_addralign = 16;
             } else if (equal(sec->name, ".data")) {
-                sec->hdr.sh_type = SHT_PROGBITS;
-                sec->hdr.sh_flags = SHF_ALLOC|SHF_WRITE;
-                sec->hdr.sh_addralign = 4;
+                sec->h.hdr32.sh_type = SHT_PROGBITS;
+                sec->h.hdr32.sh_flags = SHF_ALLOC|SHF_WRITE;
+                sec->h.hdr32.sh_addralign = 4;
             } else if (equal(sec->name, ".rodata")) {
-                sec->hdr.sh_type = SHT_PROGBITS;
-                sec->hdr.sh_flags = SHF_ALLOC;
-                sec->hdr.sh_addralign = 4;
+                sec->h.hdr32.sh_type = SHT_PROGBITS;
+                sec->h.hdr32.sh_flags = SHF_ALLOC;
+                sec->h.hdr32.sh_addralign = 4;
             } else if (equal(sec->name, ".bss")) {
-                sec->hdr.sh_type = SHT_NOBITS;
-                sec->hdr.sh_flags = SHF_ALLOC|SHF_WRITE;
-                sec->hdr.sh_addralign = 4;
+                sec->h.hdr32.sh_type = SHT_NOBITS;
+                sec->h.hdr32.sh_flags = SHF_ALLOC|SHF_WRITE;
+                sec->h.hdr32.sh_addralign = 4;
                 ALIGN(4);
-                sec->hdr.sh_offset = curr;
-                sec->hdr.sh_size = SBLOCK_SIZ(sec->first);
+                sec->h.hdr32.sh_offset = curr;
+                sec->h.hdr32.sh_size = SBLOCK_SIZ(sec->first);
                 ++elf_header.e_shnum;
                 continue;
             } else {
@@ -3548,18 +3547,18 @@ void write_ELF32_file(void)
                 goto unk_sec;
             }
         } else {
-unk_sec:    sec->hdr.sh_type = SHT_PROGBITS;
-            sec->hdr.sh_flags = SHF_ALLOC;
-            sec->hdr.sh_addralign = 1;
+unk_sec:    sec->h.hdr32.sh_type = SHT_PROGBITS;
+            sec->h.hdr32.sh_flags = SHF_ALLOC;
+            sec->h.hdr32.sh_addralign = 1;
         }
         ALIGN(4);
-        sec->hdr.sh_offset = curr;
+        sec->h.hdr32.sh_offset = curr;
         for (sb = sec->first; sb != NULL; sb = sb->next) {
             unsigned n;
 
             n = SBLOCK_SIZ(sb);
             fwrite((char *)sb+sizeof(SBlock), n, 1, output_file);
-            sec->hdr.sh_size += n;
+            sec->h.hdr32.sh_size += n;
             curr += n;
         }
         ++elf_header.e_shnum;
@@ -3567,12 +3566,12 @@ unk_sec:    sec->hdr.sh_type = SHT_PROGBITS;
             Reloc *r;
 
             ALIGN(4);
-            sec->rhdr.sh_type = SHT_REL;
-            sec->rhdr.sh_offset = curr;
-            sec->rhdr.sh_link = 2; /* .symtab */
-            sec->rhdr.sh_info = sec->shndx;
-            sec->rhdr.sh_addralign = 4;
-            sec->rhdr.sh_entsize = sizeof(Elf32_Rel);
+            sec->rh.rhdr32.sh_type = SHT_REL;
+            sec->rh.rhdr32.sh_offset = curr;
+            sec->rh.rhdr32.sh_link = 2; /* .symtab */
+            sec->rh.rhdr32.sh_info = sec->shndx;
+            sec->rh.rhdr32.sh_addralign = 4;
+            sec->rh.rhdr32.sh_entsize = sizeof(Elf32_Rel);
             for (r = sec->relocs; r != NULL; r = r->next) {
                 Elf32_Rel er;
 
@@ -3598,7 +3597,7 @@ unk_sec:    sec->hdr.sh_type = SHT_PROGBITS;
                     break;
                 }
                 fwrite(&er, sizeof(Elf32_Rel), 1, output_file);
-                sec->rhdr.sh_size += sizeof(Elf32_Rel);
+                sec->rh.rhdr32.sh_size += sizeof(Elf32_Rel);
                 curr += sizeof(Elf32_Rel);
             }
             ++elf_header.e_shnum;
@@ -3629,10 +3628,10 @@ unk_sec:    sec->hdr.sh_type = SHT_PROGBITS;
     fwrite(&strtab_header, sizeof(Elf32_Shdr), 1, output_file);
     /* remaining section headers */
     for (sec = sections; sec != NULL; sec = sec->next)
-        fwrite(&sec->hdr, sizeof(Elf32_Shdr), 1, output_file);
+        fwrite(&sec->h.hdr32, sizeof(Elf32_Shdr), 1, output_file);
     for (sec = sections; sec != NULL; sec = sec->next)
         if (sec->relocs != NULL)
-            fwrite(&sec->rhdr, sizeof(Elf32_Shdr), 1, output_file);
+            fwrite(&sec->rh.rhdr32, sizeof(Elf32_Shdr), 1, output_file);
 
     /*
      * Correct dummy ELF header
@@ -3655,5 +3654,4 @@ unk_sec:    sec->hdr.sh_type = SHT_PROGBITS;
     fseek(output_file, 0, SEEK_END);
 
 #undef ALIGN
-#endif
 }

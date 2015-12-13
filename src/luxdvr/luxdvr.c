@@ -9,37 +9,15 @@
 #include <sys/wait.h>
 #include <assert.h>
 #include <unistd.h>
+#include <ctype.h>
 #include "../util.h"
 #include "../str.h"
 
-#define PATH_TO_CC              "src/luxcc"
-#define PATH_TO_X86_AS          "src/luxas/luxas"
-#define PATH_TO_X86_LD          "src/luxld/luxld"
-#define PATH_TO_VM_AS           "src/luxvm/luxvmas"
-#define PATH_TO_VM_LD           "src/luxvm/luxvmld"
-#define GNU_LD                  "ld"
-
-#define PATH_TO_VM32_CRT_1      "src/lib/crt32.o"
-#define PATH_TO_VM64_CRT_1      "src/lib/crt64.o"
-#define PATH_TO_VM32_CRT_2      "/usr/local/lib/luxcc/crt32.o"
-#define PATH_TO_VM64_CRT_2      "/usr/local/lib/luxcc/crt64.o"
-#define PATH_TO_VM_LIBC_1       "src/lib/libc.o"
-#define PATH_TO_VM_LIBC_2       "/usr/local/lib/luxcc/libc.o"
-#define PATH_TO_LIBLUX          "src/lib/liblux.o"
-
-#define PATH_TO_LIBCONF_1       "src/luxdvr/library_path.conf"
-#define PATH_TO_LIBCONF_2       "/usr/local/lib/luxcc/library_path.conf"
-
-/* musl's default installation path */
-#define PATH_TO_MUSL_LIBC       "/usr/local/musl/lib/libc.so"
-#define PATH_TO_MUSL_RUNC       "/usr/local/musl/lib/crt1.o "\
-                                "/usr/local/musl/lib/crti.o"
-
-int musl_libc_is_installed;
 int verbose;
 char *prog_name;
 char helpstr[] =
     "\nGeneral options:\n"
+    "  -m<mach>         Target machine <mach>\n"
     "  -o<file>         Write output to <file>\n"
     "  -E               Preprocess only\n"
     "  -S               Compile but do not assemble\n"
@@ -48,7 +26,6 @@ char helpstr[] =
     "  -h               Print this help\n"
     "\nCompiler options:\n"
     "  -q               Disable all warnings\n"
-    "  -m<mach>         Generate target code for machine <mach>\n"
     "  -I<dir>          Add <dir> to the list of directories searched for #include <...>\n"
     "  -i<dir>          Add <dir> to the list of directories searched for #include \"...\"\n"
     "  -analyze         Perform static analysis only\n"
@@ -61,23 +38,11 @@ char helpstr[] =
     "  -dump-cfg<func>  Dump CFG for function <func>\n"
     "  -dump-cg         Dump program call-graph\n"
     "\nLinker options (x86 only):\n"
-    "  -e<sym>          Set <sym> as the entry point symbol\n"
-    "  -l<name>         Link against object file/library <name>\n"
-    "  -L<dir>          Add <dir> to the list of directories searched for the -l options\n"
-    "  -I<interp>       Set <interp> as the name of the dynamic linker\n"
+    "  -Xe<sym>         Set <sym> as the entry point symbol\n"
+    "  -Xl<name>        Link against object file/library <name>\n"
+    "  -XL<dir>         Add <dir> to the list of directories searched for the -l options\n"
+    "  -XI<interp>      Set <interp> as the name of the dynamic linker\n"
 ;
-
-enum {
-    CC,
-    X86_AS,
-    X86_LD,
-    VM_AS,
-    VM_LD,
-    X86_LIBC,
-    VM_LIBC,
-    VM32_CRT,
-    VM64_CRT,
-};
 
 enum {
     DVR_HELP            = 0x001,
@@ -92,15 +57,21 @@ enum {
 };
 #define DVR_TARGETS (DVR_VM32_TARGET+DVR_VM64_TARGET+DVR_X86_TARGET+DVR_X64_TARGET)
 
-typedef struct InFile InFile;
-struct InFile {
+typedef struct PathList PathList;
+struct PathList {
     char *path;
-    InFile *next;
+    PathList *next;
 };
 
-InFile *add_file(InFile *flist, InFile *newf)
+struct {
+    char *name;
+    PathList *dirs;
+} required_files[64];
+int nreq;
+
+PathList *add_file(PathList *flist, PathList *newf)
 {
-    InFile *p;
+    PathList *p;
 
     if (flist == NULL)
         return newf;
@@ -122,17 +93,17 @@ char *strbuf(String *s)
     return buf;
 }
 
-int exec_cmd(char *cmd)
+int exec_cmd(String *cmd)
 {
     int status;
+    char *buf;
 
+    buf = strbuf(cmd);
     if (verbose)
-        printf("%s\n", cmd);
+        printf("%s\n", buf);
 
-    if ((status=system(cmd)) == -1) {
-        fprintf(stderr, "%s: error: cannot execute `%s'\n", prog_name, cmd);
-        exit(1);
-    }
+    if ((status=system(buf)) == -1)
+        TERMINATE("%s: error: cannot execute `%s'", prog_name, buf);
     if (!WIFEXITED(status))
         exit(1);
     return WEXITSTATUS(status);
@@ -146,103 +117,95 @@ int is_in_path(char *exe)
     return (WEXITSTATUS(system(cmd)) == 0);
 }
 
-char *get_path(int file)
+/*
+ * Syntax of a .conf file:
+ *
+ *   conf_file = file { file } eof
+ *   file = name ":" dir { "," dir } new_line
+ *
+ * Empty lines and lines starting with a '#' are ignored.
+ */
+void parse_conf_file(char *cf)
 {
-    char *p;
+    FILE *fp;
+    char buf[BUFSIZ], *cp;
 
-    switch (file) {
-    case CC:
-        if (file_exist(PATH_TO_CC))
-            return PATH_TO_CC;
-        else if (is_in_path("luxcc"))
-            return "luxcc";
-        p = "core compiler (luxcc)";
-        break;
+#define SKIPWHITE() while (isblank(*cp)) ++cp
 
-    case X86_AS:
-        if (file_exist(PATH_TO_X86_AS))
-            return PATH_TO_X86_AS;
-        else if (is_in_path("luxas"))
-            return "luxas";
-        p = "x86 assembler (luxas)";
-        break;
-    case X86_LD:
-        if (musl_libc_is_installed) {
-            if (file_exist(PATH_TO_X86_LD))
-                return PATH_TO_X86_LD;
-            else if (is_in_path("luxld"))
-                return "luxld";
-            p = "x86 linker (luxld)";
-            break;
-        } else {
-            return GNU_LD;
-        }
-
-    case VM_AS:
-        if (file_exist(PATH_TO_VM_AS))
-            return PATH_TO_VM_AS;
-        else if (is_in_path("luxvmas"))
-            return "luxvmas";
-        p = "VM assembler (luxvmas)";
-        break;
-    case VM_LD:
-        if (file_exist(PATH_TO_VM_LD))
-            return PATH_TO_VM_LD;
-        else if (is_in_path("luxvmld"))
-            return "luxvmld";
-        p = "VM linker (luxvmld)";
-        break;
-
-    case X86_LIBC:
-        if (musl_libc_is_installed) {
-            return PATH_TO_LIBLUX " " PATH_TO_MUSL_RUNC " " PATH_TO_MUSL_LIBC;
-        } else { /* get the paths from the .conf file */
-            FILE *fp;
-            char *cp;
-            static char lib_path[BUFSIZ];
-
-            if (file_exist(PATH_TO_LIBCONF_1))
-                fp = fopen(PATH_TO_LIBCONF_1, "rb");
-            else if (file_exist(PATH_TO_LIBCONF_2))
-                fp = fopen(PATH_TO_LIBCONF_2, "rb");
-            else
-                break;
-            cp = lib_path;
-            strcpy(lib_path, PATH_TO_LIBLUX " ");
-            cp += strlen(PATH_TO_LIBLUX)+1;
-            while (fgets(cp, 0x7FFFFFFF, fp) != NULL) {
-                cp += strlen(cp)-1;
-                *cp++ = ' ';
-            }
-            return lib_path;
-        }
-        break;
-    case VM_LIBC:
-        if (file_exist(PATH_TO_VM_LIBC_1))
-            return PATH_TO_VM_LIBC_1;
-        else if (file_exist(PATH_TO_VM_LIBC_2))
-            return PATH_TO_VM_LIBC_2;
-        p = "VM C standard library (libc.o)";
-        break;
-
-    case VM32_CRT:
-        if (file_exist(PATH_TO_VM32_CRT_1))
-            return PATH_TO_VM32_CRT_1;
-        else if (file_exist(PATH_TO_VM32_CRT_2))
-            return PATH_TO_VM32_CRT_1;
-        p = "C runtime library (crt32.o)";
-        break;
-    case VM64_CRT:
-        if (file_exist(PATH_TO_VM64_CRT_1))
-            return PATH_TO_VM64_CRT_1;
-        else if (file_exist(PATH_TO_VM64_CRT_2))
-            return PATH_TO_VM64_CRT_1;
-        p = "C runtime library (crt64.o)";
-        break;
+    sprintf(buf, "src/luxdvr/%s", cf);
+    if (file_exists(buf)) {
+        fp = fopen(buf, "rb");
+    } else {
+        sprintf(buf, "/usr/local/lib/luxcc/%s", cf);
+        if (file_exists(buf))
+            fp = fopen(buf, "rb");
+        else
+            TERMINATE("%s: cannot find `%s'", prog_name, cf);
     }
 
-    fprintf(stderr, "%s: cannot find `%s'\n", prog_name, p);
-    exit(1);
+    cp = buf;
+    while (fgets(cp, 0x7FFFFFFF, fp) != NULL) {
+        int n;
+        char buf2[256], *cp2;
+        PathList *pl;
+
+        if (strlen(cp)<=1 || cp[0]=='#')
+            continue;
+        cp2 = strchr(cp, ':');
+        n = cp2-cp;
+        strncpy(buf2, cp, n);
+        buf2[n] = '\0';
+        required_files[nreq].name = strdup(buf2);
+        cp += n+1;
+
+        for (;;) {
+            int done = FALSE;
+
+            SKIPWHITE();
+            if ((cp2=strchr(cp, ',')) == NULL) {
+                cp2 = strchr(cp, '\n');
+                assert(cp2 != NULL);
+                done = TRUE;
+            }
+            n = cp2-cp;
+            strncpy(buf2, cp, n);
+            buf2[n] = '\0';
+            pl = malloc(sizeof(PathList));
+            pl->path = strdup(buf2);
+            pl->next = required_files[nreq].dirs;
+            required_files[nreq].dirs = pl;
+            cp += n+1;
+            if (done)
+                break;
+        }
+
+        ++nreq;
+    }
+    fclose(fp);
+}
+
+char *search_required(char *file, int use_PATH)
+{
+    int i;
+    static char path[256];
+
+    for (i = 0; i < nreq; i++) {
+        PathList *pl;
+
+        if (!equal(required_files[i].name, file))
+            continue;
+        for (pl = required_files[i].dirs; pl != NULL; pl = pl->next) {
+            sprintf(path, "%s/%s", pl->path, file);
+            if (file_exists(path))
+                return path;
+        }
+        /*break;*/
+    }
+
+    if (use_PATH && is_in_path(file))
+        return file;
+
+    TERMINATE("%s: cannot find `%s'", prog_name, file);
 }
 
 void usage(int more_inf)
@@ -254,23 +217,21 @@ void usage(int more_inf)
 
 void unknown_opt(char *opt)
 {
-    fprintf(stderr, "%s: unknown option `%s'\n", prog_name, opt);
-    exit(1);
+    TERMINATE("%s: unknown option `%s'", prog_name, opt);
 }
 
 void missing_arg(char *opt)
 {
-    fprintf(stderr, "%s: option `%s' requires an argument\n", prog_name, opt);
-    exit(1);
+    TERMINATE("%s: option `%s' requires an argument", prog_name, opt);
 }
 
 int main(int argc, char *argv[])
 {
     int i, exst;
     unsigned driver_flags;
-    char *outpath, *alt_asm_tmp;
+    char *outpath, *alt_asm_tmp, *p;
     String *cc_cmd, *as_cmd, *ld_cmd;
-    InFile *c_files, *asm_files, *other_files;
+    PathList *c_files, *asm_files, *other_files;
     char asm_tmp[] = "/tmp/luxXXXXXX.s";
     char obj_tmp[] = "/tmp/luxXXXXXX.o";
 
@@ -280,24 +241,19 @@ int main(int argc, char *argv[])
         exit(0);
     }
 
-    /* use musl libc if it is installed */
-    musl_libc_is_installed = file_exist(PATH_TO_MUSL_LIBC);
-
     driver_flags = 0;
     driver_flags |= DVR_X86_TARGET;
     outpath = alt_asm_tmp = NULL;
     c_files = asm_files = other_files = NULL;
-    cc_cmd = string_new(32);
-    as_cmd = string_new(32);
-    ld_cmd = string_new(32);
-    string_printf(cc_cmd, get_path(CC));
+    cc_cmd = string_new(32); string_printf(cc_cmd, "");
+    as_cmd = string_new(32); string_printf(as_cmd, "");
+    ld_cmd = string_new(32); string_printf(ld_cmd, "");
 
     for (i = 1; i < argc; i++) {
         if (argv[i][0] != '-') {
-            char *p;
-            InFile *newf;
+            PathList *newf;
 
-            newf = malloc(sizeof(InFile));
+            newf = malloc(sizeof(PathList));
             newf->path = argv[i];
             newf->next = NULL;
             if ((p=strrchr(argv[i], '.')) == NULL)
@@ -329,10 +285,11 @@ int main(int argc, char *argv[])
                     driver_flags |= DVR_ANALYZE_ONLY;
                 } else if (strncmp(argv[i], "-alt-asm-tmp", 12) == 0) {
                     /*
-                     * This option is only used when self-compiling in x86. It is necessary
-                     * because otherwise the temporary asm file name that will be
-                     * embedded into the object files will be different from one invocation
-                     * to the other and the comparison of binaries will fail.
+                     * This option is only used when self-compiling in x86/x64.
+                     * It is necessary because otherwise the temporary asm file
+                     * name that will be embedded into the object files will be
+                     * different from one invocation to the other and the comparison
+                     * of binaries will fail.
                      */
                     if (argv[i][12] == '\0') {
                         if (argv[i+1] == NULL)
@@ -389,14 +346,19 @@ int main(int argc, char *argv[])
                 driver_flags |= DVR_PREP_ONLY;
                 string_printf(cc_cmd, " -p");
                 break;
-            case 'e':
-            case 'L':
-            case 'l':
-                string_printf(ld_cmd, " %s", argv[i]);
-                if (argv[i][2] == '\0') {
-                    if (argv[i+1] == NULL)
-                        missing_arg(argv[i]);
-                    string_printf(ld_cmd, " %s", argv[++i]);
+            case 'X':
+                switch (argv[i][2]) {
+                case 'e':
+                case 'L':
+                case 'l':
+                case 'I':
+                    string_printf(ld_cmd, " -%s", argv[i]+2);
+                    if (argv[i][3] == '\0') {
+                        if (argv[i+1] == NULL)
+                            missing_arg(argv[i]);
+                        string_printf(ld_cmd, " %s", argv[++i]);
+                    }
+                    break;
                 }
                 break;
             case 'h':
@@ -485,76 +447,87 @@ err_1:
         goto done;
     }
 ok_1:
-    if (driver_flags & DVR_VM32_TARGET) {
-        string_printf(as_cmd, get_path(VM_AS));
-        string_printf(as_cmd, " -vm32");
-        string_clear(ld_cmd);
-        string_printf(ld_cmd, get_path(VM_LD));
-        string_printf(ld_cmd, " -vm32");
-        string_printf(ld_cmd, " %s", get_path(VM32_CRT));
-        string_printf(ld_cmd, " %s", get_path(VM_LIBC));
-    } else if (driver_flags & DVR_VM64_TARGET) {
-        string_printf(as_cmd, get_path(VM_AS));
-        string_printf(as_cmd, " -vm64");
-        string_clear(ld_cmd);
-        string_printf(ld_cmd, get_path(VM_LD));
-        string_printf(ld_cmd, " -vm64");
-        string_printf(ld_cmd, " %s", get_path(VM64_CRT));
-        string_printf(ld_cmd, " %s", get_path(VM_LIBC));
-    } else if (driver_flags & DVR_X64_TARGET) {
-        string_printf(as_cmd, "nasm -f elf64");
-        string_printf(ld_cmd, GNU_LD);
-    } else {
-        char *p;
-
-        if (musl_libc_is_installed)
-            string_printf(cc_cmd, " -D_MUSL_LIBC");
-        string_printf(as_cmd, get_path(X86_AS));
-        p = strdup(strbuf(ld_cmd));
-        string_printf(ld_cmd, "%s %s", get_path(X86_LD), p);
-        free(p);
-    }
-
     exst = 0;
     if (driver_flags & DVR_HELP) {
         usage(FALSE);
         printf("%s", helpstr);
+        if (verbose)
+            printf("\nCurrent valid arguments for -m:\n"
+                   "  vm32\n"
+                   "  vm64\n"
+                   "  x86\n"
+                   "  x64\n");
+        else
+            printf("\nFor a list of valid arguments to -m, use -h -v.\n");
         goto done;
     }
+    if (driver_flags & DVR_VM32_TARGET) {
+        parse_conf_file("vm32.conf");
+        string_printf(as_cmd, "%s -vm32", search_required("luxvmas", TRUE));
+        string_clear(ld_cmd);
+        string_printf(ld_cmd, "%s -vm32", search_required("luxvmld", TRUE));
+        string_printf(ld_cmd, " %s", search_required("crt32.o", FALSE));
+        string_printf(ld_cmd, " %s", search_required("libc.o", FALSE));
+    } else if (driver_flags & DVR_VM64_TARGET) {
+        parse_conf_file("vm64.conf");
+        string_printf(as_cmd, "%s -vm64", search_required("luxvmas", TRUE));
+        string_clear(ld_cmd);
+        string_printf(ld_cmd, "%s -vm64", search_required("luxvmld", TRUE));
+        string_printf(ld_cmd, " %s", search_required("crt64.o", FALSE));
+        string_printf(ld_cmd, " %s", search_required("libc.o", FALSE));
+    } else if (driver_flags & DVR_X64_TARGET) {
+        parse_conf_file("x64.conf");
+        string_printf(as_cmd, "%s -m64", search_required("luxas", TRUE));
+        p = strdup(strbuf(ld_cmd));
+        string_clear(ld_cmd);
+        string_printf(ld_cmd, "%s -I/lib64/ld-linux-x86-64.so.2 %s", search_required("ld", TRUE), p);
+        free(p);
+    } else {
+        parse_conf_file("x86.conf");
+        string_printf(as_cmd, "%s -m32", search_required("luxas", TRUE));
+        p = strdup(strbuf(ld_cmd));
+        string_clear(ld_cmd);
+        string_printf(ld_cmd, "%s -I/lib/ld-linux.so.2 %s", search_required("ld", TRUE), p);
+        string_printf(ld_cmd, " %s", search_required("liblux.o", FALSE));
+        free(p);
+    }
+    p = strdup(strbuf(cc_cmd));
+    string_clear(cc_cmd);
+    string_printf(cc_cmd, "%s %s", search_required("luxcc", TRUE), p);
+    free(p);
+
     if (c_files==NULL && asm_files==NULL && other_files==NULL) {
         fprintf(stderr, "%s: error: no input files\n", prog_name);
         exst = 1;
         goto done;
     }
     if (driver_flags & DVR_ANALYZE_ONLY) {
-        InFile *fi;
+        PathList *fi;
+        unsigned pos;
 
         if (c_files == NULL)
             goto done;
+        pos = string_get_pos(cc_cmd);
         for (fi = c_files; fi != NULL; fi = fi->next) {
-            unsigned pos;
-
-            pos = string_get_pos(cc_cmd);
             string_printf(cc_cmd, " %s", fi->path);
-            if (exec_cmd(strbuf(cc_cmd)))
+            if (exec_cmd(cc_cmd))
                 exst = 1;
             string_set_pos(cc_cmd, pos);
         }
     } else if (driver_flags & (DVR_PREP_ONLY|DVR_COMP_ONLY)) {
         if (c_files == NULL)
             goto done;
-        if (outpath != NULL) { /* there must be a single C input file */
+        if (outpath != NULL) { /* there is a single C input file */
             string_printf(cc_cmd, " %s -o %s", c_files->path, outpath);
-            exst = !!exec_cmd(strbuf(cc_cmd));
+            exst = !!exec_cmd(cc_cmd);
         } else {
-            InFile *fi;
+            PathList *fi;
+            unsigned pos;
 
+            pos = string_get_pos(cc_cmd);
             for (fi = c_files; fi != NULL; fi = fi->next) {
-                unsigned pos;
-
-                pos = string_get_pos(cc_cmd);
                 string_printf(cc_cmd, " %s", fi->path);
-                if (exec_cmd(strbuf(cc_cmd)))
+                if (exec_cmd(cc_cmd))
                     exst = 1;
                 string_set_pos(cc_cmd, pos);
             }
@@ -564,33 +537,33 @@ ok_1:
             goto done;
         if (c_files != NULL)
             mkstemps(asm_tmp, 2);
-        if (outpath != NULL) { /* there must be a single C or ASM input file */
+        if (outpath != NULL) { /* there is a single C/ASM input file */
             if (c_files != NULL) {
                 string_printf(cc_cmd, " %s -o %s", c_files->path, asm_tmp);
-                if (exec_cmd(strbuf(cc_cmd)) == 0) {
+                if (exec_cmd(cc_cmd) == 0) {
                     string_printf(as_cmd, " %s -o %s", asm_tmp, outpath);
-                    exst = !!exec_cmd(strbuf(as_cmd));
+                    exst = !!exec_cmd(as_cmd);
                 } else {
                     exst = 1;
                 }
             } else {
                 string_printf(as_cmd, " %s -o %s", asm_files->path, outpath);
-                exst = !!exec_cmd(strbuf(as_cmd));
+                exst = !!exec_cmd(as_cmd);
             }
         } else {
             char *s;
-            InFile *fi;
+            PathList *fi;
             unsigned cpos, apos;
 
+            cpos = string_get_pos(cc_cmd);
+            apos = string_get_pos(as_cmd);
             for (fi = c_files; fi != NULL; fi = fi->next) {
-                cpos = string_get_pos(cc_cmd);
                 string_printf(cc_cmd, " %s -o %s", fi->path, asm_tmp);
-                if (exec_cmd(strbuf(cc_cmd)) == 0) {
-                    apos = string_get_pos(as_cmd);
+                if (exec_cmd(cc_cmd) == 0) {
                     s = replace_extension(fi->path, ".o");
                     string_printf(as_cmd, " %s -o %s", asm_tmp, s);
                     free(s);
-                    if (exec_cmd(strbuf(as_cmd)))
+                    if (exec_cmd(as_cmd))
                         exst = 1;
                     string_set_pos(as_cmd, apos);
                 } else {
@@ -599,11 +572,10 @@ ok_1:
                 string_set_pos(cc_cmd, cpos);
             }
             for (fi = asm_files; fi != NULL; fi = fi->next) {
-                apos = string_get_pos(as_cmd);
                 s = replace_extension(fi->path, ".o");
                 string_printf(as_cmd, " %s -o %s", fi->path, s);
                 free(s);
-                if (exec_cmd(strbuf(as_cmd)))
+                if (exec_cmd(as_cmd))
                     exst = 1;
                 string_set_pos(as_cmd, apos);
             }
@@ -615,7 +587,7 @@ ok_1:
         char *obj_tmps[64];
         unsigned cpos, apos;
         char *asm_tmp_p;
-        InFile *fi;
+        PathList *fi;
 
         if (c_files != NULL) {
             if (alt_asm_tmp != NULL) {
@@ -626,16 +598,16 @@ ok_1:
             }
         }
         ntmp = 0;
+        cpos = string_get_pos(cc_cmd);
+        apos = string_get_pos(as_cmd);
         for (fi = c_files; fi != NULL; fi = fi->next) {
-            cpos = string_get_pos(cc_cmd);
             string_printf(cc_cmd, " %s -o %s", fi->path, asm_tmp_p);
-            if (exec_cmd(strbuf(cc_cmd)) == 0) {
-                apos = string_get_pos(as_cmd);
+            if (exec_cmd(cc_cmd) == 0) {
                 sprintf(obj_tmp, "/tmp/luxXXXXXX.o");
                 mkstemps(obj_tmp, 2);
                 obj_tmps[ntmp++] = strdup(obj_tmp);
                 string_printf(as_cmd, " %s -o %s", asm_tmp_p, obj_tmp);
-                if (exec_cmd(strbuf(as_cmd)))
+                if (exec_cmd(as_cmd))
                     exst = 1;
                 string_set_pos(as_cmd, apos);
             } else {
@@ -644,17 +616,16 @@ ok_1:
             string_set_pos(cc_cmd, cpos);
         }
         for (fi = asm_files; fi != NULL; fi = fi->next) {
-            apos = string_get_pos(as_cmd);
             sprintf(obj_tmp, "/tmp/luxXXXXXX.o");
             mkstemps(obj_tmp, 2);
             obj_tmps[ntmp++] = strdup(obj_tmp);
             string_printf(as_cmd, " %s -o %s", fi->path, obj_tmps);
-            if (exec_cmd(strbuf(as_cmd)))
+            if (exec_cmd(as_cmd))
                 exst = 1;
             string_set_pos(as_cmd, apos);
         }
         if (exst == 0) {
-            InFile *fp;
+            PathList *fp;
 
             /* TOFIX: the order of the files should remain the same */
             for (i = 0; i < ntmp; i++)
@@ -663,20 +634,14 @@ ok_1:
                 string_printf(ld_cmd, " %s", fp->path);
             if (outpath != NULL)
                 string_printf(ld_cmd, " -o %s", outpath);
-            if (driver_flags & DVR_X86_TARGET) {
-                if (musl_libc_is_installed)
-                    string_printf(ld_cmd, " %s", get_path(X86_LIBC));
-                else
-                    string_printf(ld_cmd, " %s -I/lib/ld-linux.so.2", get_path(X86_LIBC));
-            } else if (driver_flags & DVR_X64_TARGET) {
-                string_printf(ld_cmd, " /usr/lib/x86_64-linux-gnu/crt1.o"
-									  " /usr/lib/x86_64-linux-gnu/crti.o"
-									  " /usr/lib/x86_64-linux-gnu/crtn.o"
-									  " /lib/x86_64-linux-gnu/libc.so.6"
-									  " /usr/lib/x86_64-linux-gnu/libc_nonshared.a"
-									  " -I/lib64/ld-linux-x86-64.so.2");
+            if (driver_flags & (DVR_X86_TARGET+DVR_X64_TARGET)) {
+                string_printf(ld_cmd, " %s", search_required("crt1.o", FALSE));
+                string_printf(ld_cmd, " %s", search_required("crti.o", FALSE));
+                string_printf(ld_cmd, " %s", search_required("crtn.o", FALSE));
+                string_printf(ld_cmd, " %s", search_required("libc.so.6", FALSE));
+                string_printf(ld_cmd, " %s", search_required("libc_nonshared.a", FALSE));
             }
-            exst = !!exec_cmd(strbuf(ld_cmd));
+            exst = !!exec_cmd(ld_cmd);
         }
         if (alt_asm_tmp==NULL && c_files!=NULL)
             unlink(asm_tmp_p);
@@ -687,7 +652,7 @@ ok_1:
     }
 done:
     if (c_files != NULL) {
-        InFile *tmp;
+        PathList *tmp;
         do {
             tmp = c_files;
             c_files = c_files->next;
@@ -695,7 +660,7 @@ done:
         } while (c_files != NULL);
     }
     if (asm_files != NULL) {
-        InFile *tmp;
+        PathList *tmp;
         do {
             tmp = asm_files;
             asm_files = asm_files->next;
@@ -703,12 +668,24 @@ done:
         } while (asm_files != NULL);
     }
     if (other_files != NULL) {
-        InFile *tmp;
+        PathList *tmp;
         do {
             tmp = other_files;
             other_files = other_files->next;
             free(tmp);
         } while (other_files != NULL);
+    }
+    for (i = 0; i < nreq; i++) {
+        PathList *tmp1, *tmp2;
+
+        free(required_files[i].name);
+        tmp1 = required_files[i].dirs;
+        do {
+            tmp2 = tmp1;
+            tmp1 = tmp1->next;
+            free(tmp2->path);
+            free(tmp2);
+        } while (tmp1 != NULL);
     }
     string_free(cc_cmd);
     string_free(as_cmd);

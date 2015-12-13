@@ -187,7 +187,7 @@ static char *search_angle(char *inc_arg)
     for (i = 0; i < nangle_dirs; i++) {
         strcpy(path, angle_dirs[i]);
         strcat(path, inc_arg);
-        if (file_exist(path))
+        if (file_exists(path))
             return path;
     }
 
@@ -197,7 +197,7 @@ static char *search_angle(char *inc_arg)
     for (i = 0; i < ndefault_angle_dirs; i++) {
         strcpy(path, default_angle_dirs[i]);
         strcat(path, inc_arg);
-        if (file_exist(path))
+        if (file_exists(path))
             return path;
     }
 
@@ -231,7 +231,7 @@ static char *search_quote(char *inc_arg)
         path[n] = '\0';
         strcat(path, inc_arg);
     }
-    if (file_exist(path))
+    if (file_exists(path))
         return path;
     else
         free(path);
@@ -244,7 +244,7 @@ static char *search_quote(char *inc_arg)
     for (i = 0; i < nquote_dirs; i++) {
         strcpy(path, quote_dirs[i]);
         strcat(path, inc_arg);
-        if (file_exist(path))
+        if (file_exists(path))
             return path;
     }
 

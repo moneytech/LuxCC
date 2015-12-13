@@ -1615,7 +1615,7 @@ search:
                 char path[256];
 
                 sprintf(path, "%s/%s", dirs[k], libname);
-                if (file_exist(path)) {
+                if (file_exists(path)) {
                     process_file(path, libname);
                     break;
                 }
