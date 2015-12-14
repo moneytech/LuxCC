@@ -2,7 +2,7 @@ GETARCH = $(shell uname -i)
 CC=../luxcc
 AS=../luxas/luxas
 VMAS=../luxvm/luxvmas
-LIBC_FILES=libc.c ctype.c errno.c misc.c stdio.c stdlib.c string.c
+LIBC_FILES=libc.c ctype.c errno.c stdio.c stdlib.c string.c
 ifeq ($(GETARCH), i386)
 	CRT = crt32
 else
