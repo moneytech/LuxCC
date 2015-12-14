@@ -1,0 +1,7 @@
+Test Triple DES (2-block CBC, with variant key)
+
+Key:         68addfd661150e8c1c102f6ba2a8754a
+Variant key: 2c6d9b1625d54a4c58d06babe668318a
+Original:    bf54499d8f3e8a49a134bc5875c14679
+Encrypted:   11b96c137ef10b7f5343e70402e0a7f3
+Decrypted:   bf54499d8f3e8a49a134bc5875c14679

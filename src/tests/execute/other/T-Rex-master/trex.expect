@@ -1,0 +1,19 @@
+[0]<a href='link.html'>link</a>
+[1]link.html
+[2]link
+match! 3 sub matches
+=============================
+Simple matching string cases.
+Test string: Match some part of this string.
+Test 1: missing letter
+True negative: No matches for 'soe'.
+Test 2: missing space
+True negative: No matches for 'matchs'.
+Test 3a: case mismatch
+True negative: No matches for 'match'.
+Test 3b: case match
+True positive: String 'Match' matched.
+Test 4: unused character
+True negative: No matches for '!'.
+Test 5: single character
+True positive: String '.' matched.

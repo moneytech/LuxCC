@@ -1,0 +1,7 @@
+Test AES
+
+Key:         12345612345612345612345612345612
+Original:    abcdefabcdefabcdefabcdefabcdefab
+Encrypted should be: 85E5A3D7356A61E29A8AFA559AD67102
+Encrypted:   85e5a3d7356a61e29a8afa559ad67102
+Decrypted:   abcdefabcdefabcdefabcdefabcdefab
