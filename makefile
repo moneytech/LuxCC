@@ -1,4 +1,4 @@
-all: luxcc luxas luxld luxvm luxdvr lib
+all: luxcc luxas luxld luxvm luxdvr lib tools
 
 luxcc:
 	make -C src
@@ -12,6 +12,8 @@ luxdvr:
 	make -C src/luxdvr
 lib: luxcc luxvm
 	make -C src/lib
+tools:
+	make -C src/tools
 install:
 	cp src/luxcc src/luxdvr/luxdvr /usr/local/bin/
 	cp src/luxvm/luxvm src/luxvm/luxvmas src/luxvm/luxvmld /usr/local/bin/
@@ -31,6 +33,7 @@ clean:
 	make -C src/luxvm  clean
 	make -C src/luxdvr clean
 	make -C src/lib	   clean
+	make -C src/tools  clean
 	rm -rf src/tests/self
 
 .PHONY: all luxcc luxas luxld luxvm luxdvr lib install uninstall test clean
