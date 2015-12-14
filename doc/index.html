@@ -1,0 +1,1328 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html><head>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<meta http-equiv="content-type" content="text/html; charset=utf-8"></head><body><span style="font-family: monospace;"></span><span style="font-family: monospace;">Luxcc usage and internals documentation. I will try to maintain this document updated as things evolve.</span><br>
+<br>
+<big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big>Index<br></big></big></big><span style="font-family: Times New Roman;">
+</span>
+<ul>
+  </ul><ul><li><a href="#Introduction">1. Introduction</a><br>
+</li>
+  <li><a href="#Usage">2. Usage</a></li>
+  <ul>
+    <li><a href="#BuildingInstalling">2.1 Building/Installing</a><br>
+    </li>
+  </ul>
+<ul><li><a href="#Basic_usage">2.2 Basic Usage</a><br>
+</li>
+    <li><a href="#Dumping_and_Drawing_Stuff">2.3 Dumping and Drawing Stuff</a><br>
+    </li>
+</ul><li><a href="#Internals">3. Internals</a></li><ul><li><a href="#Compiler_Overview"><span style="font-family: Times New Roman;">3.1 Compiler Overview</span></a><br><a href="#Preprocessor"><span style="font-family: Times New Roman;"></span></a></li><li><a href="#Preprocessor"><span style="font-family: Times New Roman;">3.2 Preprocessor</span></a></li><li><span style="font-family: Times New Roman;"><a href="#Lexer">3.3 Lexer</a></span></li><li><span style="font-family: Times New Roman;"><a href="#Parser">3.4 Parser</a></span></li><li><span style="font-family: Times New Roman;"><a href="#Semantic_Analyzer">3.5 Semantic Analyzer</a></span></li><li><a href="#Intermediate_Code_Generation"><span style="font-family: Times New Roman;">3.6 Intermediate Code Generation</span></a></li><li><span style="font-family: Times New Roman;"><a href="#Data-Flow_Analysis">3.7 Data-Flow Analysis</a><br></span></li><li><span style="font-family: Times New Roman;"><a href="#Target_Code_Generation">3.8 Target Code Generation</a></span></li>
+    <ul>
+      <li><span style="font-family: Times New Roman;"><a href="#LuxVM_Target">3.8.1 LuxVM Target</a></span></li>
+      <li><span style="font-family: Times New Roman;"><a href="#x86_Target">3.8.2 x86 Target</a></span></li>
+      <li><span style="font-family: Times New Roman;"><a href="#x64_Target">3.8.3 x64 Target</a><br>
+</span></li>
+
+
+    </ul>
+
+    <li><span style="font-family: Times New Roman;"><a href="#Compiler_Driver">3.9 Compiler Driver</a></span></li>
+</ul>
+  <li><a href="#Testing">4. Testing</a><span style="font-family: Times New Roman;"><br>
+</span></li>
+<li><a href="#Missing_features">5. Missing Features</a></li><li><a href="#Resources">6. Resources</a><br></li>
+  
+  
+  
+  
+</ul>
+<big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><big><a name="Introduction"></a>1.Introduction</big><br>
+</big></big></big><br>
+LuxCC is a small compiler for a subset of the C programming language.
+This subset is basically C89 (without floating-point numbers and some obsolete or uncommon features) plus a few C99 features.<br>
+<br>
+The compiler comes along with other tools that complete the development toolchain (assemblers, linkers, and VMs).<br>
+<br>
+LuxCC is able to compile itself and also other non-trivial programs (see the tests for examples).<br>
+<br>
+LuxCC currently targets:<br>
+<ul>
+  <li>x86 32-bit<br>
+  </li>
+  <li>x86 64-bit<br>
+  </li>
+  <li>LuxVM 32-bit</li>
+  <li>LuxVM 64-bit</li>
+</ul>The compiler is intended to run/target Linux only. Porting it to
+Windows would require some considerable amount of work (I suppose
+porting it to other Unix-like OS should be easier).<br>
+<br>
+This is a one-man project developed mainly for educational purposes
+(and fun!); it is not intended to replace any existing compiler/tool.<br>
+<br>
+<div style="text-align: left;"><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Usage"></a><big>2. Usage</big></big></big></big><br></div><br><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="BuildingInstalling"></a>2.1 Building/Installing<br>
+</big></big></big><br>
+First of all go to the base working directory. Once there, you can run <span style="font-family: monospace;">make</span> (or <span style="font-family: monospace;">make all</span>) to build the core compiler and all of the tools. <br>
+After that you can run <span style="font-family: monospace;">make install</span> or, alternatively, you can execute the compiler and everything else from within the base working directory.<br>
+<br>
+<span style="font-weight: bold;">System's libc and .conf files</span><br>
+<br>
+The x86 and x64 targets use the system's implementation of the C standard library.<br>
+
+<br>
+Before do anything, check out the <span style="font-family: monospace;">.conf</span> file for your platform (<span style="font-family: monospace;">x86.conf</span> or <span style="font-family: monospace;">x64.conf</span>) located at <span style="font-family: monospace;">src/luxdvr/</span> and make sure that the files exist in the indicated paths. For example, in <span style="font-family: monospace;">x86.conf</span> you will see<br>
+<br>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">libc.so.6: /lib/i386-linux-gnu</span><br>
+</div>
+<br>
+meaning that the compiler driver will look for the file <span style="font-family: monospace;">libc.so.6</span> (the C standard library) at the directory <span style="font-family: monospace;">/lib/i386-linux-gnu</span>. If said file is not located there, modify the line to the correct location (you can compile a dummy program with <span style="font-family: monospace;">gcc</span> and the <span style="font-family: monospace;">-v</span> option to see where gcc is pulling a specific file from). The directories listed in <span style="font-family: monospace;">x86.conf</span> and <span style="font-family: monospace;">x64.conf</span>
+are the directories where the files were installed by default in my Linux
+distribution (Ubuntu 12.04 32-bits and Ubuntu 14.04 64-bits
+respectively).<br>
+<br><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Basic_usage"></a>2.2 Basic usage<br>
+</big></big></big><br>
+In the following examples I will assume that you have run make install (replace <span style="font-family: monospace;">luxdvr</span> for <span style="font-family: monospace;">src/luxdvr/luxdvr</span> otherwise). I will also assume that the target is x86 (the default).<br>
+<br>
+<span style="text-decoration: underline;">Note</span>: command-line
+arguments must be passed individually, that is, if you want to pass the
+arguments A, B, and C you must write `-A -B -C' instead of `-ABC'.<br>
+<span style="font-family: monospace;"></span>
+<ul>
+  <li>Full compile (compile, assemble, and link):</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">$ luxdvr test.c -o test</span><span style="font-family: monospace;"></span><br>
+<span style="font-family: monospace;"></span></div>
+<ul>
+  <li>Compile and assemble but do not link (by default output goes to <span style="font-family: monospace;">test.o</span>):</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">$ luxdvr -c test.c</span><span style="font-family: monospace;"></span><span style="font-family: monospace;"></span><br>
+</div>
+<ul>
+  <li>Compile only:</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">$ luxdvr -S test.c -o test.s</span><br>
+</div>
+<ul>
+  <li>Preprocess only (by default output goes to <span style="font-family: monospace;">stdout</span>):</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">$ luxdvr -E test.c</span><br>
+</div>
+<ul>
+  <li>Perform static analysis only:</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">$ luxdvr -analyze test.c</span><br>
+</div>
+<br>
+<big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Dumping_and_Drawing_Stuff"></a>2.3 Dumping and Drawing Stuff</big></big></big><br>
+<br>
+I will use the program <span style="font-family: monospace;">src/tests/execute/ackermann.c</span> as an example. To graph the .dot files you will need the <span style="font-family: monospace;">dot</span> program that is installed with the <a href="http://www.graphviz.org/">Graphviz</a> package.<span style="font-family: monospace;"></span><br>
+<ul>
+  <li>Dump tokens:<br>
+  </li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">$ luxdvr -dump-tokens src/tests/execute/ackermann.c</span><br>
+<span style="font-family: monospace;"></span><span style="font-family: monospace;">$ cat </span><span style="font-family: monospace;">src/tests/execute/ackermann.tok</span></div>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">src/tests/execute/ackermann.c:2:0&nbsp;&nbsp;
+=&gt;&nbsp;&nbsp; token:
+INT&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+lexeme: `int'</span><br>
+<span style="font-family: monospace;">src/tests/execute/ackermann.c:2:4&nbsp;&nbsp;
+=&gt;&nbsp;&nbsp; token:
+ID&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+lexeme: `printf'</span><br>
+<span style="font-family: monospace;">src/tests/execute/ackermann.c:2:10&nbsp;
+=&gt;&nbsp;&nbsp; token:
+LPAREN&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; lexeme: `('</span><br>
+<span style="font-family: monospace;">src/tests/execute/ackermann.c:2:11&nbsp;
+=&gt;&nbsp;&nbsp; token:
+CONST&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+lexeme: `const'</span><br>
+<span style="font-family: monospace;">src/tests/execute/ackermann.c:2:17&nbsp;
+=&gt;&nbsp;&nbsp; token:
+CHAR&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+lexeme: `char'</span><br>
+<span style="font-family: monospace;">src/tests/execute/ackermann.c:2:22&nbsp;
+=&gt;&nbsp;&nbsp; token:
+STAR&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+lexeme: `*'</span><br>
+<span style="font-family: monospace;"></span><span style="font-family: monospace;"> ...</span><br>
+<span style="font-family: monospace;"></span></div>
+<ul>
+  <li>Dump function intermediate code (x86 only)</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">$ luxdvr -dump-ic ackermann src/tests/execute/ackermann.c</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">$ cat src/tests/execute/ackermann.ic</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">(0) jmp L0</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">(1) L0:</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">(2) t1 = m == 0</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">(3) cbr L2, t1, L3</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">(4) L2:</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">(5) t2 = n + 1</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">(6) ret t2</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">(7) jmp L1</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">(8) jmp L4</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">(9) L3:</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">...</span><br>
+</div>
+<ul>
+  <li>Dump program AST</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">$ luxdvr -dump-ast src/tests/execute/ackermann.c</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">$ dot -Tpng src/tests/execute/ackermann.ast.dot -o ackermann_ast.png<br>
+</span></div>
+<ul>
+  <li>Dump function CFG (x86/x64 only)</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">$ luxdvr -dump-cfg ackermann src/tests/execute/ackermann.c</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">$ dot -Tpng src/tests/execute/ackermann.cfg.dot -o ackermann_cfg.png<br>
+</span></div>
+
+<ul>
+  <li>Dump program call-graph (x86/x64 only)</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">$ luxdvr -dump-cg src/tests/execute/ackermann.c</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">$ dot -Tpng src/tests/execute/ackermann.cg.dot -o ackermann_cg.png<br>
+</span></div>
+<br>
+Type <span style="font-family: monospace;">luxdvr -h</span> to see additional command-line options.<br>
+<br>
+
+<big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Internals"></a><big>3. Internals</big><br></big></big></big><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><br><a name="Compiler_Overview"></a>3.1 Compiler Overview</big></big></big><br>
+<img src="res/img1.png" alt="" style="width: 1242px; height: 153px;"><br>
+<big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Preprocessor"></a>3.2 Preprocessor<br>
+</big></big></big><br>The preprocessor (<span style="font-family: monospace;">pre.c</span>)
+constitutes the first pass of the compiler. It is NOT a
+standard-compliant preprocessor. It only supports a subset big enough
+to allow self-compilation (that is, it only supports things that the
+compiler uses). The grammar recognized by the preprocessor's parser can
+be found in EBNF notation at <a href="res/pre_grammar.txt">pre_grammar.txt</a>. Some of the most important missing features are:<br><ul><li>The <span style="font-family: monospace;">line</span>, <span style="font-family: monospace;">error</span>, <span style="font-family: monospace;">pragma</span> directives.</li><li>The stringification ('#') and concatenation ('##') operators.</li><li>The constant expressions (<span style="font-family: monospace;">constant_expression</span> in the grammar) that the preprocessor supports are somewhat limited:</li>
+  <ul>
+    <li>all the macro names that appear in expressions must expand
+directly to decimal constants (undefined macro names are replaced for
+zero).</li>
+    <li>the operators <span style="font-family: monospace;">?:</span>, <span style="font-family: monospace;">&amp;&amp;</span>, and <span style="font-family: monospace;">||</span> don't behave in a short-circuit fashion.</li>
+    <li>all the integer constants that appear in expressions must be decimal.</li>
+    <li>all operations are performed in <span style="font-family: monospace;">signed long long</span> type.<br>
+    </li>
+  </ul>
+</ul><strong>Basic operation:</strong><br>
+<br style="font-family: Times New Roman;">
+1) Read and buffer the source file.<br style="font-family: Times New Roman;">
+<br style="font-family: Times New Roman;">
+2) Perform line splicing.<br style="font-family: Times New Roman;">
+<br style="font-family: Times New Roman;">
+3) Tokenize the buffered file. The main functions in charge of this are<span style="font-family: Times New Roman;"> </span><span style="font-family: monospace;">tokenize()</span><span style="font-family: Times New Roman;"> </span>and<span style="font-family: Times New Roman;"> </span><span style="font-family: monospace;">get_token()</span>. After this, the
+preprocessor is left with a list of preprocessor tokens (<span style="color: black; font-family: monospace;">PreTokenNode</span><span style="font-family: Times New Roman;"> </span>structs) as its main
+input. The buffered file is freed.<br style="font-family: Times New Roman;">
+<br style="font-family: Times New Roman;">
+4)<span style="font-family: Times New Roman;"> </span>Parse the
+preprocessing token list. The parser (the preprocessor's one) not only
+check for gramatical correctness, it also executes directives, expands
+macros, and marks the tokens that must be skipped by the lexer.<br style="font-family: Times New Roman;">
+<br style="font-family: Times New Roman;">
+5) Return the resulting list of preprocessing tokens.<br style="font-family: Times New Roman;">
+<br style="font-family: Times New Roman;">
+As mentioned previously, the main data structure that the preprocessor
+manipulates is a linked list of<span style="font-family: Times New Roman;"> <span style="color: black; font-family: monospace;">PreTokenNode</span> </span>nodes<span style="font-family: Times New Roman;">:</span><br>
+<span style="font-family: monospace;"><br></span>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">
+&nbsp;&nbsp;&nbsp; typedef struct PreTokenNode PreTokenNode;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; struct
+PreTokenNode {</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; PreToken token;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp; &nbsp; &nbsp;&nbsp;&nbsp;
+char *lexeme, *src_file;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+int src_line, src_column;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+char next_char;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+char deleted; </span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+PreTokenNode *next;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; };</span><br>
+<span style="font-family: monospace;">
+</span></div>
+
+
+
+
+
+
+
+
+
+<ul>
+  <li style="font-family: Times New Roman;"><span style="font-family: monospace;">token</span>: enumeration value
+indicating the preprocessing token. The possible values can be found in
+    <span style="font-style: italic;">pre.h</span>.<br>
+  </li>
+  <li style="font-family: Times New Roman;"><span style="font-family: monospace;">lexeme</span>: token's lexeme.<br>
+  </li>
+  <li style="font-family: Times New Roman;"><span style="font-family: monospace;">src_file</span>: source file of which
+this preprocessing token comes from.</li>
+  <li style="font-family: Times New Roman;"><span style="font-family: monospace;">src_line</span>: lexeme's last char
+line number.<br>
+  </li>
+  <li style="font-family: Times New Roman;"><span style="font-family: monospace;">src_column</span>: lexeme's first char
+column number.<br>
+  </li>
+  <li style="font-family: Times New Roman;"><span style="font-family: monospace;">next_char</span>: used with
+function-like macros to distinguish between "name(" and "name (", that
+is, to know if the left parenthesis is immediately next to the macro
+name or not.<br>
+  </li>
+  <li style="font-family: Times New Roman;"><span style="font-family: monospace;">deleted</span>: boolean value
+indicating if this node was deleted by the preprocessor. If it's true,
+the lexer will skip over it.</li>
+  <li><span style="font-family: Times New Roman;"><span style="font-family: monospace;">next</span>: pointer to next
+preprocessing token.</span></li>
+</ul>
+The token type <span style="font-family: monospace;">PRE_TOK_MACRO_REENABLER</span><span style="font-style: italic;">
+</span>may require some extra explanation. It's used to avoid infinite
+macro expansions. When a macro is expanded, a node of this type is
+inserted right after the macros's body, and the macro is marked as
+'disabled' in the macro symbol table. If the name of the macro is
+encounter in the body, it will not be expanded. The node inserted after
+the macro's body will reenable the macro marking it back as 'enabled'
+in the macro symbol table.<br>
+For example, having the macro definition<br>
+<br>
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; #define FOO FOO<br>
+<br>
+</span>the code<br style="font-family: monospace;">
+<span style="font-family: monospace;"><br>
+&nbsp;&nbsp;&nbsp; FOO + ...<br>
+<br>
+</span>will be seen as follow before and after expansion (green ovals
+are enabled macro names, blue ovals are normal preprocessing tokens,
+and gray ovals are nodes marked to be skipped by the lexer):<br>
+<div style="text-align: left;"><img style="width: 628px; height: 283px;" alt="" src="res/img2.png"><br>
+</div>
+<br>
+The above is an example of a <span style="font-style: italic;">self-referential
+</span>macro. This mechanism works with <span style="font-style: italic;">indirect self-referential</span> macros
+too. For example, having the macro definitions<br>
+<span style="font-family: monospace;"><br>
+&nbsp;&nbsp;&nbsp; #define X (4 + y)</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; #define Y (2 +
+x)<br>
+<br>
+</span>the code<br>
+<br>
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; X</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; X</span><br>
+<br>
+will expand as follows<br>
+<br>
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; X ==&gt; (4 +
+Y) ==&gt; (4 + (2 * X)) // X is disabled in this last step</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; Y ==&gt; (2 *
+X) ==&gt; (2 * (4 + Y)) // Y is </span><span style="font-family: monospace;"></span><span style="font-family: monospace;">disabled in this last step</span><br>
+<br>
+<span style="text-decoration: underline; font-weight: bold;">A note
+about macro arguments</span>:<br>
+<br>
+The standard requires that all arguments to a macro be completely
+macro-expanded before being substituted into the macro body (<span style="font-style: italic;">6.10.3#1</span>). The current
+implementation doesn't expand macro arguments, and that can change the
+results in certain particular cases:<br>
+<ul>
+  <li>Macros used in arguments, whose expansion contain unshielded
+commas.</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">#define
+foo&nbsp; a,b</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">#define bar(x) lose(x)</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">#define lose(x) (1 + (x))</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">...</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">bar(foo) // should expand into
+lose(a,b) and produce an 'parameter number mismatch' error;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp; // instead, it expands into (1 + (a,b))</span><br>
+</div>
+<ul>
+  <li>Nested calls to a macro.</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">#define
+f(x) x*2</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">...</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">f(f(1)) // should expand f(1) and
+substitute that into the definition of f, yielding 1*2*2;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; // instead, it expands into f(1)*2</span><br>
+</div>
+<br>
+For more info see <a href="https://gcc.gnu.org/onlinedocs/cpp/Argument-Prescan.html">here</a>
+(<span style="font-style: italic;">cpp</span> handles this right).<br>
+<br>
+<big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Lexer"></a>3.3 Lexer<br>
+</big></big></big><br>The lexer (<span style="font-family: monospace;">lexer.c</span>) is the
+responsible of convert preprocessing tokens into C tokens. This
+corresponds roughly to the translation phases 5, 6, and part of 7 as
+described by the standard. <br>
+<br><strong>
+Basic operation:</strong><br>
+<br>
+1) Take the list of preprocessor tokens as produced by the preprocessor
+and analyze each node individually.<br>
+<br>
+2) If the node is marked as 'deleted', ignore it and go to the next one.<br>
+<br>
+3) If the node is not marked as 'deleted', create a new C token node
+according to the node type:<br>
+<ul>
+  <li>Preprocessing EOF tokens are simply converted into C EOF tokens.<br>
+  </li>
+  <li>Preprocessing punctuator tokens are converted by using their
+lexeme to index into a table and obtain the corresponding C token type.</li>
+  <li>Preprocessing number tokens are examined to see if their lexeme
+constitutes a valid C integer constant (octal, decimal, or hexadecimal,
+with or without sign/width suffix/es). The conversion <span style="font-style: italic;"></span><span style="color: rgb(0, 0, 0); font-family: sans-serif; font-size: 24px; font-style: normal; font-variant: normal; letter-spacing: normal; line-height: 38.08px; text-align: center; text-indent: 0px; text-transform: none; white-space: normal; word-spacing: 0px; display: inline ! important; float: none; background-color: rgb(249, 249, 249);"></span><span style="font-style: italic;"></span>string to integer is not yet
+performed here.<br>
+  </li>
+  <li>Preprocessing identifier tokens before being assigned the token type <span style="font-family: monospace;">TOK_ID</span> are looked up into a table to see
+if their lexeme constitutes a keyword.</li>
+  <li>Preprocessing character tokens are converted to the equivalent
+numeric representation (yet in string form). Also, any escape sequence
+is substituted.</li>
+  <li>Preprocessing string literal tokens are concatenated, and the
+individual strings get their double quotes removed and go through
+escape sequence substitution.<br>
+  </li>
+  <li>Preprocessing 'other' tokens are ignored.<br>
+  </li>
+</ul>
+4) Free the list of preprocessing tokens.<br>
+<br>
+After the lexer analyzes all the nodes it returns a list of C tokens.
+Each C token node has the form:<br>
+<br>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; typedef struct
+TokenNode TokenNode;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; struct
+TokenNode {</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; Token token;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; char *lexeme, *src_file;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;
+int src_line, src_column;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; TokenNode *next;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; };</span><br>
+</div>
+
+
+
+
+
+
+
+<ul>
+  <li><span style="font-family: monospace;">token</span>: enumeration
+value indicating the C token. The possible values can be found in <span style="font-style: italic;">lexer.h</span>.<br>
+  </li>
+  <li><span style="font-family: monospace;">lexeme</span>: lexeme
+resultant of lexer's work.</li>
+  <li><span style="font-family: monospace;">src_file, src_line,
+src_column</span>: same as <span style="font-family: monospace;">PreTokenNode'</span>s
+members.</li>
+  <li><span style="font-family: monospace;">next: </span>pointer to
+next C token node.<br>
+  </li>
+</ul>
+<big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Parser"></a>3.4 Parser<br>
+</big></big></big><br>
+<span style="font-style: italic;"></span>The parser (<span style="font-family: monospace;">parser.c</span>) is a hand-coded recursive descent parser. It takes as input the list
+of C tokens returned by the lexer and try to recognize its syntactic
+structure. The grammar recognized by the parser can be found in EBNF
+notation at <a href="res/grammar.txt">grammar.txt</a>.<br>
+<br>
+The parser also controls the semantic analyzer. After it determines the
+<span style="font-style: italic;">syntactic</span> correctness of a
+construct, it generally calls functions of the semantic analyzer to
+determine the <span style="font-style: italic;">semantic</span>
+correctness of the same construct.<br>
+<br>
+The parser doesn't do any form of error recovery. When it encounters a
+syntax error it just reports it and dies.<br>
+<br>
+The output of the parser is an abstract syntax tree (AST) of some form.
+The ASTs that represent declarations are composed of the node types <span style="font-family: monospace;">TypeExp</span>, <span style="font-family: monospace;">Declaration</span>, <span style="font-family: monospace;">DeclList</span>, and <span style="font-family: monospace;">ExternDecl</span>. The ASTs that represent
+statements and expressions are composed uniquely of the node type <span style="font-family: monospace;">ExecNode</span>. The node definitions can
+be found in <span style="font-style: italic;">parser.h</span>.<br>
+<br>
+Next is an example of a small C program and its corresponding AST
+as generated by the parser:<br>
+<br>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; int main(void)</span><br>
+<span style="font-family: monospace;">
+&nbsp;&nbsp;&nbsp; {</span><br>
+<span style="font-family: monospace;">
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;  int i, x[10];</span><br>
+<span style="font-family: monospace;">
+</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">
+</span><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; for (i = 0; i &lt; 10; i++)</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; x[i] = 0;</span><br>
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; return 0;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;"></span><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; }</span><br>
+<span style="font-family: monospace;"></span></div>
+<span style="font-family: monospace;">
+<br></span><img style="width: 800px; height: 658px;" alt="" src="res/img3.png"><br><span style="font-family: monospace;"><br></span>
+<big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Semantic_Analyzer"></a>3.5 Semantic Analyzer<br>
+</big></big></big><br>
+The semantic analyzer performs static analysis over the source code
+making sure it doesn't violate any constraint.&nbsp; It's composed of
+three parts: the declaration analyzer (<span style="font-style: italic;">decl.h/decl.c</span>), the expression
+analyzer (<span style="font-style: italic;">expr.h/expr.c</span>), and
+the statement analyzer (<span style="font-style: italic;">stmt.c/stmt.h</span>).
+The following sub-sections explain each part in detail.<big><span style="text-decoration: underline;"><span style="font-weight: bold;"><br>
+<br>
+</span></span><span style="font-weight: bold; text-decoration: underline;">The
+Declaration Analyzer</span><br>
+</big><br>
+The main tasks of this part are:<br>
+<ul>
+  <li>Manage scopes and name spaces. A new scope is created when
+encountering the left parenthesis of a function declarator or the left
+brace of a compound statement and is destroyed when encountering the
+corresponding right parenthesis/brace. This part of the semantic
+analyzer handles three of the four name spaces available (the remaining
+being handled by the statement analyzer). It handles the ordinary
+identifiers and tags name spaces using a scoped symbol table, and the
+union/struct members name space using a stack of union/struct
+descriptors. Before installing an identifier in any of the names spaces,
+it checks for clashes with previous declarations that define the same
+identifier.</li>
+  <li>Check that the types used in declarations make sense and that
+things like <span style="font-family: monospace;">char int i, int
+a[5][], int x(void)[5], </span>etc, don't go unnoticed.<br>
+  </li>
+  <li>Help the parser with typedef-names. <span style="font-family: monospace;">typedef</span>s make the C grammar
+hard to parse without some context information. This part of the
+analyzer gives that context to the parser through the<span style="font-family: monospace;"> is_typedef_name()</span> function.</li>
+  <li>Check initializers. Objects must be initialized by expressions of
+the correct type and, in the case of objects with static storage
+duration, those expressions must be computable at compile-time.</li>
+  <li>Enforce type and linkage agreement between external declarations.</li>
+</ul>
+This part also gives some misc utilities to other parts of the
+compiler, like <span style="font-family: monospace;">is_X()</span> and
+<span style="font-family: monospace;">get_X()</span> kind of functions
+and a type stringification function used for diagnostics.<br>
+<br>
+<strong>Type derivation, qualifiers, and more...<br>
+<br>
+</strong><span style="text-decoration: underline;">Array type derivation</span><br>
+<blockquote>
+6.2.5#20<br>
+An array type is said to be derived from its element type, and if its
+element type is T , the array type is sometimes called "array of T ".<br>
+</blockquote>
+Example:<br>
+&nbsp;&nbsp;&nbsp; <span style="font-family: monospace;">int x[10]; //
+derivation: int ==&gt; int[10]</span><br>
+<br>
+<span style="text-decoration: underline;">Function type derivation</span><br>
+<blockquote>
+(6.2.5#20)<br>
+A function type is said to be derived from its return type, and if its
+return type is T , the function type is sometimes called "function
+returning T<span style="font-style: italic;"> ".</span><br>
+</blockquote>
+Example:<br>
+&nbsp;&nbsp;&nbsp; <span style="font-family: monospace;">int foo(); //
+derivation: int ==&gt; int()</span><br>
+<br>
+<span style="text-decoration: underline;">Pointer type derivation</span><br>
+<blockquote>
+6.2.5#20<br>
+A pointer type may be derived from a function type, an object type, or
+an incomplete type, called the <span style="font-style: italic;">referenced
+type</span>. A pointer type
+describes an object whose value provides a reference to an entity of
+the referenced type. A pointer type derived from the referenced type T
+is sometimes called "pointer to T ".<br>
+</blockquote>
+Example:<br>
+&nbsp;&nbsp;&nbsp; <span style="font-family: monospace;">int *x; //
+derivation: int ==&gt; int*</span><br>
+<br>
+<span style="text-decoration: underline;">Derived declarator types</span><br>
+<blockquote>
+6.2.5#24<br>
+Array, function, and pointer types are collectively called <span style="font-style: italic;">derived declarator types</span>.<br>
+</blockquote>
+Derived declarator types have one of the operators <span style="font-family: monospace;">TOK_STAR</span>, <span style="font-family: monospace;">TOK_SUBSCRIPT</span>, or <span style="font-family: monospace;">TOK_FUNCTION</span>.<br><span style="text-decoration: underline;"><br>Type category</span><br>
+<blockquote>
+6.2.5#24<br>
+A type is characterized by its type
+category, which is either the outermost derivation of a derived type
+(as noted above in the construction of derived types), or the type
+itself if the type consists of no derived types.<br>
+</blockquote>The type category can be obtained using the function <span style="font-family: monospace;">get_type_category().</span><br><br>Examples:<br>
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; int x; // type
+category: int</span><br style="font-family: monospace;">
+<br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; int *x; // int
+==&gt; int*, type category: pointer</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+^</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+outermost derivation</span><br style="font-family: monospace;">
+<br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; int *x[10]; //
+int ==&gt; int* ==&gt; int*[10], type category: array</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+^</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+outermost derivation</span><br style="font-family: monospace;">
+<br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; int (*x)(); //
+int ==&gt; int() ==&gt; int(*)(), type category: pointer</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+^</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+outermost derivation</span><br style="font-family: monospace;">
+<br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; int (*x)[10];
+// int ==&gt; int[10] ==&gt; int(*)[10], type category: pointer</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+^</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+outermost derivation</span><br style="font-family: monospace;">
+<br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; int
+(*x[10])(); // int ==&gt; int() ==&gt; int(*)() ==&gt; int(*[10])(),
+type category: array</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+^</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+outermost derivation</span><br style="font-family: monospace;">
+<br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; int x[5][10];
+// int ==&gt; int[10] ==&gt; int[5][10], type category: array</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+^</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+outermost derivation</span><br>
+<br style="text-decoration: underline;">
+<span style="text-decoration: underline;">Qualified and unqualified
+versions of a type</span><br>
+<blockquote>
+6.2.5#26<br>
+The qualified or unqualified versions of a type are distinct types that
+belong to the same type category and have the same representation and
+alignment requirements.<br>
+</blockquote>One can obtain the type qualifier (if any) of a declaration using the function <span style="font-family: monospace;">get_type_qual()</span> on the declaration specifiers of the declaration.<br><br>Examples:<br>
+&nbsp;&nbsp;&nbsp; unqualified&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; qualified<span style="font-family: monospace;"><br>
+&nbsp;&nbsp;&nbsp; int x;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp; const int x;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; int
+*x;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; int *const x;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; int
+(*x)[10];&nbsp;&nbsp;&nbsp; int (*const x)[10];</span><br>
+A derived type is not qualified by the qualifiers (if any) of the type
+from which it is derived.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span style="font-family: monospace;">const int *x;&nbsp; // const int
+==&gt; const int*, type category: pointer (it is not a qualified type,
+it is a pointer to a qualified type)</span><br>
+<br>
+<span style="text-decoration: underline;">Type qualifiers and typedefs</span><br>
+<blockquote>
+6.7.3#8<br>
+If the specification of an array type includes any type qualifiers, the
+element type is so-qualified, not the array type. If the specification
+of a function type includes any type qualifiers, the behavior is
+undefined.118)<br>118): Both of these can occur through the use of typedefs.<br>
+</blockquote>The function <span style="font-family: monospace;">replace_typedef_name()</span> takes care of typedef names and type qualifiers applied to typedef names in declarations.<br><br>Examples:<br>1)<span style="font-family: monospace;">&nbsp;&nbsp; <br>&nbsp;&nbsp;&nbsp; typedef int *t[10][20][30];</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; const t x;</span><br>the derivation of <span style="font-family: monospace;">t</span> is<br>&nbsp;&nbsp;&nbsp;<span style="font-family: monospace;"> int ==&gt; int* ==&gt; int*[30] ==&gt; int*[20][30] ==&gt; int*[10][20][30]</span><br>by 6.7.3#8<br><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; const applied to int*[10][20][30]</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; const applied to int*[20][30]</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+const applied to int*[30] &lt;- the element type of [30] is pointer</span><br>so <span style="font-family: monospace;">x</span> has type <span style="font-family: monospace;">int *const[10][20][30]</span><br><br>Note that this can only happens through the use of typedef (it is not possible to apply <span style="font-family: monospace;">const</span>
+to an array directly). Just as a note (the following is not supported
+by the compiler), C99 added a syntax to declare parameters with array
+type that are constant after adjustment:<br><br><div style="margin-left: 40px;"><span style="font-style: italic;">&nbsp;&nbsp;&nbsp; T A[qualifier-list size]</span><br style="font-style: italic;">which is equivalent to<br style="font-style: italic;"><span style="font-style: italic;">&nbsp;&nbsp;&nbsp; T *qualifier-list A</span><br></div><br>2)<span style="font-family: monospace;"></span> When <span style="font-family: monospace;">const</span>
+appears in a declaration where the type specifier is a typedef-name
+that specifies a derived declarator type and the declarator part of the
+declaration also specifies a derived declarator type, <span style="font-family: monospace;">const</span> applies to the part of the full declarator that is provided by the typedef-name's declarator:<br><br><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; typedef int *t;</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; const t *x; // x has type 'int *const*' instead of 'int **const'</span><br><br>3) It is not possible to apply <span style="font-family: monospace;">const</span> directly to a function without the use of <span style="font-family: monospace;">typedef</span>s:<br>&nbsp;&nbsp;&nbsp; <br><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; typedef int f(void);</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; const f x1; // invokes UB (in gcc terms, x1 has type int __attribute__((const)) int(void))</span><br>&nbsp;&nbsp;&nbsp; <br><big><span style="text-decoration: underline; font-weight: bold;">The
+Expression Analyzer<br>
+<br>
+</span></big>The main tasks of this part are:<br>
+<ul>
+  <li>Make sure that operators have valid operands. This includes,
+depending on the specific operator, ensuring that operands have the
+right type, that are modifiable, that
+have the right order and number, etc.</li>
+  <li>Assign result types to expressions.</li>
+</ul>
+Also in this part integer constants are converted from string to
+integer form and enumeration constants are converted to integer
+constants.<br>
+<br>
+In addition, this part defines a lot of utility functions that are used through
+the whole compiler, as for example: <span style="font-family: monospace;">get_sizeof()</span> and <span style="font-family: monospace;">get_alignment()</span>, <span style="font-family: monospace;">eval_const_expr()</span>,<span style="font-family: monospace;"> get_type_category()</span>,<span style="font-family: monospace;"> </span>and<span style="font-family: monospace;"> is_X()</span> type of functions.<br>
+<br>The type <span style="font-family: monospace;">TOK_ERROR</span> is
+used when an expression is determined to be invalid. Most of the
+functions before do anything check to see if any of their operands have
+this type. If there are one or more operands with this type, they just
+set <span style="font-family: monospace;">TOK_ERROR</span> as their own result type and then return. This is done so cascades of spurious errors can be avoided.<br><br>
+<big><span style="text-decoration: underline; font-weight: bold;">The
+Statement Analyzer<br>
+</span></big><br>
+This is the simplest of the three parts. Its main tasks are:<br>
+<ul>
+  <li>Assure that the expressions used in statements have the right
+type and, when necessary, are constant.</li>
+  <li>Implement the remaining name space: the <span style="font-style: italic;">label names</span> name space (a simple
+hash table is used to implement it).</li>
+  <li>Make sure that the statements are used in places that they are
+allowed to be used, more concretely, that <span style="font-family: monospace;">break</span>s are only used inside of <span style="font-family: monospace;">switch</span>es and loops and that <span style="font-family: monospace;">continue</span>s are only used inside
+of loops.</li>
+</ul>
+A<span style="color: rgb(37, 37, 37); font-family: sans-serif; font-size: 14px; font-style: normal; font-variant: normal; font-weight: normal; letter-spacing: normal; line-height: 22.4px; text-align: start; text-indent: 0px; text-transform: none; white-space: normal; widows: 1; word-spacing: 0px; display: inline ! important; float: none; background-color: rgb(255, 255, 255);"></span> stacked symbol table is used to implement the <span style="font-family: monospace;">switch</span> statement. Forward <span style="font-family: monospace;">goto</span>s are annotated and
+resolved at the end of each function.<br>
+<br><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Intermediate_Code_Generation"></a>3.6 Intermediate Code Generation<br></big></big></big><br>After the code has been determined to be syntactically and semantically correct, the intermediate code generation pass begins.<br>The form of intermediate code used is three-address code (TAC) where the most of the operations take some variation of the form <span style="font-family: monospace;">x = y op z </span>(each operand is called an 'address')<span style="font-family: monospace;">.<br></span>The particular version of TAC used in the compiler has the following operations (<span style="font-family: monospace;">OpKind</span> enumeration values):<br><br><table style="text-align: left; width: 70%;" border="1" cellpadding="2" cellspacing="2"><tbody><tr><td style="vertical-align: top;">Opcode<br></td><td style="vertical-align: top;">Targets<br></td><td style="vertical-align: top;">Source 1<br></td><td style="vertical-align: top;">Source 2<br></td><td style="vertical-align: top;">Meaning<br></td></tr><tr><td style="vertical-align: top;">OpAdd<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b+c</td></tr><tr><td style="vertical-align: top;">OpSub<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b-c</td></tr><tr><td style="vertical-align: top;">OpMul<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b*c</td></tr><tr><td style="vertical-align: top;">OpDiv<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b/c</td></tr><tr><td style="vertical-align: top;">OpRem<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b%c</td></tr><tr><td style="vertical-align: top;">OpNeg<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = -b<br></td></tr><tr><td style="vertical-align: top;">OpCmpl<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = ~b<br></td></tr><tr><td style="vertical-align: top;">OpNot<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = !b<br></td></tr><tr><td style="vertical-align: top;">OpSHL<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b&lt;&lt;c<br></td></tr><tr><td style="vertical-align: top;">OpSHR<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b&gt;&gt;c<br></td></tr><tr><td style="vertical-align: top;">OpAnd<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b&amp;c<br></td></tr><tr><td style="vertical-align: top;">OpOr<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b|c<br></td></tr><tr><td style="vertical-align: top;">OpXor<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b&amp;c<br></td></tr><tr><td style="vertical-align: top;">OpEQ<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b==c<br></td></tr><tr><td style="vertical-align: top;">OpNEQ<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b!=c<br></td></tr><tr><td style="vertical-align: top;">OpLT<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b&lt;c<br></td></tr><tr><td style="vertical-align: top;">OpLET<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b&lt;=c<br></td></tr><tr><td style="vertical-align: top;">OpGT<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b&gt;c<br></td></tr><tr><td style="vertical-align: top;">OpGET<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b&gt;=c<br></td></tr><tr><td style="vertical-align: top;">OpCh<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = (char)b<br></td></tr><tr><td style="vertical-align: top;">OpUCh<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = (unsigned char)b<br></td></tr><tr><td style="vertical-align: top;">OpSh<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = (short)b<br></td></tr><tr><td style="vertical-align: top;">OpUSh<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = (unsigned short)b<br></td></tr><tr>
+      <td style="vertical-align: top;">OpLLSX<br>
+      </td>
+      <td style="vertical-align: top;">a<br>
+      </td>
+      <td style="vertical-align: top;">b<br>
+      </td>
+      <td style="vertical-align: top;">-<br>
+      </td>
+      <td style="vertical-align: top;">a = (sign extend to long long)b<br>
+      </td>
+    </tr>
+    <tr>
+      <td style="vertical-align: top;">OpLLZX<br>
+      </td>
+      <td style="vertical-align: top;">a<br>
+      </td>
+      <td style="vertical-align: top;">b<br>
+      </td>
+      <td style="vertical-align: top;">-<br>
+      </td>
+      <td style="vertical-align: top;">a = (zero extend to long long)b<br>
+      </td>
+    </tr>
+<tr><td style="vertical-align: top;">OpAsn<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = b<br></td></tr><tr><td style="vertical-align: top;">OpIndAsn<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">*b = c<br></td></tr><tr><td style="vertical-align: top;">OpAddrOf<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = &amp;b<br></td></tr><tr><td style="vertical-align: top;">OpInd<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = *b<br></td></tr><tr><td style="vertical-align: top;">OpLab<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">Define label a<br></td></tr><tr><td style="vertical-align: top;">OpJmp<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">Unconditionally jump to label a<br></td></tr><tr><td style="vertical-align: top;">OpCBr<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">If b is TRUE jump to label a, else to label c<br></td></tr><tr><td style="vertical-align: top;">OpSwitch<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">Switch over b (c == # of cases)<br></td></tr><tr><td style="vertical-align: top;">OpCase<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a == case's value, b == case's label (c is TRUE when `default')<br></td></tr><tr><td style="vertical-align: top;">OpArg<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">Pass b as an argument (c == sizeof(b))<br></td></tr><tr><td style="vertical-align: top;">OpCall<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b() (c == # of args)<br></td></tr><tr><td style="vertical-align: top;">OpIndCall<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = (*b)() (c == # of args)<br></td></tr><tr><td style="vertical-align: top;">OpRet<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">Return value b to the caller<br></td></tr><tr>
+      <td style="vertical-align: top;">OpNOp<br>
+      </td>
+      <td style="vertical-align: top;">-<br>
+      </td>
+      <td style="vertical-align: top;">-<br>
+      </td>
+      <td style="vertical-align: top;">-<br>
+      </td>
+      <td style="vertical-align: top;">No operation<br>
+      </td>
+    </tr>
+</tbody></table><br>There
+are various ways to implement TAC: as quadruples, as triples, as
+indirect triples, and probably some other ways. Quadruples are about
+the most straightforward way to implement them, and so this is the way
+that was chosen. <br><br>Quadruples are defined by the type <span style="font-family: monospace;">Quad</span> that has the following form:<br><br><div style="margin-left: 40px;"><span style="font-family: monospace;">typedef struct Quad Quad;<br>struct Quad {</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; OpKind op;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; Declaration *type;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; unsigned tar, arg1, arg2;</span><br style="font-family: monospace;"><span style="font-family: monospace;">};</span><br></div><ul><li><span style="font-family: monospace;">op</span>: the operation represented by this quad.<br><span style="font-family: monospace;"></span></li><li><span style="font-family: monospace;">type</span>: the type over which this quad operates (only relevant for some operations).<br></li><li><span style="font-family: monospace;">tar</span>,<span style="font-family: monospace;"> arg1</span>,<span style="font-family: monospace;"> arg2</span>: target operand and source operand 1 and 2. Note that for some operations <span style="font-family: monospace;">tar</span> loses its 'target' meaning and acts as other argument.</li></ul>The intermediate code generator transforms the code from ASTs to an array of quadruples (<span style="font-family: monospace;">ic_instructions</span>). The code uses the function macro <span style="font-family: monospace;">instruction()</span> to access a particular quad in the array.<br><br>The <span style="font-family: monospace;">tar</span>, <span style="font-family: monospace;">arg1</span>, and <span style="font-family: monospace;">arg2</span> members of <span style="font-family: monospace;">Quad</span> are indexes into an array of addresses (<span style="font-family: monospace;">ic_addresses</span>). An address is represented by the type <span style="font-family: monospace;">Address</span>. The code uses the function macro <span style="font-family: monospace;">address()</span> to access a particular address in the array. An address can be of one of the following kinds:<br><ul><li><span style="font-family: monospace;">IConstKind</span>: an integer constant. Uses the fields <span style="font-family: monospace;">Address.cont.val</span> and <span style="font-family: monospace;">Address.cont.uval.</span><br></li><li><span style="font-family: monospace;">StrLitKind</span>: a string literal. Uses the fields <span style="font-family: monospace;">Address.cont.str</span>.<br></li><li><span style="font-family: monospace;">IdKind</span>: an identifier. Uses the fields <span style="font-family: monospace;">Address.cont.var.e</span> (the AST's id expression node) and <span style="font-family: monospace;">Address.cont.var.offset</span> (for local variables, offset into stack frame).<br></li><li><span style="font-family: monospace;">TempKind</span>: a temporary. The compiler creates temporaries when it needs to store intermediate results.<br></li></ul>Each Identifier and temporary address has a unique <span style="font-style: italic;">nid</span> (numeric identifier) and <span style="font-style: italic;">sid</span>
+(string identifier). The analysis that are performed later become
+easier (and faster) if we can represent each identifier as a bit into a
+bit-vector. The nid represents the identifier's position into such
+vector. The code uses the macro <span style="font-family: monospace;">address_nid()</span>
+to obtain the nid of an address. The sid is the name of the identifier
+in string form and is mostly used to print debug information. To map a
+nid to a sid the code uses the array <span style="font-family: monospace;">nid2sid_tab</span>.<br><br>The intermediate code generator takes note of address-taken variables (for later use in analyses) in the bit-vector <span style="font-family: monospace;">address_taken_variables</span>.<br>
+<br>
+Also in this phase, offsets are assigned to local variables and
+parameters. This is a machine-dependent task, but is done here anyway
+for convenience.<br>
+<br>
+<span style="font-family: monospace;">ic_simplify()</span> folds constants (and conditional jumps acting on constants) and performs simple strength reduction.<br><br><strong>Graphs<br><br></strong>After
+the quads for one function have been generated, a control flow graph
+(CFG) is constructed. A CFG is composed of nodes called basic blocks
+(BB), each BB being a sequence of jump-free (from/into- the BB) instructions.
+The jump instructions (at the end of BBs) are used to link together the
+graph nodes. The code uses the macro <span style="font-family: monospace;">cfg_node() </span>to access a particular CFG node.<br><br>A CFG node is represented by the type <span style="font-family: monospace;">CFGNode</span>:<br><br><div style="margin-left: 40px;"><span style="font-family: monospace;">typedef struct CFGNode CFGNode;<br>struct CFGNode { </span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; unsigned leader, last;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; GraphEdge out;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; GraphEdge in;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; BSet *UEVar;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; BSet *VarKill;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; BSet *LiveOut;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; BSet *Dom;&nbsp;&nbsp;  </span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; unsigned PO, RPO;<br>}<br></span></div><ul><li><span style="font-family: monospace;">leader</span>: node's first instruction.<br></li><li><span style="font-family: monospace;">last</span>: node's last instruction.<br></li><li><span style="font-family: monospace;">out</span>: successor nodes.<br></li><li><span style="font-family: monospace;">in</span>: predecessor nodes.<br></li><li><span style="font-family: monospace;">UEVar, VarKill, LiveOut, Dom</span>: sets used for data-flow analysis (explained later).<br></li><li><span style="font-family: monospace;">PO, RPO</span>: node's post-order and reverse post-order numbers.<br></li></ul>Here is an example CFG (from the function <span style="font-family: monospace;">duff_device()</span> at <span style="font-family: monospace;">src/tests/execute/duff_dev.c</span>):<br>
+<br>
+<img style="width: 800px; height: 528px;" alt="" src="res/img4.png"><br>
+<br>
+The
+CFG represents the interaction and flow of control between instructions
+within a single function. In order to represent the transfer of control
+between functions, yet another data structure is used: a call graph
+(CG). Each function is a node in the call graph and each function call
+gives rise to an edge from the caller node to the callee node. A CG
+node is represented by the type <span style="font-family: monospace;">CGNode</span> and to access a particular CG node the code uses the macro <span style="font-family: monospace;">cg_node()</span>.
+Note that only direct function calls (that is, not through of pointers)
+cause an edge to be added. To add edges from indirect calls would
+require of a somewhat more sophisticated pointer analysis.<br><br>
+Here is an example call-graph (From the program <span style="font-family: monospace;">src/tests/execute/tiny_basic.c</span>):<br>
+<img style="width: 900px; height: 542px;" alt="" src="res/img5.png"><br>
+It can be observed from the graph that <span style="font-family: monospace;">main()</span> has no incoming edges and that <span style="font-family: monospace;">flush_input()</span> goes unused in the program.<br>
+<br><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Data-Flow_Analysis"></a>3.7 Data-Flow Analysis<br></big></big></big><br>TODO<br><br><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Target_Code_Generation"></a>3.8 Target Code Generation</big></big></big><br>
+<br>
+<big style="text-decoration: underline;"><big style="font-weight: bold;"><a name="LuxVM_Target"></a>3.8.1 LuxVM target<br>
+</big></big><br>
+LuxVM is stack-based virtual machine. It is inspired in Fabrice Bellard's VM for the <a href="http://bellard.org/fbcc/">fbcc</a> compiler. The VM and the assembler and linker for it can be found in <span style="font-family: monospace;">src/luxvm/</span>.<br>
+<br>
+Basic specification:<br>
+<ul>
+  <li>Being stack-based means that most of the instructions take
+operands from the top of a stack and left results on the top of the
+same stack. This simplifies code generation a lot since it avoids register
+allocation issues altogether.</li>
+  <li>It has three special registers: the stack pointer (SP), the base pointer (BP), and the instruction pointer (IP).</li>
+  <li>The layout of a stack frame is as follows:</li>
+</ul>
+<div style="margin-left: 80px;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; 32-bit VM<br>
++--------------------------------+</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">| first declared local var&nbsp;&nbsp;  &nbsp;&nbsp;&nbsp;  |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------+ &lt;- BP+4</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">| size of param area (in bytes)&nbsp; |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------+ &lt;- BP</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">| old BP&nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------+ &lt;- BP-4</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">| return address (old IP)&nbsp;&nbsp;  &nbsp;&nbsp;&nbsp;&nbsp;  |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------+ &lt;- BP-8</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">| leftmost (dword) argument&nbsp; &nbsp; &nbsp;  |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------+ &lt;- BP-12</span><br style="font-family: monospace;">
+<span style="font-family: monospace;"></span><span style="font-family: monospace;">|
+&nbsp;&nbsp;&nbsp; ...&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; |<br>
+<br>
+<br>
+&nbsp;&nbsp;&nbsp; 64-bit VM<br>
+</span><span style="font-family: monospace;">+--------------------------------+</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">| first declared local var&nbsp;&nbsp;  &nbsp;&nbsp;&nbsp;  |</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">+--------------------------------+ &lt;- BP+4</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">| size of param area (in bytes)&nbsp; |</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">+--------------------------------+ &lt;- BP</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">| old BP&nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">+--------------------------------+ &lt;- BP-8</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">| return address (old IP)&nbsp;&nbsp;  &nbsp;&nbsp;&nbsp;&nbsp;  |</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">+--------------------------------+ &lt;- BP-16</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">| leftmost (dword) argument &nbsp; &nbsp;&nbsp;  |</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">+--------------------------------+ &lt;- BP-20</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;"></span><span style="font-family: monospace;">|
+&nbsp;&nbsp;&nbsp; ...&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; |</span><br>
+
+</div>
+
+<ul>
+  <li>It has two simple file formats: relocatable object file format
+and executable file format. The relocatable file format (created by the
+assembler <span style="font-family: monospace;">src/luxvm/luxvmas</span>) has information to help the link-editor (<span style="font-family: monospace;">src/luxvm/luxvmld</span>)
+relocate and output an executable file. The executable file format has
+information that let the VM do load-time relocation. See the assembler
+and linker source code for detailed information on the file formats and
+assembly syntax.</li>
+  <li>The VM provides access to system library functions through the <span style="font-family: monospace;">OpLibCall</span>
+instruction. The C standard library is implemented based on the
+functions that are accessible through this mechanism. For example all
+the functions of the <span style="font-family: monospace;">fprintf</span>'s family are implemented with the use of
+the <span style="font-family: monospace;">fwrite()</span> function
+(provided with libcall #8) to write to a specific stream. This is
+analogous to the way in which a normal C stantard library is
+implemented using the system calls provided by the OS. To add a new
+system function one can add a new entry into <span style="font-family: monospace;">src/lib/crt(32|64).s</span> and modify the VM's function <span style="font-family: monospace;">do_libcall()</span> accordingly.</li>
+</ul>
+Code generation for the VM is done directly from the AST and no
+intermediate code is generated (this is why the options to print the
+intermediate code, CFG, etc are not available for the VM target).<br>
+<br>
+<big style="text-decoration: underline;"><big style="font-weight: bold;"><a name="x86_Target"></a>3.8.2 x86 Target</big></big><br>
+<ul>
+  <li>
+Code generation for the x86 target, unlike the VM target, is done from the intermediate code.</li>
+  <li>
+The algorithm used to generate target code is the "simple code
+generation algorithm" as appears in some books. Two data structures
+support the algorithm: a register descriptor table that indicates what
+each register currently holds, and an address descriptor table, that
+indicates where the current value of any address may be found (in memory, in a single register, or, for <span style="font-family: monospace;">long long</span>
+integers, in a register pair). In this algorithm, a value is not preserved in a register
+across basic block boundaries (local register allocation).<br>
+</li>
+  <li>The simple code
+generation algorithm is as follows:<br>
+  </li>
+</ul>
+
+
+
+
+<div style="margin-left: 40px;">
+For each quad instruction <span style="font-family: monospace;">x = y &lt;op&gt; z</span>, do<br>
+
+1) Look for a register r0 to store the result (x):<br>&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; a) If y is already in a register ry and y is dead
+after this quad, then choose ry for r0. Otherwise,<br>
+
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; b) If there is an empty register
+re, then choose re for r0. Otherwise,<br>
+
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; c) Arbitrarily choose a register ra and spill its content, then choose ra for r0.<br>
+
+2) If necessary, generate code to move 'y' into register r0.<br>
+
+3) Generate code to carry out the operation &lt;op&gt; and store the result in r0.<br>
+
+4) Update the register and address descriptor tables as follows:<br>
+
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; a) Update the address descriptor
+table to indicate that the current value of x is stored in r0, and
+update the register descriptor table to indicate that r0 now contains the value x.<br>
+
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; b) If y has no next use and
+it is currently in a register ry, then <br>
+
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; - if y is LIVE generate code to spill ry (that is,
+move y to memory), and<br>
+
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; - update the
+address descriptor table to indicate that y is now in memory and update
+the register descriptor
+table to indicate that ry is now unused and available. <br>
+
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; c) Repeat b) with respect to z.<br>
+</div>
+
+
+
+<br>
+<div style="margin-left: 40px;">Note: generally in the description of the above algorithm it is assumed that
+at some point a register may contain the value of more than one
+variable (this may happen through the assignment operator). In my particular
+implementation this is not the case, and a register always holds the
+value of at most one variable (assignments cause a new register to be
+allocated).<br>
+</div>
+
+
+<ul>
+  <li>When one operator acts on <span style="font-family: monospace;">long long</span>
+type, either a) inline code is emitted, or b) a call to a library
+function is issued. a) applies to all simple operators like addition,
+subtraction, bitwise and, etc. b) applies to more complex operators
+like multiplication, division, etc. The library functions that are called are located
+in <span style="font-family: monospace;">src/lib/liblux.c</span>. They all start with the prefix "__lux_".</li>
+  <li>The switch statement is implemented as a jump table or as a linear search depending on the case values.</li>
+  <li>Temporaries occupy 8 bytes in memory, that is, when a temporary
+that resides in a register is spilled to memory, it will occupy 8 bytes.<br>
+  </li>
+
+  <li>The <span style="font-style: italic;">cdecl</span>
+calling
+convention is used, where registers eax, ecx, and edx are caller save
+and registers ebp, ebx, esi, and edi are callee save. 32-bit values are
+returned in the eax register and 64-bit values in the register pair
+edx:eax.<br>
+</li>
+  <li>The stack grows downwards and is dword aligned. The layout of a stack frame is as follows:
+  </li>
+</ul>
+<ul>
+
+</ul>
+
+<div style="margin-left: 40px;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; High addresses<br>
+<br>
+|&nbsp;&nbsp; ...&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; |<br>
++--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;"></span><span style="font-family: monospace;"></span><span style="font-family: monospace;">+</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">| leftmost (dword) argument &nbsp;
+&nbsp;&nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp; |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;"></span><span style="font-family: monospace;"></span><span style="font-family: monospace;">+ &lt;- EBP+8</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">| return
+address&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp; &nbsp; &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;"></span><span style="font-family: monospace;"></span><span style="font-family: monospace;">+ &lt;- EBP+4</span><span style="font-family: monospace;"></span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">| saved EBP &nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;"></span><span style="font-family: monospace;"></span><span style="font-family: monospace;">+ &lt;- EBP<br>
+</span><span style="font-family: monospace;">| return value address </span><span style="font-family: monospace;">(1)</span><span style="font-family: monospace;"> &nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;"></span><span style="font-family: monospace;"></span><span style="font-family: monospace;">+ &lt;- EBP-4<br>
+</span><span style="font-family: monospace;">| first (dword) local variable &nbsp;&nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp; |<br style="font-family: monospace;">
+</span>
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;"></span><span style="font-family: monospace;"></span><span style="font-family: monospace;">+ &lt;- EBP-8<br>
+</span><span style="font-family: monospace;">| ... (more vars and
+temps) &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+<br>
+</span><span style="font-family: monospace;">| space for temp struct/union (2)&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp;&nbsp;  &nbsp; &nbsp;&nbsp;  &nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;"></span><span style="font-family: monospace;">+ &lt;- EBP-4*X<br>
+</span><span style="font-family: monospace;">| callee save registers
+&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp; &nbsp; &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;"></span><span style="font-family: monospace;"></span><span style="font-family: monospace;">+ &lt;- ESP<br>
+|&nbsp;&nbsp; ...&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; |<br>
+<br>
+&nbsp;&nbsp;&nbsp; Low addresses<br>
+<br>
+</span>(1) is present only when the function returns a struct or union value.<br>
+(2) is present only when somewhere in the body of the function there is a call to a struct/union valued function.<br>
+</div>
+
+
+
+
+
+<br>
+<big style="text-decoration: underline;"><big style="font-weight: bold;"><a name="x64_Target"></a>3.8.3 x64 Target</big></big><br>
+<ul>
+  <li>The algorithm used to generate target code is the same as for
+x86. Because 64-bit integers now fit in a single register, each address
+descriptor table entry indicates if an address can be found in a
+register or in memory (there are no register pairs).</li>
+  <li>Code
+generation for x64 is easier than for x86 in that there are
+more general purpose registers to work with, the lower byte/word/dword
+of all registers is accessible, and 64-bits operations are
+supported natively. Code generation for x64
+is more complicated in everything related to calling conventions,
+mostly because of the way in which arguments are passed to functions
+(everything stated in the SysV-ABI for AMD64). <br>
+</li>
+  <li>Up to 6 arguments are passed in registers. An argument must have
+a size less or equal to 16 bytes to be passed in registers, that is, at
+most two registers are used for a single arguement. An argument cannot
+be partially passed in registers and partially in the stack. Registers
+are assigned from left to right. Arguments that cannot be passed in
+registers (because they are too big or there are no registers available) are passed in the stack from right to left as in x86.</li>
+  <li>For simplicity, arguments values are computed as in x86 from
+right to left and pushed on the stack. Later, before emit the call
+instruction, they are moved to registers or to stack slots
+as appropriate.</li>
+  <li>Upon entry to a function the arguments that were passed in registers are spilled into the function's stack frame.</li>
+  <li>As with arguments, values of at most 16 bytes in size can be
+returned in registers. Bigger values are returned as in x86 through a
+hidden pointer to space provided by the caller (this pointer goes into rdi).<br>
+  </li>
+
+  <li>The stack grows downwards and is qword aligned. The layout of a stack frame is as follows:<br>
+  </li>
+</ul>
+
+
+<div style="margin-left: 40px;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; High addresses<br>
+<br>
+| ...&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; |<br>
++--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;"></span><span style="font-family: monospace;"></span><span style="font-family: monospace;">+</span><br>
+<span style="font-family: monospace;">
+</span><span style="font-family: monospace;">| leftmost (qword) MEMORY argument &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp; |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- RBP+16<br>
+</span><span style="font-family: monospace;">| return address &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- RBP+8<br>
+</span><span style="font-family: monospace;">| saved RBP &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+|</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- RBP<br>
+</span><span style="font-family: monospace;">| return value address (1) &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp; &nbsp;&nbsp; &nbsp; |</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- RBP-8<br>
+| argument spilling area</span><span style="font-family: monospace;">
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; |</span><br>
+<span style="font-family: monospace;">+</span><span style="font-family: monospace;">--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- RBP-8*X</span><br>
+<span style="font-family: monospace;">| </span><span style="font-family: monospace;">... (more spilled params)</span><span style="font-family: monospace;">
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+|</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+<br>
+</span><span style="font-family: monospace;">| </span><span style="font-family: monospace;"></span><span style="font-family: monospace;">first (qword) local
+variable</span><span style="font-family: monospace;">&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp; &nbsp;&nbsp; |</span><br style="font-family: monospace;">
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- RBP-8*X<br>
+| </span><span style="font-family: monospace;">... (more vars and temps)</span><span style="font-family: monospace;"> &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp; |<br>
++</span><span style="font-family: monospace;">--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+</span><br>
+<span style="font-family: monospace;">| space for temp struct/union
+(2)&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp; |<br>
++</span><span style="font-family: monospace;">--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ </span><span style="font-family: monospace;">&lt;- RBP-8*X</span><br>
+<span style="font-family: monospace;">| callee save
+registers&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |<br>
++</span><span style="font-family: monospace;">--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- RSP</span><br>
+<span style="font-family: monospace;"></span><span style="font-family: monospace;">| red zone&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- RSP-128</span><span style="font-family: monospace;"></span><span style="font-family: monospace;"></span><br>
+<span style="font-family: monospace;">| ...&nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |<br>
+<br>
+&nbsp;&nbsp;&nbsp; Low addresses<br>
+<br>
+</span>(1) is present only when the function returns a struct or union value.<br>
+
+(2) is present only when somewhere in the body of the function there is a call to a struct/union valued function.<br>
+</div>
+<ul>
+  <li>Vararg functions are specially tricky and require of some care. <span style="font-family: monospace;">va_start()</span> and <span style="font-family: monospace;">va_arg()</span>
+cannot be implemented as simple one-liner macros anymore as in x86. The
+problem is that now these functions need to figure out if an argument
+was passed in registers or on the stack, and to do that they require of
+compiler support. See <span style="font-family: monospace;">stdarg.h</span> and the ABI section 3.5.7 for implementation details.</li>
+  <li>Example:</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">typedef struct { char a[32]; } A;<br>
+<br>
+void foo(A a, int b, A c, long d)<br>
+{<br>
+&nbsp;&nbsp;&nbsp; /* ... */<br>
+}<br>
+<br>
+int main(void)<br>
+{<br>
+&nbsp;&nbsp;&nbsp; A x0, x1;<br>
+<br>
+&nbsp;&nbsp;&nbsp; foo(x0, 10, x1, 20);<br>
+&nbsp;&nbsp;&nbsp; /* ... */<br>
+}<br>
+<br>
+</span>The stack before executing the call instruction:<br>
+<span style="font-family: monospace;"><br>
+|&nbsp; ...&nbsp;&nbsp;&nbsp;&nbsp;  |<br>
++----------+<br>
+|&nbsp; 20&nbsp;&nbsp;  &nbsp;&nbsp;  |<br>
++----------+<br>
+|&nbsp; x1&nbsp;&nbsp;  &nbsp;&nbsp;  | &lt;---+<br>
++</span><span style="font-family: monospace;">----------+&nbsp;&nbsp;&nbsp;&nbsp;  |<br>
+|&nbsp; 10&nbsp;&nbsp;  &nbsp;&nbsp;  |&nbsp;&nbsp;  &nbsp; |<br>
++</span><span style="font-family: monospace;">----------+ &nbsp;&nbsp;&nbsp;  |<br>
+|&nbsp; x0 &nbsp;  &nbsp;&nbsp;  | &lt;-+ |<br>
++</span><span style="font-family: monospace;">----------+&nbsp;&nbsp; | |<br>
+</span><span style="font-family: monospace;">|&nbsp; x1 (c)&nbsp;  | &lt;-+-+<br>
++</span><span style="font-family: monospace;">----------+&nbsp;&nbsp;  |<br>
+</span><span style="font-family: monospace;">|&nbsp; x0 (a)&nbsp;  | &lt;-+<br>
++</span><span style="font-family: monospace;">----------+ &lt;- rsp<br>
+<br>
+</span>And the registers:<br>
+<br style="font-family: monospace;">
+<span style="font-family: monospace;">rdi: 10 (b)</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">rsi: 20 (d)<br>
+<br>
+</span></div>
+
+
+<big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Compiler_Driver"></a>3.9 Compiler Driver<br>
+</big></big></big><br>
+The compiler driver (<span style="font-family: monospace;">src/luxdvr/luxdvr.c</span>) is the main user interface to the compiler. It intends to be what <span style="font-family: monospace;">gcc</span> is to the GNU development tools.<br>
+<br>
+The main tasks performed by the driver are:<br>
+<ul>
+  <li>Parse and convert command-line options. Most of the tools
+(compiler, assembler, and linker) take simple single letter
+command-line arguments. The driver is responsible of translating more
+descriptive option names into simpler single letter options that the
+tools can understand. For example it translates <span style="font-family: monospace;">-dump-tokens</span> into compiler's <span style="font-family: monospace;">-T</span> option.</li>
+  <li>Allow the mixing of .c, .s, and .o files. For example if it is invoked as <span style="font-family: monospace;">luxdvr a.c b.s c.o -o abc</span>
+it will call the compiler and assembler for a.c, the assembler for b.s,
+and finally the linker for c.o and the resulting object files.</li>
+  <li>Pass the appropriate libc and C runtime objects to the linker.</li>
+</ul>The driver gets the locations of the files it needs from a <span style="font-family: monospace;">.conf</span>
+file (there is one for each platform). A line in such a file specifies
+a filename and a list of paths (separated by commas) where that file
+may be found. Example: <span style="font-family: monospace;">file1: abc/def, abc2/def2</span> specifies that <span style="font-family: monospace;">file1</span> may be found in <span style="font-family: monospace;">abc/def</span> or in <span style="font-family: monospace;">abc2/def2</span>. Additionally, if <span style="font-family: monospace;">file1</span> is an executable and all the provided paths failed, the driver will check if <span style="font-family: monospace;">file1</span> is in a directory included in the <span style="font-family: monospace;">PATH</span> enviroment variable.<br>
+<br>
+
+<big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Testing"></a>4.Testing<br>
+</big></big></big><br>
+All the tests can be run executing <span style="font-family: monospace;">make test</span> in the base directory. Additionally one can run a specific test with the bash scripts that are in the <span style="font-family: monospace;">scripts</span> directory. The available tests are:<br>
+
+<ul>
+  <li><span style="font-weight: bold;">Execution tests</span> (<span style="font-family: monospace;">src/tests/execute</span><span style="font-family: monospace;"></span>).<br>
+  </li>
+</ul>
+<div style="margin-left: 40px;">To pass, each test must compile and
+execute successfully and must produce the same result as when compiled
+by a reference compiler (namely gcc).<span style="font-family: monospace;"></span> This form of testing is sometimes refered to as <span style="font-style: italic;">differential testing</span>.
+In this case the output of one program is compared against the output
+of another, but it is also possible to compare the output of one
+program against the output of a different version of the same program
+to check for regressions.<br>
+For each test in this directory there will be a file with the same name
+as
+the test but with the extension ".expect". To speed things up, the
+output of the reference compiler can be retrieved once and used on all
+subsequent runs. If a new test is added or an existing test is
+modified, an .expect file must be updated/created. Set the enviroment
+variable LUX_DONT_RECALC to 1 to not recalculate .expect files.<br>
+<br>
+</div>
+<ul>
+  <li><span style="font-weight: bold;">Compilation tests</span> (<span style="font-family: monospace;">scr/tests/compile</span>).</li>
+</ul>
+<div style="margin-left: 40px;">To pass, each test must simply compile
+(the compiler must exit with an exit status of 0). These tests are
+mainly to check for compiler crashes and erroneous flagging of errors.
+Here also are tests that use the <span style="font-family: monospace;">__static_assert()</span>
+statement to assert various aspects about expressions at compile time
+(currently one can only assert the type and mutability of an
+expression).<br>
+<br>
+</div>
+<ul>
+  <li><span style="font-weight: bold;">Analysis tests</span> (<span style="font-family: monospace;">src/tests/analyze</span>).</li>
+</ul>
+<div style="margin-left: 40px;">The tests in this directory are meant to be run with the tool <span style="font-family: monospace;">tester</span>. <span style="font-family: monospace;">tester</span>
+iterates through all the .c files that are passed to it as arguments, invoking the compiler on each one
+and catching the emitted diagnostics. It checks that the diagnostics
+that are expected to be emitted are emitted and that no
+spurious/unexpected diagnostics are emitted. Each test has <span style="font-family: monospace;">tester</span>'s directives embedded within comments<span style="font-family: monospace;"></span>. If a line has no directive, it should trigger no diagnostic. The general form of a directive is:<br>
+<br>
+</div>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">@ error|warning "msg"<br>
+</span></div>
+<br>
+<div style="margin-left: 40px;">that is, the '@' character, followed by
+a single space, followed by the word 'error' or 'warning' indicating if
+what is expected is respectively an error or a warning, followed by at
+least one space, followed by a regular expression enclosed in "" that
+matches a part of the expected diagnostic message.<br>
+<br>
+</div>
+<ul>
+  <li><span style="font-weight: bold;">Self-Compilation</span> (<span style="font-family: monospace;">src/tests/self</span>).<br>
+  </li>
+</ul>
+<div style="margin-left: 40px;">The compiler itself can be considered a
+big test case. The process is as follows: first the original compiler is
+compiled by another compiler (e.g. gcc). That binary (let's call it
+cc1) is used to compile again the compiler to produce a second binary
+(cc2). That last binary is used again to compile the compiler a last
+time and produce a third binary (cc3). If everything went ok, cc2
+should be equal to cc3 (in a byte-to-byte basis).<br>
+<br>
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; gcc&nbsp;&nbsp; -&gt; cc1</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; cc1&nbsp;&nbsp; -&gt; cc2</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; cc2&nbsp;&nbsp; -&gt; cc3</span><br>
+</div>
+
+
+<br>
+<big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Missing_features"></a>5. Missing features<br>
+</big></big></big><br>The C89 features that are missing are (see also the description of the preprocessor to see the things that it misses):<br>
+
+
+<span style="font-family: monospace;"></span><span style="font-family: monospace;"></span><ul>
+  <li>Old-style function definitions:<span style="font-family: monospace;"> void foo(x, y) char *x; int y; { ... }. </span>Write instead <span style="font-family: monospace;">void foo(char *x, int y) { ... }</span><br style="font-family: monospace;"></li>
+  <li>Function declarators with empty parameter type lists are interpreted as taking no parameters: <span style="font-family: monospace;">void bar() </span>is seen as<span style="font-family: monospace;"> void bar(void)</span></li><li>Implicit declaration of functions (the use of a function without a visible prototype is considered an error)<br>
+  </li>
+<li>The 'implicit <span style="font-family: monospace;">int</span>' rule<br></li><li>Bit-fields</li><li>Floating point numbers</li><li>Wide character constants/string literals</li></ul>Most of the new features introduced with C99 are missing. The only C99 features that do are supported are:<br><ul><li>Macros with a variable number of arguments</li>
+  <li>The <span style="font-family: monospace;">long long</span> type<br>
+  </li>
+<li>The permission of a trailing comma after an enumerator list<span style="font-family: Times New Roman;"><span style="text-decoration: underline;"><span style="font-weight: bold;"></span></span></span></li></ul><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Resources"></a>6. Resources<br></big></big></big><br>Here I will write down some resources that I found useful during the development of this project:<br><ul><li><a href="http://port70.net/%7Ensz/c/">Standards and Rationales</a></li>
+  <li><a href="http://www.netzmafia.de/skripten/unix/chist.html">The Development of the C Language*<span style="font-family: 'Times New Roman';"><span style="font-weight: bold;"></span></span></a></li>
+  <li><a href="http://jclt.iecc.com/">The Journal of C Language Translation</a><br>
+  </li>
+<li><a href="http://www.knosof.co.uk/cbook/"><span style="color: rgb(0, 0, 0); font-family: 'Times New Roman'; font-size: medium; font-style: normal; font-variant: normal; font-weight: normal; letter-spacing: normal; line-height: normal; text-align: start; text-indent: 0px; text-transform: none; white-space: normal; widows: 1; word-spacing: 0px; display: inline ! important; float: none;"></span></a><a href="https://gcc.gnu.org/onlinedocs/">GCC online documentation</a></li>
+  <li><a href="http://collaboration.cmc.ec.gc.ca/science/rpn/biblio/ddj/Website/articles/CUJ/1996/9610/saks/saks.htm">C++ Theory and Practice: Declarators, Finale</a><br>
+  </li>
+  <li><a href="http://www.torek.net/torek/c/compiler.html">C For Smarties: Dealing With Your Compiler</a></li>
+  <li><a href="http://collaboration.cmc.ec.gc.ca/science/rpn/biblio/ddj/Website/articles/CUJ/tree.htm">C/C++ Users Journal</a></li>
+  <li><a href="http://www.open-std.org/jtc1/sc22/wg14/www/docs/dr.htm">WG14 Defect Report Summary</a></li>
+  <li><a href="http://www.sco.com/developers/devspecs/abi386-4.pdf">System V ABI-i386</a></li>
+  <li><a href="http://www.x86-64.org/documentation/abi.pdf">System V ABI-AMD64</a></li>
+  <li><a href="http://www.agner.org/optimize/calling_conventions.pdf">Calling conventions</a><br>
+  </li>
+
+</ul>
+<span style="font-family: monospace;"></span>
+</body></html>

@@ -1,0 +1,84 @@
+preprocessing_file = [ group ] end_of_file
+
+group = group_part { group_part }
+
+group_part = [ pp_tokens ] new_line |
+             if_section |
+             control_line
+
+if_section = if_group [ elif_groups ] [ else_group ] endif_line
+
+if_group = "#" "if" constant_expression new_line [ group ] |
+           "#" "ifdef" identifier new_line [ group ] |
+           "#" "ifndef" identifier new_line [ group ]
+
+elif_groups = elif_group { elif_group }
+
+elif_group = "#" "elif" constant_expression new_line [ group ]
+
+else_group = "#" "else" new_line [ group ]
+
+endif_line = "#" "endif" new_line
+
+control_line = "#" "include" pp_tokens new_line |
+               "#" "define" identifier replacement_list new_line |
+               "#" "define" identifier lparen [ identifier_list ] ")" replacement_list new_line |
+               "#" "undef" identifier new_line |
+               "#" new_line
+
+pp_tokens = preprocessing_token { preprocessing_token }
+
+preprocessing_token = header_name
+                      identifier
+                      pp_number
+                      character_constant
+                      string_literal
+                      punctuator
+                      each non-white-space character that cannot be one of the above
+
+// =============================================================================
+// Constant expressions grammar
+// =============================================================================
+
+constant_expression = conditional_expression ;
+
+conditional_expression = logical_OR_expression [ "?" constant_expression ":" conditional_expression ] ;
+
+logical_OR_expression = logical_AND_expression { "||" logical_AND_expression } ;
+
+logical_AND_expression = inclusive_OR_expression { "&&" inclusive_OR_expression } ;
+
+inclusive_OR_expression = exclusive_OR_expression { "|" exclusive_OR_expression } ;
+
+exclusive_OR_expression = AND_expression { "^" AND_expression } ;
+
+AND_expression = equality_expression { "&" equality_expression } ;
+
+equality_expression = relational_expression { equop relational_expression } ;
+
+equop = "==" | "!=" ;
+
+relational_expression = shift_expression { relop shift_expression } ;
+
+relop = "<" | ">" | "<=" | ">= ;
+
+shift_expression = additive_expression { shiftop additive_expression } ;
+
+shiftop = "<<" | ">>"
+
+additive_expression = multiplicative_expression { addop multiplicative_expression } ;
+
+addop = "+" | "-" ;
+
+multiplicative_expression = cast_expression { mulop cast_expression };
+
+mulop = "*" | "/" | "%" ;
+
+unary_operator = "+" | "-" | "~" | "!" ;
+
+unary_expression = primary_expression |
+                   unary_operator unary_expression ;
+
+primary_expression = identifier |
+                     constant |
+                     "(" expression ")" ;

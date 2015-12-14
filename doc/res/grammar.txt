@@ -1,0 +1,214 @@
+// =============================================================================
+// External definitions
+// =============================================================================
+
+translation_unit = external_declaration { external_declaration } EOF ;
+
+external_declaration = function_definition |
+                       declaration ;
+
+function_definition = declaration_specifiers declarator compound_statement ;
+
+// =============================================================================
+// Declarations
+// =============================================================================
+
+declaration = declaration_specifiers [ init_declarator_list ] ";" ;
+
+declaration_specifiers = storage_class_specifier [ declaration_specifiers ] |
+                         type_specifier [ declaration_specifiers ] |
+                         type_qualifier [ declaration_specifiers ] ;
+
+init_declarator_list =  init_declarator { "," init_declarator } ;
+
+init_declarator = declarator [ "=" initializer ] ;
+
+storage_class_specifier = "typedef" |
+                          "extern" |
+                          "static" |
+                          "auto" |
+                          "register" ;
+
+type_specifier = "void" |
+                 "char" |
+                 "short" |
+                 "int" |
+                 "long" |
+                 "signed" |
+                 "unsigned" |
+                 struct_or_union_specifier |
+                 enum_specifier |
+                 typedef_name ;
+
+struct_or_union_specifier = struct_or_union [ identifier ] "{" struct_declaration_list "}" |
+                            struct_or_union identifier ;
+
+struct_or_union = "struct" | "union" ;
+
+struct_declaration_list = struct_declaration { struct_declaration } ;
+
+struct_declaration = specifier_qualifier_list struct_declarator_list ";" ;
+
+specifier_qualifier_list = ( type_specifier | type_qualifier ) [ specifier_qualifier_list ] ;
+
+struct_declarator_list = struct_declarator { "," struct_declarator } ;
+
+struct_declarator = declarator
+
+enum_specifier = "enum" [ identifier ] "{" enumerator_list [ "," ] "}" |
+                 "enum" identifier ;
+
+enumerator_list = enumerator { "," enumerator } ;
+
+enumerator = enumeration_constant [ "=" constant_expression ] ;
+
+enumeration_constant = identifier
+
+type_qualifier = "const" | "volatile" ;
+
+declarator = [ pointer ] direct_declarator ;
+
+direct_declarator = [ identifier | "(" declarator ")" ] { direct_declarator_postfix } ;
+
+direct_declarator_postfix = "[" [ constant_expression ] "]" |
+                            "(" parameter_type_list ")"
+
+pointer = "*" [ type_qualifier_list ] [ pointer ] ;
+
+type_qualifier_list = type_qualifier { type_qualifier } ;
+
+parameter_type_list = parameter_list [ "," "..." ] ;
+
+parameter_list = parameter_declaration { "," parameter_declaration } ;
+
+parameter_declaration = declaration_specifiers declarator |
+                        declaration_specifiers [ abstract_declarator ] ;
+
+identifier_list = identifier { "," identifier } ;
+
+type_name = specifier_qualifier_list [ abstract_declarator ] ;
+
+abstract_declarator = pointer |
+                      [ pointer ] direct_abstract_declarator ;
+
+direct_abstract_declarator = "(" abstract_declarator ")" { direct_abstract_declarator_postfix } |
+                             direct_abstract_declarator_postfix { direct_abstract_declarator_postfix } ;
+
+direct_abstract_declarator_postfix = "[" [ constant_expression ] "]" |
+                                     "(" [ parameter_type_list ] ")" ;
+
+typedef_name = identifier ;
+
+initializer = assignment_expression |
+              "{" initializer_list [ "," ] "}" ;
+
+initializer_list = initializer { "," initializer } ;
+
+
+// =============================================================================
+// Statements
+// =============================================================================
+
+statement = labeled_statement |
+            compound_statement |
+            expression_statement |
+            selection_statement |
+            iteration_statement |
+            jump_statement ;
+
+labeled_statement = identifier ":" statement |
+                    "case" constant_expression ":" statement |
+                    "default" ":" statement ;
+
+compound_statement = "{" [ declaration_list ] [ statement_list ] "}" ;
+
+declaration_list = declaration { declaration } ;
+
+statement_list = statement { statement } ;
+
+expression_statement = [ expression ] ";" ;
+
+selection_statement = "if" "(" expression ")" statement [ "else" statement ] |
+                      "switch" "(" expression ")" statement ;
+
+iteration_statement = "while" "(" expression ")" statement |
+                      "do" statement "while" "(" expression ")" ";" |
+                      "for" "(" [ expression ] ";" [ expression ] ";" [ expression ] ")" statement ;
+
+jump_statement = "goto" identifier ";" |
+                 "continue" ";" |
+                 "break" ";" |
+                 "return" [ expression ] ";" ;
+
+
+// =============================================================================
+// Expressions
+// =============================================================================
+
+constant_expression = conditional_expression ;
+
+expression = assignment_expression { "," assignment_expression } ;
+
+assignment_operator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" ;
+
+assignment_expression = conditional_expression [ assignment_operator assignment_expression ] ;
+
+conditional_expression = logical_OR_expression [ "?" expression ":" conditional_expression ] ;
+
+logical_OR_expression = logical_AND_expression { "||" logical_AND_expression } ;
+
+logical_AND_expression = inclusive_OR_expression { "&&" inclusive_OR_expression } ;
+
+inclusive_OR_expression = exclusive_OR_expression { "|" exclusive_OR_expression } ;
+
+exclusive_OR_expression = AND_expression { "^" AND_expression } ;
+
+AND_expression = equality_expression { "&" equality_expression } ;
+
+equality_expression = relational_expression { equop relational_expression } ;
+
+equop = "==" | "!=" ;
+
+relational_expression = shift_expression { relop shift_expression } ;
+
+relop = "<" | ">" | "<=" | ">= ;
+
+shift_expression = additive_expression { shiftop additive_expression } ;
+
+shiftop = "<<" | ">>"
+
+additive_expression = multiplicative_expression { addop multiplicative_expression } ;
+
+addop = "+" | "-" ;
+
+multiplicative_expression = cast_expression { mulop cast_expression };
+
+mulop = "*" | "/" | "%" ;
+
+cast_expression = unary_expression |
+                 "(" type_name ")" cast_expression ;
+
+unary_operator = "&" | "*" | "+" | "-" | "~" | "!" ;
+
+unary_expression = postfix_expression |
+                   "++" unary_expression |
+                   "--" unary_expression |
+                   unary_operator cast_expression |
+                   "sizeof" unary_expression |
+                   "sizeof" "(" type_name ")" ;
+
+postfix_expression = primary_expression { postfix } ;
+
+postfix = "[" expression "]" |
+          "(" [ argument_expression_list ] ")" |
+          "." identifier |
+          "->" identifier |
+          "++" |
+          "--" ;
+
+primary_expression = identifier |
+                     constant |
+                     string_literal |
+                     "(" expression ")" ;
+
+argument_expression_list = assignment_expression { "," assignment_expression } ;
