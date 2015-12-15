@@ -2,10 +2,12 @@ CC=gcc
 CFLAGS=-c -g -Wall
 OBJS = luxld.o
 
-all: luxld
+all: luxld luxld64
 
 luxld: luxld.o ../util.o ../arena.o ../luxas/ELF_util.o
 	$(CC) -o luxld luxld.o ../util.o ../arena.o ../luxas/ELF_util.o
+luxld64: luxld64.o  ../util.o ../arena.o ../luxas/ELF_util.o
+	$(CC) -o luxld64 luxld64.o ../util.o ../arena.o ../luxas/ELF_util.o
 ../util.o:
 	make -C .. util.o
 ../arena.o:
