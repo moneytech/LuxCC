@@ -44,6 +44,7 @@
 
 
 
+
 <meta http-equiv="content-type" content="text/html; charset=utf-8"></head><body><span style="font-family: monospace;"></span><span style="font-family: monospace;">Luxcc usage and internals documentation. I will try to maintain this document updated as things evolve.</span><br>
 <br>
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big>Index<br></big></big></big><span style="font-family: Times New Roman;">
@@ -123,6 +124,11 @@ meaning that the compiler driver will look for the file <span style="font-family
 are the directories where the files were installed by default in my Linux
 distribution (Ubuntu 12.04 32-bits and Ubuntu 14.04 64-bits
 respectively).<br>
+<br>
+<span style="font-weight: bold;">musl libc</span><br>
+<br>
+Alternatively, you can use the lightweight <a href="http://www.musl-libc.org/">musl</a> standard library that is compatible with my linker (<span style="font-family: monospace;">luxld</span>) and works very well. If you have installed musl, you can indicate the driver to use it with the command-line switch <span style="font-family: monospace;">-use-musl</span>.<br>
+
 <br><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Basic_usage"></a>2.2 Basic usage<br>
 </big></big></big><br>
 In the following examples I will assume that you have run make install (replace <span style="font-family: monospace;">luxdvr</span> for <span style="font-family: monospace;">src/luxdvr/luxdvr</span> otherwise). I will also assume that the target is x86 (the default).<br>
