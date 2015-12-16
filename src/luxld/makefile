@@ -1,11 +1,11 @@
 CC=gcc
 CFLAGS=-c -g -Wall
-OBJS = luxld.o
+OBJS = luxld32.o luxld64.o
 
-all: luxld luxld64
+all: luxld32 luxld64
 
-luxld: luxld.o ../util.o ../arena.o ../luxas/ELF_util.o
-	$(CC) -o luxld luxld.o ../util.o ../arena.o ../luxas/ELF_util.o
+luxld32: luxld32.o ../util.o ../arena.o ../luxas/ELF_util.o
+	$(CC) -o luxld32 luxld32.o ../util.o ../arena.o ../luxas/ELF_util.o
 luxld64: luxld64.o  ../util.o ../arena.o ../luxas/ELF_util.o
 	$(CC) -o luxld64 luxld64.o ../util.o ../arena.o ../luxas/ELF_util.o
 ../util.o:
@@ -17,7 +17,7 @@ luxld64: luxld64.o  ../util.o ../arena.o ../luxas/ELF_util.o
 .c.o:
 	$(CC) $(CFLAGS) $*.c
 clean:
-	rm -f $(OBJS) luxld
+	rm -f $(OBJS) luxld32 luxld64
 
 luxld.o: luxld.h ../util.h ../arena.h ../luxas/ELF_util.h
 

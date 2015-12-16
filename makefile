@@ -17,12 +17,12 @@ tools:
 install:
 	cp src/luxcc src/luxdvr/luxdvr /usr/local/bin/
 	cp src/luxvm/luxvm src/luxvm/luxvmas src/luxvm/luxvmld /usr/local/bin/
-	cp src/luxas/luxas src/luxld/luxld /usr/local/bin/
+	cp src/luxas/luxas src/luxld/luxld32 src/luxld/luxld64 /usr/local/bin/
 	mkdir -p /usr/local/lib/luxcc
 	cp src/lib/*.o src/luxdvr/*.conf /usr/local/lib/luxcc/
 	cp -r src/lib/include/ /usr/local/lib/luxcc/
 uninstall:
-	rm -f /usr/local/bin/luxcc /usr/local/bin/luxdvr /usr/local/bin/luxas /usr/local/bin/luxld /usr/local/bin/luxvm /usr/local/bin/luxvmas /usr/local/bin/luxvmld
+	rm -f /usr/local/bin/luxcc /usr/local/bin/luxdvr /usr/local/bin/luxas /usr/local/bin/luxld32 /usr/local/bin/luxld64 /usr/local/bin/luxvm /usr/local/bin/luxvmas /usr/local/bin/luxvmld
 	rm -rf /usr/local/lib/luxcc
 test:
 	/bin/bash scripts/testall.sh

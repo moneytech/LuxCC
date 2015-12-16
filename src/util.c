@@ -1,4 +1,5 @@
 #include "util.h"
+#include <stdio.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
@@ -67,4 +68,28 @@ int ilog2(unsigned val)
         ++x;
     }
     return x;
+}
+
+int be_atoi(char *s)
+{
+    unsigned char *us = (unsigned char *)s;
+    return (us[0]<<24 | us[1]<<16 | us[2]<<8 | us[3]);
+}
+
+char *read_file(char *path)
+{
+    FILE *fp;
+    char *buf;
+    unsigned len;
+
+    if ((fp=fopen(path, "rb")) == NULL)
+        return NULL;
+    fseek(fp, 0, SEEK_END);
+    len = ftell(fp);
+    rewind(fp);
+    buf = malloc(len+1);
+    len = fread(buf, 1, len, fp);
+    buf[len] = '\0';
+    fclose(fp);
+    return buf;
 }

@@ -13,4 +13,7 @@ int strtab_get_offset(StrTab *tab, char *str);
 char *strtab_get_string(StrTab *tab, int offs);
 void strtab_copy(StrTab *tab, char *dest);
 
+unsigned long elf_hash(const unsigned char *name);
+unsigned elf_get_nbucket(unsigned nsym);
+
 #endif

@@ -13,7 +13,7 @@
 #include "../util.h"
 #include "../str.h"
 
-int verbose;
+int verbose, use_musl;
 char *prog_name;
 char helpstr[] =
     "\nGeneral options:\n"
@@ -22,6 +22,7 @@ char helpstr[] =
     "  -E               Preprocess only\n"
     "  -S               Compile but do not assemble\n"
     "  -c               Compile and assemble but do not link\n"
+    "  -use-musl        Link against musl standard library\n"
     "  -v               Show invoked commands\n"
     "  -h               Print this help\n"
     "\nCompiler options:\n"
@@ -420,6 +421,8 @@ int main(int argc, char *argv[])
             case 'u':
                 if (equal(argv[i], "-uncolored"))
                     string_printf(cc_cmd, " -u");
+                else if (equal(argv[i], "-use-musl"))
+                    use_musl = TRUE;
                 else
                     unknown_opt(argv[i]);
                 break;
@@ -476,18 +479,28 @@ ok_1:
         string_printf(ld_cmd, " %s", search_required("crt64.o", FALSE));
         string_printf(ld_cmd, " %s", search_required("libc.o", FALSE));
     } else if (driver_flags & DVR_X64_TARGET) {
-        parse_conf_file("x64.conf");
-        string_printf(as_cmd, "%s -m64", search_required("luxas", TRUE));
         p = strdup(strbuf(ld_cmd));
         string_clear(ld_cmd);
-        string_printf(ld_cmd, "%s -I/lib64/ld-linux-x86-64.so.2 %s", search_required("ld", TRUE), p);
+        if (use_musl) {
+            parse_conf_file("musl.conf");
+            string_printf(ld_cmd, "%s %s", search_required("luxld64", TRUE), p);
+        } else {
+            parse_conf_file("x64.conf");
+            string_printf(ld_cmd, "%s -I/lib64/ld-linux-x86-64.so.2 %s", search_required("ld", TRUE), p);
+        }
+        string_printf(as_cmd, "%s -m64", search_required("luxas", TRUE));
         free(p);
     } else {
-        parse_conf_file("x86.conf");
-        string_printf(as_cmd, "%s -m32", search_required("luxas", TRUE));
         p = strdup(strbuf(ld_cmd));
         string_clear(ld_cmd);
-        string_printf(ld_cmd, "%s -I/lib/ld-linux.so.2 %s", search_required("ld", TRUE), p);
+        if (use_musl) {
+            parse_conf_file("musl.conf");
+            string_printf(ld_cmd, "%s %s", search_required("luxld32", TRUE), p);
+        } else {
+            parse_conf_file("x86.conf");
+            string_printf(ld_cmd, "%s -I/lib/ld-linux.so.2 %s", search_required("ld", TRUE), p);
+        }
+        string_printf(as_cmd, "%s -m32", search_required("luxas", TRUE));
         string_printf(ld_cmd, " %s", search_required("liblux.o", FALSE));
         free(p);
     }
@@ -637,9 +650,13 @@ ok_1:
             if (driver_flags & (DVR_X86_TARGET+DVR_X64_TARGET)) {
                 string_printf(ld_cmd, " %s", search_required("crt1.o", FALSE));
                 string_printf(ld_cmd, " %s", search_required("crti.o", FALSE));
-                string_printf(ld_cmd, " %s", search_required("crtn.o", FALSE));
-                string_printf(ld_cmd, " %s", search_required("libc.so.6", FALSE));
-                string_printf(ld_cmd, " %s", search_required("libc_nonshared.a", FALSE));
+                if (use_musl) {
+                    string_printf(ld_cmd, " %s", search_required("libc.so", FALSE));
+                } else {
+                    string_printf(ld_cmd, " %s", search_required("crtn.o", FALSE));
+                    string_printf(ld_cmd, " %s", search_required("libc.so.6", FALSE));
+                    string_printf(ld_cmd, " %s", search_required("libc_nonshared.a", FALSE));
+                }
             }
             exst = !!exec_cmd(ld_cmd);
         }

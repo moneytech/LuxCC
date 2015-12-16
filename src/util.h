@@ -24,5 +24,7 @@ int round_up(int num, int mul);
 int ilog2(unsigned val);
 int file_exists(char *file_path);
 char *replace_extension(char *fname, char *newext);
+int be_atoi(char *s);
+char *read_file(char *path);
 
 #endif

@@ -1,19 +1,11 @@
 /*
-    LUXLD: minimal ELF32 linker capable of linking against static and shared libraries.
+    LUXLD: minimal ELF64 linker capable of linking against static and shared libraries.
 
-    This completes the x86 toolchain (cc+as+ld).
+    This completes the x64 toolchain (cc+as+ld).
 
     Documents:
         - gABI: http://www.sco.com/developers/gabi/latest/contents.html
-        - i386 psABI: http://www.sco.com/developers/devspecs/abi386-4.pdf
-
-    Notes:
-        - The linker behaves as GNU ld when invoked with the switch `--allow-shlib-undefined',
-          that is, it doesn't check for undefined symbol references in shared libraries.
-        - Currently it only supports .hash sections (not .gnu.hash).
-        - Tested with:
-            * glibc 2.15 (doesn't work, need to fix some issues related to relocations)
-            * musl (http://www.musl-libc.org/)
+        - AMD64 ABI: http://www.x86-64.org/documentation/abi.pdf
 */
 #include "luxld.h"
 #include <stdio.h>
@@ -47,9 +39,9 @@ typedef struct PLTEnt PLTEnt;
 
 struct ObjFile { /* simple relocatable object file */
     char *buf;
-    Elf32_Ehdr *ehdr;   /* ELF header */
-    Elf32_Shdr *shtab;  /* Section header table */
-    Elf32_Sym *symtab;  /* Symbol table */
+    Elf64_Ehdr *ehdr;   /* ELF header */
+    Elf64_Shdr *shtab;  /* Section header table */
+    Elf64_Sym *symtab;  /* Symbol table */
     int nsym;           /* # of symbol table entries */
     char *shstrtab;     /* Section name string table */
     char *strtab;       /* String table */
@@ -59,35 +51,35 @@ struct ObjFile { /* simple relocatable object file */
 struct ShrdObjFile { /* shared library */
     char *buf;
     char *name;             /* Library's path passed to the linker in the command line or DT_SONAME */
-    Elf32_Ehdr *ehdr;
-    Elf32_Shdr *shtab;
-    Elf32_Sym *dynsym;      /* Dynamic symbol table */
+    Elf64_Ehdr *ehdr;
+    Elf64_Shdr *shtab;
+    Elf64_Sym *dynsym;      /* Dynamic symbol table */
     int nsym;               /* dynsym's # of entries */
     char *dynstr;           /* Dynamic string table */
-    Elf32_Dyn *dynamic;     /* Dynamic section */
-    Elf32_Word *hash;       /* Hash table (points to first bucket) */
-    Elf32_Word nbucket;     /* Hash table's # of buckets */
-    Elf32_Word *chain;      /* Hash chain (length == # of dynsym entries) */
+    Elf64_Dyn *dynamic;     /* Dynamic section */
+    Elf64_Word *hash;       /* Hash table (points to first bucket) */
+    Elf64_Word nbucket;     /* Hash table's # of buckets */
+    Elf64_Word *chain;      /* Hash chain (length == # of dynsym entries) */
     ShrdObjFile *next;
 } *shared_object_files;
 
 struct PLTEnt {
     char *fname;
-    Elf32_Addr addr;
+    Elf64_Addr addr;
     PLTEnt *next;
 } *plt_entries;
 
 struct SmplSec { /* simple section with the contribution of a single object file */
     ObjFile *obj;       /* object file that contributed this section */
-    Elf32_Shdr *shdr;
+    Elf64_Shdr *shdr;
     char *data;
     SmplSec *next;
 };
 
 struct CmpndSec { /* compound section with the contributions of all object files */
     char *name;
-    Elf32_Shdr shdr;
-    Elf32_Half shndx;   /* index into output file's section header table */
+    Elf64_Shdr shdr;
+    Elf64_Half shndx;   /* index into output file's section header table */
     SmplSec *sslist;
     CmpndSec *next;
 } *sections;
@@ -95,53 +87,53 @@ struct CmpndSec { /* compound section with the contributions of all object files
 struct Segment { /* read-only & writable loadable segments */
     int nsec;
     CmpndSec *secs[MAX_SEC_PER_SEG];
-    Elf32_Phdr phdr;
+    Elf64_Phdr phdr;
 } ROSeg, WRSeg;
 
 struct Symbol {
     char *name;
-    Elf32_Addr value;
-    Elf32_Word size;
+    Elf64_Addr value;
+    Elf64_Word size;
     unsigned char info;
     bool in_dynsym;
-    Elf32_Half shndx;   /* index into input file's section header table */
+    Elf64_Half shndx;   /* index into input file's section header table */
     char *shname;
     Symbol *next;
 };
 
 Symbol *lookup_global_symbol(char *name);
 char *entry_symbol = "_start";
-char *interp = "/lib/ld-linux.so.2";
+char *interp = "/lib64/ld-linux-x86-64.so.2";
 char *prog_name;
 char *fbuf[MAX_INPUT_FILES];
 int nfbuf;
 int nundef; /* # of undefined ('extern') symbols currently in the symtab */
 int nglobal;
 int nreloc;
-CmpndSec *plt_sec, *relplt_sec, *gotplt_sec;
-int nplt, nrelplt, ngotplt = 3;
+CmpndSec *plt_sec, *relaplt_sec, *gotplt_sec;
+int nplt, nrelaplt, ngotplt = 3;
 CmpndSec *dynstr_sec, *dynsym_sec;
 StrTab *dynstr;
 CmpndSec *hash_sec, *dynamic_sec;
 int nshaobj;
 CmpndSec *interp_sec;
-CmpndSec *reldyn_sec, *bss_sec;
-int nreldyn;
+CmpndSec *reladyn_sec, *bss_sec;
+int nreladyn;
 Arena *mem_arena;
-Elf32_Half shndx = 4; /* [0]=UND, [1]=.shstrtab, [2]=.symtab, [3]=.strtab */
+Elf64_Half shndx = 4; /* [0]=UND, [1]=.shstrtab, [2]=.symtab, [3]=.strtab */
 
 /* Symbols that will go into the output file's symtab. */
 Symbol *global_symbols[HASH_SIZE];
 Symbol *local_symbols; /* with type other than SECTION or FILE */
 
 const char plt0_asm_template[] =
-    "\xff\x35\x00\x00\x00\x00"  /* push dword [got+4] */
-    "\xff\x25\x00\x00\x00\x00"  /* jmp  dword [got+8] */
+    "\xff\x35\x00\x00\x00\x00"  /* push qword [REL got+8] */
+    "\xff\x25\x00\x00\x00\x00"  /* jmp  qword [REL got+16] */
     "\x90\x90\x90\x90"          /* times 4 nop */
 ;
 
 const char pltn_asm_template[] =
-    "\xff\x25\x00\x00\x00\x00"  /* jmp  dword [got+n] */
+    "\xff\x25\x00\x00\x00\x00"  /* jmp  qword [REL got+n] */
     "\x68\x00\x00\x00\x00"      /* push dword reloc_offset */
     "\xe9\x00\x00\x00\x00"      /* jmp  PLT0 */
 ;
@@ -164,13 +156,13 @@ void err_undef(char *sym)
 }
 
 /* lookup symname between the *.so files passed in the command line */
-Elf32_Sym *lookup_in_shared_object(char *symname)
+Elf64_Sym *lookup_in_shared_object(char *symname)
 {
     ShrdObjFile *so;
 
     for (so = shared_object_files; so != NULL; so = so->next) {
         char *sn;
-        Elf32_Word ci;
+        Elf64_Word ci;
 
         ci = so->hash[elf_hash((unsigned char *)symname)%so->nbucket];
         while (ci != STN_UNDEF) {
@@ -188,7 +180,7 @@ Elf32_Sym *lookup_in_shared_object(char *symname)
     return NULL;
 }
 
-SmplSec *new_smpl_sec(ObjFile *obj, Elf32_Shdr *hdr, char *data, SmplSec *next)
+SmplSec *new_smpl_sec(ObjFile *obj, Elf64_Shdr *hdr, char *data, SmplSec *next)
 {
     SmplSec *n;
 
@@ -200,7 +192,7 @@ SmplSec *new_smpl_sec(ObjFile *obj, Elf32_Shdr *hdr, char *data, SmplSec *next)
     return n;
 }
 
-void add_section(ObjFile *obj, char *name, Elf32_Shdr *hdr)
+void add_section(ObjFile *obj, char *name, Elf64_Shdr *hdr)
 {
     CmpndSec *sec;
 
@@ -212,8 +204,8 @@ void add_section(ObjFile *obj, char *name, Elf32_Shdr *hdr)
             if (hdr->sh_addralign > sec->shdr.sh_addralign)
                 sec->shdr.sh_addralign = hdr->sh_addralign;
             sec->sslist = new_smpl_sec(obj, hdr, obj->buf+hdr->sh_offset, sec->sslist);
-            if (sec->shdr.sh_type == SHT_REL)
-                nreloc += hdr->sh_size/sizeof(Elf32_Rel);
+            if (sec->shdr.sh_type == SHT_RELA)
+                nreloc += hdr->sh_size/sizeof(Elf64_Rela);
             break;
         }
     }
@@ -225,8 +217,8 @@ void add_section(ObjFile *obj, char *name, Elf32_Shdr *hdr)
         sec->sslist = new_smpl_sec(obj, hdr, obj->buf+hdr->sh_offset, NULL);
         sec->next = sections;
         sections = sec;
-        if (sec->shdr.sh_type == SHT_REL)
-            nreloc += hdr->sh_size/sizeof(Elf32_Rel);
+        if (sec->shdr.sh_type == SHT_RELA)
+            nreloc += hdr->sh_size/sizeof(Elf64_Rela);
     }
 }
 
@@ -241,8 +233,8 @@ void init_dynlink_sections(void)
 {
     char *buf;
     CmpndSec *sec;
-    Elf32_Shdr *shdr;
-    Elf32_Word size, nbucket;
+    Elf64_Shdr *shdr;
+    Elf64_Word size, nbucket;
 
     if (nreloc > 0) {
         /* .plt */
@@ -255,23 +247,23 @@ void init_dynlink_sections(void)
         sec->shdr.sh_addralign = 16;
         // sec->shdr.sh_entsize = 4;
         buf = arena_alloc(mem_arena, size);
-        shdr = arena_alloc(mem_arena, sizeof(Elf32_Shdr));
+        shdr = arena_alloc(mem_arena, sizeof(Elf64_Shdr));
         *shdr = sec->shdr;
         sec->sslist = new_smpl_sec(NULL, shdr, buf, NULL);
         sec->next = sections;
         sections = sec;
 
-        /* .rel.plt */
-        relplt_sec = sec = calloc(1, sizeof(CmpndSec));
-        sec->name = ".rel.plt";
-        sec->shdr.sh_type = SHT_REL;
+        /* .rela.plt */
+        relaplt_sec = sec = calloc(1, sizeof(CmpndSec));
+        sec->name = ".rela.plt";
+        sec->shdr.sh_type = SHT_RELA;
         sec->shdr.sh_flags = SHF_ALLOC;
-        size = sizeof(Elf32_Rel)*nreloc;
+        size = sizeof(Elf64_Rela)*nreloc;
         sec->shdr.sh_size = size;
-        sec->shdr.sh_addralign = 4;
-        sec->shdr.sh_entsize = sizeof(Elf32_Rel);
+        sec->shdr.sh_addralign = 8;
+        sec->shdr.sh_entsize = sizeof(Elf64_Rela);
         buf = arena_alloc(mem_arena, size);
-        shdr = arena_alloc(mem_arena, sizeof(Elf32_Shdr));
+        shdr = arena_alloc(mem_arena, sizeof(Elf64_Shdr));
         *shdr = sec->shdr;
         sec->sslist = new_smpl_sec(NULL, shdr, buf, NULL);
         sec->next = sections;
@@ -282,28 +274,28 @@ void init_dynlink_sections(void)
         sec->name = ".got.plt";
         sec->shdr.sh_type = SHT_PROGBITS;
         sec->shdr.sh_flags = SHF_ALLOC|SHF_WRITE;
-        size = sizeof(Elf32_Word)*(3+nreloc);
+        size = sizeof(Elf64_Xword)*(3+nreloc);
         sec->shdr.sh_size = size;
-        sec->shdr.sh_addralign = 4;
-        sec->shdr.sh_entsize = 4;
+        sec->shdr.sh_addralign = 8;
+        sec->shdr.sh_entsize = 8;
         buf = arena_alloc(mem_arena, size);
-        shdr = arena_alloc(mem_arena, sizeof(Elf32_Shdr));
+        shdr = arena_alloc(mem_arena, sizeof(Elf64_Shdr));
         *shdr = sec->shdr;
         sec->sslist = new_smpl_sec(NULL, shdr, buf, NULL);
         sec->next = sections;
         sections = sec;
 
-        /* .rel.dyn */
-        reldyn_sec = sec = calloc(1, sizeof(CmpndSec));
-        sec->name = ".rel.dyn";
-        sec->shdr.sh_type = SHT_REL;
+        /* .rela.dyn */
+        reladyn_sec = sec = calloc(1, sizeof(CmpndSec));
+        sec->name = ".rela.dyn";
+        sec->shdr.sh_type = SHT_RELA;
         sec->shdr.sh_flags = SHF_ALLOC;
-        size = sizeof(Elf32_Rel)*(nreloc);
+        size = sizeof(Elf64_Rela)*(nreloc);
         sec->shdr.sh_size = size;
-        sec->shdr.sh_addralign = 4;
-        sec->shdr.sh_entsize = sizeof(Elf32_Rel);
+        sec->shdr.sh_addralign = 8;
+        sec->shdr.sh_entsize = sizeof(Elf64_Rela);
         buf = arena_alloc(mem_arena, size);
-        shdr = arena_alloc(mem_arena, sizeof(Elf32_Shdr));
+        shdr = arena_alloc(mem_arena, sizeof(Elf64_Shdr));
         *shdr = sec->shdr;
         sec->sslist = new_smpl_sec(NULL, shdr, buf, NULL);
         sec->next = sections;
@@ -320,7 +312,7 @@ void init_dynlink_sections(void)
     sec->shdr.sh_addralign = 1;
     buf = arena_alloc(mem_arena, size);
     strtab_copy(dynstr, buf);
-    shdr = arena_alloc(mem_arena, sizeof(Elf32_Shdr));
+    shdr = arena_alloc(mem_arena, sizeof(Elf64_Shdr));
     *shdr = sec->shdr;
     sec->sslist = new_smpl_sec(NULL, shdr, buf, NULL);
     sec->next = sections;
@@ -331,12 +323,12 @@ void init_dynlink_sections(void)
     sec->name = ".dynsym";
     sec->shdr.sh_type = SHT_DYNSYM;
     sec->shdr.sh_flags = SHF_ALLOC;
-    size = sizeof(Elf32_Sym)*(nglobal+1); /* +1 for STN_UNDEF */
+    size = sizeof(Elf64_Sym)*(nglobal+1); /* +1 for STN_UNDEF */
     sec->shdr.sh_size = size;
-    sec->shdr.sh_addralign = 4;
-    sec->shdr.sh_entsize = sizeof(Elf32_Sym);
+    sec->shdr.sh_addralign = 8;
+    sec->shdr.sh_entsize = sizeof(Elf64_Sym);
     buf = arena_alloc(mem_arena, size);
-    shdr = arena_alloc(mem_arena, sizeof(Elf32_Shdr));
+    shdr = arena_alloc(mem_arena, sizeof(Elf64_Shdr));
     *shdr = sec->shdr;
     sec->sslist = new_smpl_sec(NULL, shdr, buf, NULL);
     sec->next = sections;
@@ -349,14 +341,14 @@ void init_dynlink_sections(void)
     sec->shdr.sh_flags = SHF_ALLOC;
     /* size: nbucket + nchain + buckets + chain */
     nbucket = elf_get_nbucket(nglobal+1);
-    size = sizeof(Elf32_Word)*(2+nbucket+(nglobal+1));
+    size = sizeof(Elf64_Word)*(2+nbucket+(nglobal+1));
     sec->shdr.sh_size = size;
-    sec->shdr.sh_addralign = 4;
+    sec->shdr.sh_addralign = 8;
     sec->shdr.sh_entsize = 4;
     buf = arena_alloc(mem_arena, size);
-    *(Elf32_Word *)buf = nbucket;
-    *((Elf32_Word *)buf+1) = nglobal+1;
-    shdr = arena_alloc(mem_arena, sizeof(Elf32_Shdr));
+    *(Elf64_Word *)buf = nbucket;
+    *((Elf64_Word *)buf+1) = nglobal+1;
+    shdr = arena_alloc(mem_arena, sizeof(Elf64_Shdr));
     *shdr = sec->shdr;
     sec->sslist = new_smpl_sec(NULL, shdr, buf, NULL);
     sec->next = sections;
@@ -367,7 +359,7 @@ void init_dynlink_sections(void)
     sec->name = ".dynamic";
     sec->shdr.sh_type = SHT_DYNAMIC;
     sec->shdr.sh_flags = SHF_ALLOC|SHF_WRITE;
-    size = sizeof(Elf32_Dyn)*(nshaobj /* DT_NEEDED */
+    size = sizeof(Elf64_Dyn)*(nshaobj /* DT_NEEDED */
                             + 1       /* DT_HASH */
                             + 1       /* DT_STRTAB */
                             + 1       /* DT_SYMTAB */
@@ -376,7 +368,7 @@ void init_dynlink_sections(void)
                             + 1       /* DT_NULL */
                              );
     if (nreloc > 0)
-        size += sizeof(Elf32_Dyn)*(1      /* DT_PLTGOT */
+        size += sizeof(Elf64_Dyn)*(1      /* DT_PLTGOT */
                                  + 1      /* DT_PLTRELSZ */
                                  + 1      /* DT_PLTREL */
                                  + 1      /* DT_JMPREL */
@@ -385,10 +377,10 @@ void init_dynlink_sections(void)
                                  + 1      /* DT_RELENT */
                                   );
     sec->shdr.sh_size = size;
-    sec->shdr.sh_addralign = 4;
-    sec->shdr.sh_entsize = sizeof(Elf32_Dyn);
+    sec->shdr.sh_addralign = 8;
+    sec->shdr.sh_entsize = sizeof(Elf64_Dyn);
     buf = arena_alloc(mem_arena, size);
-    shdr = arena_alloc(mem_arena, sizeof(Elf32_Shdr));
+    shdr = arena_alloc(mem_arena, sizeof(Elf64_Shdr));
     *shdr = sec->shdr;
     sec->sslist = new_smpl_sec(NULL, shdr, buf, NULL);
     sec->next = sections;
@@ -405,7 +397,7 @@ void init_dynlink_sections(void)
     sec->shdr.sh_addralign = 1;
     buf = arena_alloc(mem_arena, size);
     strcpy(buf, interp);
-    shdr = arena_alloc(mem_arena, sizeof(Elf32_Shdr));
+    shdr = arena_alloc(mem_arena, sizeof(Elf64_Shdr));
     *shdr = sec->shdr;
     sec->sslist = new_smpl_sec(NULL, shdr, buf, NULL);
     sec->next = sections;
@@ -418,7 +410,7 @@ void init_sections(void)
 
     for (obj = object_files; obj != NULL; obj = obj->next) {
         int i;
-        Elf32_Shdr *shdr;
+        Elf64_Shdr *shdr;
 
         shdr = obj->shtab+1; /* skip SHN_UNDEF */
         for (i = 1; i < obj->ehdr->e_shnum; i++, shdr++)
@@ -428,14 +420,14 @@ void init_sections(void)
         init_dynlink_sections();
 }
 
-Elf32_Half get_dynsym_ndx(char *sym)
+Elf64_Half get_dynsym_ndx(char *sym)
 {
-    Elf32_Sym *sp;
-    Elf32_Half st_ndx, st_siz;
+    Elf64_Sym *sp;
+    Elf64_Half st_ndx, st_siz;
 
     st_ndx = 1;
-    sp = (Elf32_Sym *)dynsym_sec->sslist->data+1;
-    st_siz = dynsym_sec->shdr.sh_size/sizeof(Elf32_Sym);
+    sp = (Elf64_Sym *)dynsym_sec->sslist->data+1;
+    st_siz = dynsym_sec->shdr.sh_size/sizeof(Elf64_Sym);
     while (st_ndx < st_siz) {
         if (equal(strtab_get_string(dynstr, sp->st_name), sym))
             return st_ndx;
@@ -448,24 +440,25 @@ Elf32_Half get_dynsym_ndx(char *sym)
  * Install a new entry into .got.plt and a new reloc into .rel.plt.
  * Parameters:
  *  - pa is the address of a push instruction (see pltn_asm_template).
- *  - ro points to the push instruction's argument.
+ *  - ri points to the push instruction's argument.
  *  - fname is the name of the function this entry is helping to link.
  * Return the address of the new .got.plt entry.
  */
-Elf32_Addr new_gotplt_entry(Elf32_Addr pa, Elf32_Off *ro, char *fname)
+Elf64_Addr new_gotplt_entry(Elf64_Addr pa, Elf64_Word *ri, char *fname)
 {
-    Elf32_Addr ea;
-    Elf32_Rel *rp;
+    Elf64_Addr ea;
+    Elf64_Rela *rp;
 
-    ((Elf32_Word *)(gotplt_sec->sslist->data))[ngotplt] = pa;
-    ea = gotplt_sec->shdr.sh_addr+sizeof(Elf32_Word)*ngotplt;
+    ((Elf64_Addr *)(gotplt_sec->sslist->data))[ngotplt] = pa;
+    ea = gotplt_sec->shdr.sh_addr+sizeof(Elf64_Addr)*ngotplt;
     ++ngotplt;
 
-    rp = (Elf32_Rel *)relplt_sec->sslist->data;
-    rp[nrelplt].r_offset = ea;
-    rp[nrelplt].r_info = ELF32_R_INFO(get_dynsym_ndx(fname), R_386_JMP_SLOT);
-    *ro = nrelplt*sizeof(Elf32_Rel);
-    ++nrelplt;
+    rp = (Elf64_Rela *)relaplt_sec->sslist->data;
+    rp[nrelaplt].r_offset = ea;
+    rp[nrelaplt].r_info = ELF64_R_INFO(get_dynsym_ndx(fname), R_X86_64_JUMP_SLOT);
+    rp[nrelaplt].r_addend = 0;
+    *ri = nrelaplt;
+    ++nrelaplt;
 
     return ea;
 }
@@ -475,7 +468,7 @@ Elf32_Addr new_gotplt_entry(Elf32_Addr pa, Elf32_Off *ro, char *fname)
  * Create a new entry if fname was not seen before.
  * Return a PLT entry address.
  */
-Elf32_Addr get_plt_entry(char *fname)
+Elf64_Addr get_plt_entry(char *fname)
 {
     PLTEnt *np;
 
@@ -485,23 +478,23 @@ Elf32_Addr get_plt_entry(char *fname)
 
     if (np == NULL) {
         char *p;
-        Elf32_Off ro;
-        Elf32_Addr addr;
+        Elf64_Word ri;
+        Elf64_Addr addr;
 
         p = plt_sec->sslist->data+nplt*PLT_ENTRY_NB;
         if (plt_entries == NULL) {
             /* set PLT0 */
             memcpy(p, plt0_asm_template, PLT_ENTRY_NB);
-            *(Elf32_Addr *)(p+2) = gotplt_sec->shdr.sh_addr+4;
-            *(Elf32_Addr *)(p+8) = gotplt_sec->shdr.sh_addr+8;
+            *(Elf64_Word *)(p+2) = gotplt_sec->shdr.sh_addr-(plt_sec->shdr.sh_addr+6)+8;
+            *(Elf64_Word *)(p+8) = gotplt_sec->shdr.sh_addr-(plt_sec->shdr.sh_addr+12)+16;
             p += PLT_ENTRY_NB;
             ++nplt;
         }
         memcpy(p, pltn_asm_template, PLT_ENTRY_NB);
         addr = plt_sec->shdr.sh_addr+nplt*PLT_ENTRY_NB;
-        *(Elf32_Addr *)(p+2) = new_gotplt_entry(addr+6, &ro, fname);
-        *(Elf32_Off *)(p+7) = ro;
-        *(Elf32_Off *)(p+12) = plt_sec->shdr.sh_addr-(addr+PLT_ENTRY_NB);
+        *(Elf64_Word *)(p+2) = new_gotplt_entry(addr+6, &ri, fname)-(addr+6);
+        *(Elf64_Word *)(p+7) = ri;
+        *(Elf64_Word *)(p+12) = plt_sec->shdr.sh_addr-(addr+PLT_ENTRY_NB);
         ++nplt;
 
         np = malloc(sizeof(PLTEnt));
@@ -519,14 +512,14 @@ Elf32_Addr get_plt_entry(char *fname)
  * Add a new reloc into .rel.dyn.
  * Return a pointer to space allocated in .bss.
  */
-Elf32_Addr new_copy_reloc(char *symname, Elf32_Sym *syment)
+Elf64_Addr new_copy_reloc(char *symname, Elf64_Sym *syment)
 {
     unsigned n;
     Symbol *sym;
-    Elf32_Sym *sp;
-    Elf32_Rel *rp;
-    Elf32_Addr addr;
-    Elf32_Half symndx;
+    Elf64_Sym *sp;
+    Elf64_Rela *rp;
+    Elf64_Addr addr;
+    Elf64_Half symndx;
 
     if (bss_sec == NULL) { /* need to create a .bss section */
         bss_sec = calloc(1, sizeof(CmpndSec));
@@ -546,7 +539,7 @@ Elf32_Addr new_copy_reloc(char *symname, Elf32_Sym *syment)
 
     addr = bss_sec->shdr.sh_addr+bss_sec->shdr.sh_size;
     symndx = get_dynsym_ndx(symname);
-    sp = &((Elf32_Sym *)dynsym_sec->sslist->data)[symndx];
+    sp = &((Elf64_Sym *)dynsym_sec->sslist->data)[symndx];
 
     sym = lookup_global_symbol(symname);
     assert(sym != NULL);
@@ -556,10 +549,11 @@ Elf32_Addr new_copy_reloc(char *symname, Elf32_Sym *syment)
     sym->info = sp->st_info = syment->st_info;
     sym->shname = bss_sec->name;
 
-    rp = (Elf32_Rel *)reldyn_sec->sslist->data;
-    rp[nreldyn].r_offset = addr;
-    rp[nreldyn].r_info = ELF32_R_INFO(symndx, R_386_COPY);
-    ++nreldyn;
+    rp = (Elf64_Rela *)reladyn_sec->sslist->data;
+    rp[nreladyn].r_offset = addr;
+    rp[nreladyn].r_info = ELF64_R_INFO(symndx, R_X86_64_COPY);
+    rp[nreladyn].r_addend = 0;
+    ++nreladyn;
 
     n = round_up(syment->st_size, 4);
     bss_sec->shdr.sh_size += n;
@@ -573,8 +567,8 @@ void init_segments(void)
     int i;
     SmplSec *ssec;
     CmpndSec *csec;
-    Elf32_Word size;
-    unsigned long vaddr = 0x8048000;
+    Elf64_Word size;
+    unsigned long vaddr = 0x400000;
     unsigned long offset = 0;
 
     for (csec = sections; csec != NULL; csec = csec->next) {
@@ -588,17 +582,17 @@ void init_segments(void)
     if (!ROSeg.nsec && !WRSeg.nsec)
         err("Input files without loadable sections!");
 
-    offset += round_up(sizeof(Elf32_Ehdr), 16);
+    offset += round_up(sizeof(Elf64_Ehdr), 16);
     if (ROSeg.nsec > 0)
-        offset += sizeof(Elf32_Phdr);
+        offset += sizeof(Elf64_Phdr);
     if (WRSeg.nsec > 0)
-        offset += sizeof(Elf32_Phdr);
+        offset += sizeof(Elf64_Phdr);
     if (shared_object_files != NULL)
-        offset += sizeof(Elf32_Phdr)*2; /* PT_INTERP+PT_DYNAMIC */
+        offset += sizeof(Elf64_Phdr)*2; /* PT_INTERP+PT_DYNAMIC */
     if (ROSeg.nsec > 0) {
         ROSeg.phdr.p_type = PT_LOAD;
         ROSeg.phdr.p_flags = PF_R|PF_X;
-        ROSeg.phdr.p_align = 0x1000;
+        ROSeg.phdr.p_align = 0x1000; /* TBD: why GNU ld sets this to 2MB? */
 
         /*
          * Due to disk-space-saving reasons, the ELF header
@@ -665,7 +659,7 @@ void init_segments(void)
     }
 }
 
-void define_global_symbol(char *name, Elf32_Addr value, unsigned char info, Elf32_Half shndx, char *shname)
+void define_global_symbol(char *name, Elf64_Addr value, unsigned char info, Elf64_Half shndx, char *shname)
 {
     unsigned h;
     Symbol *np;
@@ -712,7 +706,7 @@ Symbol *lookup_global_symbol(char *name)
     return np;
 }
 
-void define_local_symbol(char *name, Elf32_Addr value, unsigned char info, Elf32_Half shndx, char *shname)
+void define_local_symbol(char *name, Elf64_Addr value, unsigned char info, Elf64_Half shndx, char *shname)
 {
     Symbol *np;
 
@@ -728,7 +722,7 @@ void define_local_symbol(char *name, Elf32_Addr value, unsigned char info, Elf32
 }
 
 /* return index into output file's section header table */
-Elf32_Half get_shndx(Symbol *sym)
+Elf64_Half get_shndx(Symbol *sym)
 {
     CmpndSec *csec;
 
@@ -748,11 +742,11 @@ void init_symtab(void)
 {
     SmplSec *ssec;
     CmpndSec *csec;
-    Elf32_Sym *sp;
-    Elf32_Sword n;
-    Elf32_Half symndx;
-    Elf32_Word nbucket, h;
-    Elf32_Word *buckets, *chain;
+    Elf64_Sym *sp;
+    Elf64_Sword n;
+    Elf64_Half symndx;
+    Elf64_Word nbucket, h;
+    Elf64_Word *buckets, *chain;
 
     for (csec = sections; csec != NULL; csec = csec->next)
         if (csec->shdr.sh_type == SHT_SYMTAB)
@@ -762,27 +756,27 @@ void init_symtab(void)
 
     if (shared_object_files != NULL) {
         symndx = 1;
-        sp = (Elf32_Sym *)dynsym_sec->sslist->data+1;
-        nbucket = *(Elf32_Word *)hash_sec->sslist->data;
-        buckets = (Elf32_Word *)(hash_sec->sslist->data+sizeof(Elf32_Word)*2);
+        sp = (Elf64_Sym *)dynsym_sec->sslist->data+1;
+        nbucket = *(Elf64_Word *)hash_sec->sslist->data;
+        buckets = (Elf64_Word *)(hash_sec->sslist->data+sizeof(Elf64_Word)*2);
         chain = buckets+nbucket;
     }
     for (ssec = csec->sslist; ssec != NULL; ssec = ssec->next) {
         int i, nsym;
-        Elf32_Sym *symtab;
-        Elf32_Shdr *shtab;
+        Elf64_Sym *symtab;
+        Elf64_Shdr *shtab;
         char *strtab, *shstrtab;
 
-        nsym = ssec->shdr->sh_size/sizeof(Elf32_Sym);
+        nsym = ssec->shdr->sh_size/sizeof(Elf64_Sym);
         symtab = ssec->obj->symtab;
         shtab = ssec->obj->shtab;
         strtab = ssec->obj->strtab;
         shstrtab = ssec->obj->shstrtab;
 
         for (i = 1; i < nsym; i++) {
-            switch (ELF32_ST_BIND(symtab[i].st_info)) {
+            switch (ELF64_ST_BIND(symtab[i].st_info)) {
             case STB_LOCAL:
-                switch (ELF32_ST_TYPE(symtab[i].st_info)) {
+                switch (ELF64_ST_TYPE(symtab[i].st_info)) {
                 case STT_SECTION:
                     symtab[i].st_value = shtab[symtab[i].st_shndx].sh_addr;
                     break;
@@ -834,12 +828,12 @@ void init_symtab(void)
     }
 }
 
-Elf32_Addr get_symval(char *name, Elf32_Sym *st_ent, bool *found)
+Elf64_Addr get_symval(char *name, Elf64_Sym *st_ent, bool *found)
 {
     Symbol *sym;
 
     *found = TRUE;
-    if (ELF32_ST_BIND(st_ent->st_info) == STB_LOCAL)
+    if (ELF64_ST_BIND(st_ent->st_info) == STB_LOCAL)
         return st_ent->st_value;
     sym = lookup_global_symbol(name);
     assert(sym != NULL);
@@ -856,18 +850,18 @@ void apply_relocs(void)
     CmpndSec *csec;
 
     for (csec = sections; csec != NULL; csec = csec->next) {
-        if (csec->shdr.sh_type!=SHT_REL || equal(csec->name, ".rel.plt") || equal(csec->name, ".rel.dyn"))
+        if (csec->shdr.sh_type!=SHT_RELA || equal(csec->name, ".rela.plt") || equal(csec->name, ".rela.dyn"))
             continue;
         for (ssec = csec->sslist; ssec != NULL; ssec = ssec->next) {
             int i, nrel;
-            Elf32_Sym *symtab;
-            Elf32_Shdr *shtab;
-            Elf32_Rel *rel;
+            Elf64_Sym *symtab;
+            Elf64_Shdr *shtab;
+            Elf64_Rela *rel;
             char *strtab;
             char *buf;
 
-            rel = (Elf32_Rel *)ssec->data;
-            nrel = ssec->shdr->sh_size/sizeof(Elf32_Rel);
+            rel = (Elf64_Rela *)ssec->data;
+            nrel = ssec->shdr->sh_size/sizeof(Elf64_Rela);
             symtab = ssec->obj->symtab;
             shtab = ssec->obj->shtab;
             strtab = ssec->obj->strtab;
@@ -877,36 +871,34 @@ void apply_relocs(void)
                 bool found;
                 void *dest;
                 char *symname;
-                Elf32_Sym *syment;
-                Elf32_Word A, S, P;
+                Elf64_Sym *syment;
+                Elf64_Xword A, S, P;
 
                 dest = &buf[shtab[ssec->shdr->sh_info].sh_offset+rel->r_offset];
-                symname = &strtab[symtab[ELF32_R_SYM(rel->r_info)].st_name];
-                S = get_symval(symname, &symtab[ELF32_R_SYM(rel->r_info)], &found);
+                symname = &strtab[symtab[ELF64_R_SYM(rel->r_info)].st_name];
+                S = get_symval(symname, &symtab[ELF64_R_SYM(rel->r_info)], &found);
+                A = rel->r_addend;
 
-                switch (ELF32_R_TYPE(rel->r_info)) {
-                /* 386_X */
-                case R_386_8:
-                    A = *(char *)dest;
-                    goto r_386;
-                case R_386_16:
-                    A = *(short *)dest;
-                    goto r_386;
-                case R_386_32:
-                    A = *(Elf32_Sword *)dest;
-r_386:              if (found) {
+                switch (ELF64_R_TYPE(rel->r_info)) {
+                /* X86_64_X */
+                case R_X86_64_8:
+                case R_X86_64_16:
+                case R_X86_64_32:
+                case R_X86_64_32S:
+                case R_X86_64_64:
+                    if (found) {
                         ;
                     } else if ((syment=lookup_in_shared_object(symname)) != NULL) {
-                        if (ELF32_ST_TYPE(syment->st_info) == STT_FUNC) {
+                        if (ELF64_ST_TYPE(syment->st_info) == STT_FUNC) {
                             Symbol *sym;
 
-                            /* See 'Function Addresses' in the i386 psABI. */
+                            /* See 'Function Addresses' in the AMD64 ABI. */
                             sym = lookup_global_symbol(symname);
                             assert(sym != NULL);
                             if (sym->value == 0) {
-                                syment = &((Elf32_Sym *)dynsym_sec->sslist->data)[get_dynsym_ndx(symname)];
+                                syment = &((Elf64_Sym *)dynsym_sec->sslist->data)[get_dynsym_ndx(symname)];
                                 syment->st_value = sym->value = get_plt_entry(symname);
-                                syment->st_info = sym->info = ELF32_ST_INFO(STB_GLOBAL, STT_FUNC);
+                                syment->st_info = sym->info = ELF64_ST_INFO(STB_GLOBAL, STT_FUNC);
                                 syment->st_shndx = sym->shndx = SHN_UNDEF;
                             }
                             S = sym->value;
@@ -916,62 +908,62 @@ r_386:              if (found) {
                     } else {
                         err_undef(symname);
                     }
-                    switch (ELF32_R_TYPE(rel->r_info)) {
-                    case R_386_8:
+                    switch (ELF64_R_TYPE(rel->r_info)) {
+                    case R_X86_64_8:
                         *(char *)dest = S+A;
                         break;
-                    case R_386_16:
-                        *(short *)dest = S+A;
+                    case R_X86_64_16:
+                        *(Elf64_Half *)dest = S+A;
                         break;
-                    case R_386_32:
-                        *(Elf32_Word *)dest = S+A;
+                    /*
+                     * XXX: the ABI requires one to check that the
+                     * value is the same before/after truncation.
+                     */
+                    case R_X86_64_32:
+                    case R_X86_64_32S:
+                        *(Elf64_Word *)dest = S+A;
+                        break;
+                    case R_X86_64_64:
+                        *(Elf64_Xword *)dest = S+A;
                         break;
                     }
                     break;
 
-                /* 386_PCX */
-                case R_386_PC8:
-                    A = *(char *)dest;
-                    goto r_386_pc;
-                case R_386_PC16:
-                    A = *(short *)dest;
-                    goto r_386_pc;
-                case R_386_PC32:
-                    A = *(Elf32_Sword *)dest;
-r_386_pc:           P = shtab[ssec->shdr->sh_info].sh_addr+rel->r_offset;
+                /* X86_64_PCX */
+                case R_X86_64_PC8:
+                case R_X86_64_PC16:
+                case R_X86_64_PC32:
+                case R_X86_64_PC64:
+                    P = shtab[ssec->shdr->sh_info].sh_addr+rel->r_offset;
                     if (found) {
                         ;
                     } else if ((syment=lookup_in_shared_object(symname)) != NULL) {
-                        if (ELF32_ST_TYPE(syment->st_info) == STT_FUNC)
+                        if (ELF64_ST_TYPE(syment->st_info) == STT_FUNC)
                             S = get_plt_entry(symname);
                         else
                             S = new_copy_reloc(symname, syment);
                     } else {
                         err_undef(symname);
                     }
-                    switch (ELF32_R_TYPE(rel->r_info)) {
-                    case R_386_PC8:
+                    switch (ELF64_R_TYPE(rel->r_info)) {
+                    case R_X86_64_PC8:
                         *(char *)dest = S+A-P;
                         break;
-                    case R_386_PC16:
-                        *(short *)dest = S+A-P;
+                    case R_X86_64_PC16:
+                        *(Elf64_Half *)dest = S+A-P;
                         break;
-                    case R_386_PC32:
-                        *(Elf32_Word *)dest = S+A-P;
+                    case R_X86_64_PC32:
+                        *(Elf64_Word *)dest = S+A-P;
+                        break;
+                    case R_X86_64_PC64:
+                        *(Elf64_Xword *)dest = S+A-P;
                         break;
                     }
                     break;
 
-                /*
-                case R_386_GOT32:
-                case R_386_PLT32:
-                case R_386_GOTPC:
-                    break;
-                */
-
                 /* other */
                 default:
-                    err("relocation type `0x%02x' not supported", ELF32_R_TYPE(rel->r_info));
+                    err("relocation type `0x%02x' not supported", ELF64_R_TYPE(rel->r_info));
                     break;
                 }
             }
@@ -986,12 +978,12 @@ void write_ELF_file(FILE *outf)
     StrTab *strtab = strtab_new(), *shstrtab = strtab_new();
     ObjFile *obj;
     ShrdObjFile *so;
-    Elf32_Sym esym;
-    Elf32_Off curr = 0;
-    Elf32_Ehdr ehdr;
-    Elf32_Phdr phdr;
-    Elf32_Shdr symtab_header, shstrtab_header, strtab_header, undef_header;
-    Elf32_Dyn *dp;
+    Elf64_Sym esym;
+    Elf64_Off curr = 0;
+    Elf64_Ehdr ehdr;
+    Elf64_Phdr phdr;
+    Elf64_Shdr symtab_header, shstrtab_header, strtab_header, undef_header;
+    Elf64_Dyn *dp;
 
     /*
      * Sections that turned out to be not necessary are written in the file
@@ -1003,20 +995,20 @@ void write_ELF_file(FILE *outf)
     /* Before start, set values that were left undefined (or only were estimated) */
     if (plt_sec != NULL) {
         plt_sec->shdr.sh_size = nplt*PLT_ENTRY_NB;
-        relplt_sec->shdr.sh_link = dynsym_sec->shndx;
-        relplt_sec->shdr.sh_info = plt_sec->shndx;
-        relplt_sec->shdr.sh_size = nrelplt*sizeof(Elf32_Rel);
-        gotplt_sec->shdr.sh_size = ngotplt*sizeof(Elf32_Word);
-        *(Elf32_Addr *)gotplt_sec->sslist->data = dynamic_sec->shdr.sh_addr;
-        reldyn_sec->shdr.sh_link = dynsym_sec->shndx;
-        reldyn_sec->shdr.sh_size = nreldyn*sizeof(Elf32_Rel);
+        relaplt_sec->shdr.sh_link = dynsym_sec->shndx;
+        relaplt_sec->shdr.sh_info = plt_sec->shndx;
+        relaplt_sec->shdr.sh_size = nrelaplt*sizeof(Elf64_Rela);
+        gotplt_sec->shdr.sh_size = ngotplt*sizeof(Elf64_Xword);
+        *(Elf64_Addr *)gotplt_sec->sslist->data = dynamic_sec->shdr.sh_addr;
+        reladyn_sec->shdr.sh_link = dynsym_sec->shndx;
+        reladyn_sec->shdr.sh_size = nreladyn*sizeof(Elf64_Rela);
     }
     if (shared_object_files != NULL) {
         dynsym_sec->shdr.sh_link = dynstr_sec->shndx;
         dynsym_sec->shdr.sh_info = 1;
         hash_sec->shdr.sh_link = dynsym_sec->shndx;
         dynamic_sec->shdr.sh_link = dynstr_sec->shndx;
-        define_local_symbol("_DYNAMIC", dynamic_sec->shdr.sh_addr, ELF32_ST_INFO(STB_LOCAL, STT_OBJECT),
+        define_local_symbol("_DYNAMIC", dynamic_sec->shdr.sh_addr, ELF64_ST_INFO(STB_LOCAL, STT_OBJECT),
         dynamic_sec->shndx, ".dynamic");
     }
 
@@ -1027,18 +1019,18 @@ void write_ELF_file(FILE *outf)
             fputc(0, outf), ++curr;\
     } while (0)
 
-    memset(&symtab_header, 0, sizeof(Elf32_Shdr));
-    memset(&shstrtab_header, 0, sizeof(Elf32_Shdr));
-    memset(&strtab_header, 0, sizeof(Elf32_Shdr));
+    memset(&symtab_header, 0, sizeof(Elf64_Shdr));
+    memset(&shstrtab_header, 0, sizeof(Elf64_Shdr));
+    memset(&strtab_header, 0, sizeof(Elf64_Shdr));
 
     /*
      * ================
      * Dummy ELF header
      * ================
      */
-    memset(&ehdr, 0, sizeof(Elf32_Ehdr));
-    fwrite(&ehdr, sizeof(Elf32_Ehdr), 1, outf);
-    curr += sizeof(Elf32_Ehdr);
+    memset(&ehdr, 0, sizeof(Elf64_Ehdr));
+    fwrite(&ehdr, sizeof(Elf64_Ehdr), 1, outf);
+    curr += sizeof(Elf64_Ehdr);
 
     /*
      * ====================
@@ -1054,23 +1046,23 @@ void write_ELF_file(FILE *outf)
         phdr.p_filesz = phdr.p_memsz = interp_sec->shdr.sh_size;
         phdr.p_flags = PF_R;
         phdr.p_align = 1;
-        fwrite(&phdr, sizeof(Elf32_Phdr), 1, outf);
-        curr += sizeof(Elf32_Phdr);
+        fwrite(&phdr, sizeof(Elf64_Phdr), 1, outf);
+        curr += sizeof(Elf64_Phdr);
         ++ehdr.e_phnum;
     }
     if (ROSeg.nsec) {
-        fwrite(&ROSeg.phdr, sizeof(Elf32_Phdr), 1, outf);
-        curr += sizeof(Elf32_Phdr);
+        fwrite(&ROSeg.phdr, sizeof(Elf64_Phdr), 1, outf);
+        curr += sizeof(Elf64_Phdr);
         ++ehdr.e_phnum;
     }
     if (WRSeg.nsec) {
-        fwrite(&WRSeg.phdr, sizeof(Elf32_Phdr), 1, outf);
-        curr += sizeof(Elf32_Phdr);
+        fwrite(&WRSeg.phdr, sizeof(Elf64_Phdr), 1, outf);
+        curr += sizeof(Elf64_Phdr);
         ++ehdr.e_phnum;
     }
     if (shared_object_files != NULL) {
         /* Set .dynamic's elements */
-        dp = (Elf32_Dyn *)dynamic_sec->sslist->data;
+        dp = (Elf64_Dyn *)dynamic_sec->sslist->data;
         for (so = shared_object_files; so != NULL; so = so->next, dp++) {
             dp->d_tag = DT_NEEDED;
             dp->d_un.d_val = strtab_get_offset(dynstr, so->name);
@@ -1088,7 +1080,7 @@ void write_ELF_file(FILE *outf)
         dp->d_un.d_val = dynstr_sec->shdr.sh_size;
         ++dp;
         dp->d_tag = DT_SYMENT;
-        dp->d_un.d_val = sizeof(Elf32_Sym);
+        dp->d_un.d_val = sizeof(Elf64_Sym);
         ++dp;
         if (plt_sec != NULL) {
             if (nplt > 0) {
@@ -1096,29 +1088,29 @@ void write_ELF_file(FILE *outf)
                 dp->d_un.d_ptr = gotplt_sec->shdr.sh_addr;
                 ++dp;
                 dp->d_tag = DT_PLTRELSZ;
-                dp->d_un.d_val = relplt_sec->shdr.sh_size;
+                dp->d_un.d_val = relaplt_sec->shdr.sh_size;
                 ++dp;
                 dp->d_tag = DT_PLTREL;
-                dp->d_un.d_val = DT_REL;
+                dp->d_un.d_val = DT_RELA;
                 ++dp;
                 dp->d_tag = DT_JMPREL;
-                dp->d_un.d_ptr = relplt_sec->shdr.sh_addr;
+                dp->d_un.d_ptr = relaplt_sec->shdr.sh_addr;
                 ++dp;
             } else {
-                dynamic_sec->shdr.sh_size -= sizeof(Elf32_Dyn)*4;
+                dynamic_sec->shdr.sh_size -= sizeof(Elf64_Dyn)*4;
             }
-            if (nreldyn > 0) {
-                dp->d_tag = DT_REL;
-                dp->d_un.d_ptr = reldyn_sec->shdr.sh_addr;
+            if (nreladyn > 0) {
+                dp->d_tag = DT_RELA;
+                dp->d_un.d_ptr = reladyn_sec->shdr.sh_addr;
                 ++dp;
-                dp->d_tag = DT_RELSZ;
-                dp->d_un.d_val = reldyn_sec->shdr.sh_size;
+                dp->d_tag = DT_RELASZ;
+                dp->d_un.d_val = reladyn_sec->shdr.sh_size;
                 ++dp;
-                dp->d_tag = DT_RELENT;
-                dp->d_un.d_val = sizeof(Elf32_Rel);
+                dp->d_tag = DT_RELAENT;
+                dp->d_un.d_val = sizeof(Elf64_Rela);
                 ++dp;
             } else {
-                dynamic_sec->shdr.sh_size -= sizeof(Elf32_Dyn)*3;
+                dynamic_sec->shdr.sh_size -= sizeof(Elf64_Dyn)*3;
             }
         }
         dp->d_tag = DT_NULL;
@@ -1127,9 +1119,9 @@ void write_ELF_file(FILE *outf)
         phdr.p_vaddr = phdr.p_paddr = dynamic_sec->shdr.sh_addr;
         phdr.p_filesz = phdr.p_memsz = dynamic_sec->shdr.sh_size;
         phdr.p_flags = PF_R|PF_W;
-        phdr.p_align = 4;
-        fwrite(&phdr, sizeof(Elf32_Phdr), 1, outf);
-        curr += sizeof(Elf32_Phdr);
+        phdr.p_align = 8;
+        fwrite(&phdr, sizeof(Elf64_Phdr), 1, outf);
+        curr += sizeof(Elf64_Phdr);
         ++ehdr.e_phnum;
     }
 
@@ -1191,24 +1183,24 @@ void write_ELF_file(FILE *outf)
 
 #define WRITE_ST_ENT()\
     do {\
-        fwrite(&esym, sizeof(Elf32_Sym), 1, outf);\
-        curr += sizeof(Elf32_Sym);\
-        symtab_header.sh_size += sizeof(Elf32_Sym);\
+        fwrite(&esym, sizeof(Elf64_Sym), 1, outf);\
+        curr += sizeof(Elf64_Sym);\
+        symtab_header.sh_size += sizeof(Elf64_Sym);\
         ++symtab_header.sh_info;\
     } while (0)
 
     /* first entry (STN_UNDEF) */
-    memset(&esym, 0, sizeof(Elf32_Sym));
+    memset(&esym, 0, sizeof(Elf64_Sym));
     WRITE_ST_ENT();
 
     /* FILE symbol table entry/ies */
-    memset(&esym, 0, sizeof(Elf32_Sym));
-    esym.st_info = ELF32_ST_INFO(STB_LOCAL, STT_FILE);
+    memset(&esym, 0, sizeof(Elf64_Sym));
+    esym.st_info = ELF64_ST_INFO(STB_LOCAL, STT_FILE);
     esym.st_shndx = SHN_ABS;
     for (obj = object_files; obj != NULL; obj = obj->next) {
         if (obj->symtab == NULL) /* [!] crtn.o doesn't have .symtab */
             continue;
-        if (ELF32_ST_TYPE(obj->symtab[1].st_info) == STT_FILE)
+        if (ELF64_ST_TYPE(obj->symtab[1].st_info) == STT_FILE)
             esym.st_name = strtab_append(strtab, &obj->strtab[obj->symtab[1].st_name]);
         else
             continue;
@@ -1217,23 +1209,23 @@ void write_ELF_file(FILE *outf)
 
     /* loadable sections */
     for (i = 0; i < ROSeg.nsec; i++) {
-        memset(&esym, 0, sizeof(Elf32_Sym));
+        memset(&esym, 0, sizeof(Elf64_Sym));
         esym.st_value = ROSeg.secs[i]->shdr.sh_addr;
-        esym.st_info = ELF32_ST_INFO(STB_LOCAL, STT_SECTION);
+        esym.st_info = ELF64_ST_INFO(STB_LOCAL, STT_SECTION);
         esym.st_shndx = ROSeg.secs[i]->shndx;
         WRITE_ST_ENT();
     }
     for (i = 0; i < WRSeg.nsec; i++) {
-        memset(&esym, 0, sizeof(Elf32_Sym));
+        memset(&esym, 0, sizeof(Elf64_Sym));
         esym.st_value = WRSeg.secs[i]->shdr.sh_addr;
-        esym.st_info = ELF32_ST_INFO(STB_LOCAL, STT_SECTION);
+        esym.st_info = ELF64_ST_INFO(STB_LOCAL, STT_SECTION);
         esym.st_shndx = WRSeg.secs[i]->shndx;
         WRITE_ST_ENT();
     }
 
     /* local symbols (with type other than FILE or SECTION) */
     for (sym = local_symbols; sym != NULL; sym = sym->next) {
-        memset(&esym, 0, sizeof(Elf32_Sym));
+        memset(&esym, 0, sizeof(Elf64_Sym));
         esym.st_name = strtab_append(strtab, sym->name);
         esym.st_value = sym->value;
         esym.st_size = sym->size;
@@ -1250,15 +1242,15 @@ void write_ELF_file(FILE *outf)
         if (global_symbols[i] == NULL)
             continue;
         for (np = global_symbols[i]; np != NULL; np = np->next) {
-            memset(&esym, 0, sizeof(Elf32_Sym));
+            memset(&esym, 0, sizeof(Elf64_Sym));
             esym.st_name = strtab_append(strtab, np->name);
             esym.st_value = np->value;
             esym.st_size = np->size;
             esym.st_info = np->info;
             esym.st_shndx = get_shndx(np);
-            fwrite(&esym, sizeof(Elf32_Sym), 1, outf);
-            curr += sizeof(Elf32_Sym);
-            symtab_header.sh_size += sizeof(Elf32_Sym);
+            fwrite(&esym, sizeof(Elf64_Sym), 1, outf);
+            curr += sizeof(Elf64_Sym);
+            symtab_header.sh_size += sizeof(Elf64_Sym);
         }
     }
     ++ehdr.e_shnum;
@@ -1280,31 +1272,31 @@ void write_ELF_file(FILE *outf)
     ehdr.e_shoff = curr;
 
     /* first entry (SHN_UNDEF) */
-    memset(&undef_header, 0, sizeof(Elf32_Shdr));
-    fwrite(&undef_header, sizeof(Elf32_Shdr), 1, outf);
+    memset(&undef_header, 0, sizeof(Elf64_Shdr));
+    fwrite(&undef_header, sizeof(Elf64_Shdr), 1, outf);
 
     /* .shstrtab section header */
     shstrtab_header.sh_type = SHT_STRTAB;
     shstrtab_header.sh_addralign = 1;
-    fwrite(&shstrtab_header, sizeof(Elf32_Shdr), 1, outf);
+    fwrite(&shstrtab_header, sizeof(Elf64_Shdr), 1, outf);
 
     /* .symtab section header */
     symtab_header.sh_type = SHT_SYMTAB;
     symtab_header.sh_link = 3; /* .strtab */
     symtab_header.sh_addralign = 4;
-    symtab_header.sh_entsize = sizeof(Elf32_Sym);
-    fwrite(&symtab_header, sizeof(Elf32_Shdr), 1, outf);
+    symtab_header.sh_entsize = sizeof(Elf64_Sym);
+    fwrite(&symtab_header, sizeof(Elf64_Shdr), 1, outf);
 
     /* .strtab section header */
     strtab_header.sh_type = SHT_STRTAB;
     strtab_header.sh_addralign = 1;
-    fwrite(&strtab_header, sizeof(Elf32_Shdr), 1, outf);
+    fwrite(&strtab_header, sizeof(Elf64_Shdr), 1, outf);
 
     /* remaining section headers */
     for (i = 0; i < ROSeg.nsec; i++)
-        fwrite(&ROSeg.secs[i]->shdr, sizeof(Elf32_Shdr), 1, outf);
+        fwrite(&ROSeg.secs[i]->shdr, sizeof(Elf64_Shdr), 1, outf);
     for (i = 0; i < WRSeg.nsec; i++)
-        fwrite(&WRSeg.secs[i]->shdr, sizeof(Elf32_Shdr), 1, outf);
+        fwrite(&WRSeg.secs[i]->shdr, sizeof(Elf64_Shdr), 1, outf);
 
     /*
      * Correct dummy ELF header
@@ -1314,21 +1306,21 @@ void write_ELF_file(FILE *outf)
     ehdr.e_ident[EI_MAG1] = ELFMAG1;
     ehdr.e_ident[EI_MAG2] = ELFMAG2;
     ehdr.e_ident[EI_MAG3] = ELFMAG3;
-    ehdr.e_ident[EI_CLASS] = ELFCLASS32;
+    ehdr.e_ident[EI_CLASS] = ELFCLASS64;
     ehdr.e_ident[EI_DATA] = ELFDATA2LSB;
     ehdr.e_ident[EI_VERSION] = EV_CURRENT;
     ehdr.e_type = ET_EXEC;
-    ehdr.e_machine = EM_386;
+    ehdr.e_machine = EM_X86_64;
     ehdr.e_version = EV_CURRENT;
     if ((sym=lookup_global_symbol(entry_symbol))==NULL || sym->shndx==SHN_UNDEF)
         /* TBD: lookup entry symbol between the *.so files too? */
         err("cannot find entry symbol `%s'", entry_symbol);
     ehdr.e_entry = sym->value;
-    ehdr.e_ehsize = sizeof(Elf32_Ehdr);
-    ehdr.e_phentsize = sizeof(Elf32_Phdr);
-    ehdr.e_shentsize = sizeof(Elf32_Shdr);
+    ehdr.e_ehsize = sizeof(Elf64_Ehdr);
+    ehdr.e_phentsize = sizeof(Elf64_Phdr);
+    ehdr.e_shentsize = sizeof(Elf64_Shdr);
     ehdr.e_shstrndx = 1;
-    fwrite(&ehdr, sizeof(Elf32_Ehdr), 1, outf);
+    fwrite(&ehdr, sizeof(Elf64_Ehdr), 1, outf);
     fseek(outf, 0, SEEK_END);
 
     fclose(outf);
@@ -1345,13 +1337,13 @@ void process_object_file(char *buf)
 
     obj = calloc(1, sizeof(ObjFile));
     obj->buf = buf;
-    obj->ehdr = (Elf32_Ehdr *)buf;
-    obj->shtab = (Elf32_Shdr *)(buf+obj->ehdr->e_shoff);
+    obj->ehdr = (Elf64_Ehdr *)buf;
+    obj->shtab = (Elf64_Shdr *)(buf+obj->ehdr->e_shoff);
     obj->shstrtab = buf + obj->shtab[obj->ehdr->e_shstrndx].sh_offset;
     for (i = 1; i < obj->ehdr->e_shnum; i++) {
         if (obj->shtab[i].sh_type == SHT_SYMTAB) {
-            obj->symtab = (Elf32_Sym *)(buf+obj->shtab[i].sh_offset);
-            obj->nsym = obj->shtab[i].sh_size/sizeof(Elf32_Sym);
+            obj->symtab = (Elf64_Sym *)(buf+obj->shtab[i].sh_offset);
+            obj->nsym = obj->shtab[i].sh_size/sizeof(Elf64_Sym);
             obj->strtab = buf+obj->shtab[obj->shtab[i].sh_link].sh_offset;
             first_gsym = obj->shtab[i].sh_info;
             break;
@@ -1362,8 +1354,8 @@ void process_object_file(char *buf)
 
     /* install any global symbol */
     if (first_gsym < obj->nsym) {
-        Elf32_Sym *symtab = obj->symtab;
-        Elf32_Shdr *shtab = obj->shtab;
+        Elf64_Sym *symtab = obj->symtab;
+        Elf64_Shdr *shtab = obj->shtab;
         char *strtab = obj->strtab;
         char *shstrtab = obj->shstrtab;
 
@@ -1378,26 +1370,26 @@ void process_object_file(char *buf)
 void process_shared_object_file(char *buf, char *path)
 {
     int i;
-    Elf32_Dyn *dp;
+    Elf64_Dyn *dp;
     ShrdObjFile *so;
     unsigned missing;
 
     so = calloc(1, sizeof(ShrdObjFile));
     so->buf = buf;
-    so->ehdr = (Elf32_Ehdr *)buf;
-    so->shtab = (Elf32_Shdr *)(buf+so->ehdr->e_shoff);
+    so->ehdr = (Elf64_Ehdr *)buf;
+    so->shtab = (Elf64_Shdr *)(buf+so->ehdr->e_shoff);
     for (i=1, missing=7; i<so->ehdr->e_shnum && missing; i++) {
         if (so->shtab[i].sh_type == SHT_DYNSYM) {
-            so->dynsym = (Elf32_Sym *)(buf+so->shtab[i].sh_offset);
-            so->nsym = so->shtab[i].sh_size/sizeof(Elf32_Sym);
+            so->dynsym = (Elf64_Sym *)(buf+so->shtab[i].sh_offset);
+            so->nsym = so->shtab[i].sh_size/sizeof(Elf64_Sym);
             so->dynstr = buf+so->shtab[so->shtab[i].sh_link].sh_offset;
             missing &= ~1;
         } else if (so->shtab[i].sh_type == SHT_DYNAMIC) {
-            so->dynamic = (Elf32_Dyn *)(buf+so->shtab[i].sh_offset);
+            so->dynamic = (Elf64_Dyn *)(buf+so->shtab[i].sh_offset);
             missing &= ~2;
         } else if (so->shtab[i].sh_type == SHT_HASH) {
-            so->nbucket = *((Elf32_Word *)(buf+so->shtab[i].sh_offset));
-            so->hash = (Elf32_Word *)(buf+so->shtab[i].sh_offset)+2;
+            so->nbucket = *((Elf64_Word *)(buf+so->shtab[i].sh_offset));
+            so->hash = (Elf64_Word *)(buf+so->shtab[i].sh_offset)+2;
             so->chain = so->hash+so->nbucket;
             missing &= ~4;
         }
@@ -1478,10 +1470,10 @@ void process_file(char *path, char *needed_path)
     if (strncmp(fbuf[nfbuf], ARMAG, SARMAG) == 0) {
         process_archive(fbuf[nfbuf]);
     } else if (strncmp(fbuf[nfbuf], "\x7f""ELF", 3) == 0) {
-        Elf32_Ehdr *eh;
+        Elf64_Ehdr *eh;
 
-        eh = (Elf32_Ehdr *)fbuf[nfbuf];
-        if (eh->e_ident[EI_CLASS]!=ELFCLASS32 || eh->e_machine!=EM_386)
+        eh = (Elf64_Ehdr *)fbuf[nfbuf];
+        if (eh->e_ident[EI_CLASS]!=ELFCLASS64 || eh->e_machine!=EM_X86_64)
             err("file `%s': relocatable/shared object for unknown architecture");
         if (eh->e_type == ET_REL)
             process_object_file(fbuf[nfbuf]);

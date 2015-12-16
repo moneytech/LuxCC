@@ -1,6 +1,7 @@
 #include "ELF_util.h"
 #include <stdlib.h>
 #include <string.h>
+#include "../util.h"
 
 struct StrTab {
     int siz, max;
@@ -95,4 +96,38 @@ void strtab_copy(StrTab *tab, char *dest)
         memcpy(dest, tab->str[i], n);
         dest += n;
     }
+}
+
+unsigned long elf_hash(const unsigned char *name)
+{
+	unsigned long h = 0, g;
+
+	while (*name) {
+		h = (h << 4) + *name++;
+		if (g = h & 0xf0000000)
+			h ^= g >> 24;
+		h &= ~g;
+	}
+	return h;
+}
+
+unsigned elf_get_nbucket(unsigned nsym)
+{
+    /*
+     * Number of buckets as defined by GNU ld.
+     * If the symbol table has less than 3 elements,
+     * the hash table will have 1 bucket, less than
+     * 17 elements 3 buckets, etc.
+     */
+    static unsigned hash_buckets[] = {
+        1, 3, 17, 37, 67, 97, 131, 197,
+        263, 521, 1031,	2053, 4099, 8209,
+        16411, 32771, 65537, 131101, 262147
+    };
+    unsigned i;
+
+    for (i = 1; i < NELEMS(hash_buckets); i++)
+        if (hash_buckets[i] > nsym)
+            break;
+    return hash_buckets[i-1];
 }
