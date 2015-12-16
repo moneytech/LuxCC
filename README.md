@@ -12,6 +12,30 @@ Currently supported targets are:
 * x86_64
 * LuxVM (32 & 64 bits)
 
-This is a one-man project developed mainly for educational purposes (and fun!). It is not intended to replace any existing compiler/tool.
+Note that this is a one-man project developed mainly for educational purposes (and fun!). It is not intended to replace any existing compiler/tool.
 
-See the documentation at `doc/index.html` for more in-depth information (usage, internals, etc).
+## Quickstart
+
+Build everything
+
+    make
+
+Install (this is optional)
+
+    make install
+
+Do a quick test
+
+    make test
+
+Test everything (this may take a while)
+
+    make fulltest
+
+## Documentation
+
+See `doc/index.html` for in-depth information on usage, internals, and more.
+
+## Contact
+
+<lugon399@gmail.com>
