@@ -19,14 +19,14 @@ for file in $(find $TESTS_PATH/ | grep '\.c') ; do
 	if echo $file | grep -q "$TESTS_PATH/other" ; then		
 		continue;
 	fi
-
-	echo $file
 	
 	# avoid llvm benchmarks
 	if echo $file | grep -q "llvm"; then
 		continue
 	fi
 	
+	echo $file
+
 	# out1	
 	$CC1 $file -o $TESTS_PATH/test1.vme &>/dev/null &&
 	$VM $TESTS_PATH/test1.vme >"${file%.*}.output" 2>/dev/null

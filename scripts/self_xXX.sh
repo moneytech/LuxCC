@@ -9,6 +9,8 @@ CFLAGS="-m$1 -q -alt-asm-tmp $ASM_TMP"
 
 /bin/bash scripts/self_copy.sh
 
+echo "== Self-compilation test begins... =="
+
 # phase 1
 $DVR $CFLAGS $TEST_PATH/*.c $TEST_PATH/vm32_cgen/*.c $TEST_PATH/vm64_cgen/*.c $TEST_PATH/x86_cgen/*.c $TEST_PATH/x64_cgen/*.c -o $CC1 &>/dev/null
 if [ "$?" != "0" ] ; then
@@ -33,9 +35,9 @@ fi
 
 # compare binaries
 if cmp -s $CC1 $CC2 ; then
-	echo "PASSED!"
+	echo "== Self-compilation test succeeded! =="
 	exit 0
 else
-	echo "FAILED!"
+	echo "== Self-compilation test failed! =="
 	exit 1
 fi

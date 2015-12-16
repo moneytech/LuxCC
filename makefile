@@ -25,6 +25,8 @@ uninstall:
 	rm -f /usr/local/bin/luxcc /usr/local/bin/luxdvr /usr/local/bin/luxas /usr/local/bin/luxld32 /usr/local/bin/luxld64 /usr/local/bin/luxvm /usr/local/bin/luxvmas /usr/local/bin/luxvmld
 	rm -rf /usr/local/lib/luxcc
 test:
+	/bin/bash scripts/test_exe_vm.sh
+fulltest:
 	/bin/bash scripts/testall.sh
 clean:
 	make -C src        clean

@@ -2,6 +2,8 @@
 
 /bin/bash scripts/self_copy.sh
 
+echo "== Self-compilation test begins... =="
+
 # phase 1
 if ! /bin/bash scripts/self1_vm.sh ; then
 	echo "Phase 1 failed!"
@@ -20,9 +22,9 @@ fi
 
 # compare binaries
 if cmp -s src/tests/self/luxcc1.vme src/tests/self/luxcc2.vme ; then
-	echo "PASSED!"
+	echo "== Self-compilation test succeeded! =="
 	exit 0
 else
-	echo "FAILED!"
+	echo "== Self-compilation test failed! =="
 	exit 1
 fi
