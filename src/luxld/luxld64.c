@@ -134,7 +134,7 @@ const char plt0_asm_template[] =
 
 const char pltn_asm_template[] =
     "\xff\x25\x00\x00\x00\x00"  /* jmp  qword [REL got+n] */
-    "\x68\x00\x00\x00\x00"      /* push dword reloc_offset */
+    "\x68\x00\x00\x00\x00"      /* push dword reloc_index */
     "\xe9\x00\x00\x00\x00"      /* jmp  PLT0 */
 ;
 
@@ -437,7 +437,7 @@ Elf64_Half get_dynsym_ndx(char *sym)
 }
 
 /*
- * Install a new entry into .got.plt and a new reloc into .rel.plt.
+ * Install a new entry into .got.plt and a new reloc into .rela.plt.
  * Parameters:
  *  - pa is the address of a push instruction (see pltn_asm_template).
  *  - ri points to the push instruction's argument.
@@ -509,7 +509,7 @@ Elf64_Addr get_plt_entry(char *fname)
 }
 
 /*
- * Add a new reloc into .rel.dyn.
+ * Add a new reloc into .rela.dyn.
  * Return a pointer to space allocated in .bss.
  */
 Elf64_Addr new_copy_reloc(char *symname, Elf64_Sym *syment)
