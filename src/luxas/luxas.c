@@ -2155,6 +2155,12 @@ start:
                     longjmp(env, 1);
                 if (curr_section == NULL)
                     set_curr_section(DEF_SEC);
+                /*
+                 * TOFIX:
+                 *  There may be problems if this pseudo-instructions
+                 *  is used in a non-bss section (writting/reading off
+                 *  limits).
+                 */
                 curr_section->last->avail += val*siz;
                 LC() += val*siz;
             } else {
