@@ -481,73 +481,66 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
              * the constant fits into the dest type. Emit a warning if it doesn't.
              */
             if (e->kind.exp == IConstExp) {
-                long long stored_val;
+                long long val, final_val;
 
+                val = e->attr.val;
                 switch (cat_d) {
                 case TOK_UNSIGNED_LONG_LONG:
-                    return TRUE;
                 case TOK_LONG_LONG:
-                    if (e->attr.uval > LLONG_MAX) {
-                        stored_val = (long long)e->attr.uval;
-                        break;
-                    }
                     return TRUE;
                 case TOK_UNSIGNED_LONG:
                     if (targeting_arch64)
                         return TRUE;
                     /* fall-through */
                 case TOK_UNSIGNED:
-                    if (e->attr.uval > UINT_MAX) {
-                        stored_val = (unsigned)e->attr.uval;
+                    if (val<0 || val>UINT_MAX) {
+                        final_val = (unsigned)e->attr.uval;
                         break;
                     }
                     return TRUE;
                 case TOK_LONG:
-                    if (targeting_arch64) {
-                        if (e->attr.uval > LLONG_MAX) {
-                            stored_val = (long long)e->attr.uval;
-                            break;
-                        }
+                    if (targeting_arch64)
                         return TRUE;
-                    }
                     /* fall-through */
                 case TOK_INT:
                 case TOK_ENUM:
-                    if (e->attr.uval > INT_MAX) {
-                        stored_val = (int)e->attr.uval;
+                    if (val<INT_MIN || val>INT_MAX) {
+                        final_val = (int)e->attr.uval;
                         break;
                     }
                     return TRUE;
                 case TOK_SHORT:
-                    if (e->attr.uval > SHRT_MAX) {
-                        stored_val = (short)e->attr.uval;
+                    if (val<SHRT_MIN || val>SHRT_MAX) {
+                        final_val = (short)e->attr.uval;
                         break;
                     }
                     return TRUE;
                 case TOK_UNSIGNED_SHORT:
-                    if (e->attr.uval > USHRT_MAX) {
-                        stored_val = (unsigned short)e->attr.uval;
+                    if (val<0 || val>USHRT_MAX) {
+                        final_val = (unsigned short)e->attr.uval;
                         break;
                     }
                     return TRUE;
                 case TOK_CHAR:
                 case TOK_SIGNED_CHAR:
-                    if (e->attr.uval > CHAR_MAX) {
-                        stored_val = (signed char)e->attr.uval;
+                    if (val<CHAR_MIN || val>CHAR_MAX) {
+                        final_val = (signed char)e->attr.uval;
                         break;
                     }
                     return TRUE;
                 case TOK_UNSIGNED_CHAR:
-                    if (e->attr.uval > UCHAR_MAX) {
-                        stored_val = (unsigned char)e->attr.uval;
+                    if (val<0 || val>UCHAR_MAX) {
+                        final_val = (unsigned char)e->attr.uval;
                         break;
                     }
                     return TRUE;
                 default:
                     assert(0);
                 }
-                WARNING(e, "implicit conversion from `%s' to `%s' changes value from %llu to %lld",
-                tok2lex(cat_s), tok2lex(cat_d), e->attr.uval, stored_val);
+                if (is_signed_int(cat_s))
+                    WARNING(e, "implicit conversion changes value from %lld to %lld", val, final_val);
+                else
+                    WARNING(e, "implicit conversion changes value from %llu to %lld", val, final_val);
                 return TRUE;
             }
 
