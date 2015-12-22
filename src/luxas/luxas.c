@@ -385,7 +385,7 @@ void set_curr_section(char *name)
     static Elf32_Half shndx = 4; /* [0]=UND, [1]=.shstrtab, [2]=.symtab, [3]=.strtab */
 
     for (s = sections; s != NULL; s = s->next)
-        if (equal(s->name, lexeme))
+        if (equal(s->name, name))
             break;
     if (s == NULL) {
         unsigned n;
