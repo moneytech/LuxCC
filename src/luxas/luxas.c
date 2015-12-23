@@ -2263,6 +2263,8 @@ void label(void)
         non_local_label = strdup(lexeme);
         name = lexeme;
     }
+    if (curr_section == NULL)
+        set_curr_section(DEF_SEC);
     define_symbol(OtherKind, LocalBind, name, LC(), curr_section);
     match(TOK_ID);
     match(TOK_COLON);
