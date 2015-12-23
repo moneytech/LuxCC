@@ -100,9 +100,9 @@ typedef unsigned long long int uintmax_t;
 # define INT16_MIN      (-32768)
 # define INT32_MIN      (-2147483648)
 #ifdef __LP64__
-# define INT64_MIN      (-9223372036854775808L)
+# define INT64_MIN      (-9223372036854775807L-1L)
 #else
-# define INT64_MIN      (-9223372036854775808LL)
+# define INT64_MIN      (-9223372036854775807LL-1LL)
 #endif
 /* Maximum of signed integral types.  */
 # define INT8_MAX       (127)
@@ -130,9 +130,9 @@ typedef unsigned long long int uintmax_t;
 # define INT_LEAST16_MIN    (-32768)
 # define INT_LEAST32_MIN    (-2147483648)
 #ifdef __LP64__
-# define INT_LEAST64_MIN    (-9223372036854775808L)
+# define INT_LEAST64_MIN    (-9223372036854775807L-1L)
 #else
-# define INT_LEAST64_MIN    (-9223372036854775808LL)
+# define INT_LEAST64_MIN    (-9223372036854775807LL-1LL)
 #endif
 /* Maximum of signed integral types having a minimum size.  */
 # define INT_LEAST8_MAX     (127)
@@ -158,16 +158,16 @@ typedef unsigned long long int uintmax_t;
 /* Minimum of fast signed integral types having a minimum size.  */
 #define INT_FAST8_MIN       (-128)
 #ifdef __LP64__
-#  define INT_FAST16_MIN    (-9223372036854775808L)
-#  define INT_FAST32_MIN    (-9223372036854775808L)
+#  define INT_FAST16_MIN    (-9223372036854775807L-1L)
+#  define INT_FAST32_MIN    (-9223372036854775807L-1L)
 #else
 #  define INT_FAST16_MIN    (-2147483648)
 #  define INT_FAST32_MIN    (-2147483648)
 #endif
 #ifdef __LP64__
-# define INT_FAST64_MIN     (-9223372036854775808L)
+# define INT_FAST64_MIN     (-9223372036854775807L-1L)
 #else
-# define INT_FAST64_MIN     (-9223372036854775808LL)
+# define INT_FAST64_MIN     (-9223372036854775807LL-1LL)
 #endif
 /* Maximum of fast signed integral types having a minimum size.  */
 #define INT_FAST8_MAX       (127)
@@ -202,7 +202,7 @@ typedef unsigned long long int uintmax_t;
 
 /* Values to test for integral types holding `void *' pointer.  */
 #ifdef __LP64__
-#  define INTPTR_MIN        (-9223372036854775808L)
+#  define INTPTR_MIN        (-9223372036854775807L-1L)
 #  define INTPTR_MAX        (9223372036854775807L)
 #  define UINTPTR_MAX       (18446744073709551615UL)
 #else
@@ -214,9 +214,9 @@ typedef unsigned long long int uintmax_t;
 
 /* Minimum for largest signed integral type.  */
 #ifdef __LP64__
-# define INTMAX_MIN     (-9223372036854775808L)
+# define INTMAX_MIN     (-9223372036854775807L-1L)
 #else
-# define INTMAX_MIN     (-9223372036854775808LL)
+# define INTMAX_MIN     (-9223372036854775807LL-1LL)
 #endif
 /* Maximum for largest signed integral type.  */
 #ifdef __LP64__
@@ -237,7 +237,7 @@ typedef unsigned long long int uintmax_t;
 
 /* Limits of `ptrdiff_t' type.  */
 #if __LP64__
-#  define PTRDIFF_MIN       (-9223372036854775808L)
+#  define PTRDIFF_MIN       (-9223372036854775807L-1L)
 #  define PTRDIFF_MAX       (9223372036854775807L)
 #else
 #  define PTRDIFF_MIN       (-2147483648)
