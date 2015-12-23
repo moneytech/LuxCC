@@ -13,6 +13,8 @@ fail_counter=0
 fail_files=""
 pass_counter=0
 
+echo "== Execution tests begin... =="
+
 #for file in $TESTS_PATH/*.c ; do
 for file in $(find $TESTS_PATH/ | grep '\.c') ; do
 	# skip 'other' tests
@@ -52,8 +54,7 @@ for file in $(find $TESTS_PATH/ | grep '\.c') ; do
 	rm -f "${file%.*}.output"
 done
 
-echo "passes: $pass_counter"
-echo "fails: $fail_counter"
+echo "== Execution tests results: PASS: $pass_counter, FAIL: $fail_counter =="
 
 if [ "$fail_counter" = "0" ] ; then
 	exit 0

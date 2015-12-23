@@ -7,6 +7,8 @@ fail_counter=0
 fail_files=""
 pass_counter=0
 
+echo "== Compilation tests begin... =="
+
 for file in $(find $TESTS_PATH/ | grep '\.c') ; do
 	echo $file
 	
@@ -21,5 +23,4 @@ for file in $(find $TESTS_PATH/ | grep '\.c') ; do
 	fi
 done
 
-echo "passes: $pass_counter"
-echo "fails: $fail_counter"
+echo "== Compilation tests results: PASS: $pass_counter, FAIL: $fail_counter =="
