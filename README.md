@@ -1,6 +1,6 @@
 ## LuxCC
 
-LuxCC is a small compiler for a subset of The C programming language. This subset is basically C89 (without floating-point numbers and some obsolete or uncommon features) plus a few C99 features.
+LuxCC is a small compiler for a subset of the C programming language. This subset is basically C89 (without floating-point numbers and some obsolete or uncommon features) plus a few C99 features.
 
 The compiler comes along with other tools that complete the development toolchain (assemblers, linkers, and VMs).
 
