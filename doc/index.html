@@ -46,6 +46,7 @@
 
 
 
+
 <meta http-equiv="content-type" content="text/html; charset=utf-8"></head><body><span style="font-family: monospace;"></span><span style="font-family: monospace;">Luxcc usage and internals documentation. I will try to maintain this document updated as things evolve.</span><br>
 <br>
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big>Index<br></big></big></big><span style="font-family: Times New Roman;">
@@ -1118,13 +1119,7 @@ hidden pointer to space provided by the caller (this pointer goes into rdi).<br>
 &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;
 &nbsp;&nbsp;&nbsp; |</span><br>
 <span style="font-family: monospace;">+</span><span style="font-family: monospace;">--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- RBP-8*X</span><br>
-<span style="font-family: monospace;">| </span><span style="font-family: monospace;">... (more spilled params)</span><span style="font-family: monospace;">
-&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-|</span><br style="font-family: monospace;">
-
-<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+<br>
-</span><span style="font-family: monospace;">| </span><span style="font-family: monospace;"></span><span style="font-family: monospace;">first (qword) local
+<span style="font-family: monospace;"></span><span style="font-family: monospace;">| </span><span style="font-family: monospace;"></span><span style="font-family: monospace;">first (qword) local
 variable</span><span style="font-family: monospace;">&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
 &nbsp; &nbsp; &nbsp;&nbsp; |</span><br style="font-family: monospace;">
 

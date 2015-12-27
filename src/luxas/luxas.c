@@ -400,7 +400,7 @@ void set_curr_section(char *name)
         s->first->next = NULL;
         s->last = s->first;
         s->relocs = NULL;
-        s->sym = define_symbol(SectionKind, LocalBind, lexeme, 0, s);
+        s->sym = define_symbol(SectionKind, LocalBind, name, 0, s);
         memset(&s->h.hdr64, 0, sizeof(Elf64_Shdr));
         memset(&s->rh.rhdr64, 0, sizeof(Elf64_Shdr));
         s->shndx = shndx++;
