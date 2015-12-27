@@ -10,7 +10,7 @@ O 10\
 
 int main(void)
 {
-    printf("%d\n", 1020);
+    printf("%d\n", FOO);
 
     return 0;
 }

@@ -58,7 +58,8 @@ static struct Macro {
 static char *buf, *curr, *curr_source_file;
 static char token_string[MAX_LOG_LINE_LEN+1];
 static PreTokenNode *curr_tok;
-static int curr_line, src_column;
+static int curr_line, curr_column;
+static int src_column; /* token's first char column # */
 static PreTokenNode *penultimate_node; /* used by #include's code */
 static Arena *pre_str_arena;
 Arena *pre_node_arena;
@@ -92,53 +93,23 @@ static PreTokenNode *new_node(PreToken token, char *lexeme)
     return temp;
 }
 
-/*
- * Load the file located at `file_path' into the global buffer `buf',
- * and perform end-of-line replacement (CRLF ==> LF) and line splicing.
- */
 static void init(char *file_path)
 {
     FILE *fp;
-    int buf_size;
+    unsigned flen;
 
     fp = fopen(file_path, "rb");
     if (fp == NULL)
         TERMINATE("Error reading file `%s'", file_path);
 
     fseek(fp, 0, SEEK_END);
-    buf_size = ftell(fp); /* number of chars of the file */
-    ++buf_size; /* make room for '\0' */
-    ++buf_size; /* so tokenize() doesn't read off limits when doing '... = *curr' */
+    flen = ftell(fp);
     rewind(fp);
-    curr = buf = malloc(buf_size);
-
-    while (fgets(curr, 0x7FFFFFFF, fp) != NULL) {
-        int line_len = strlen(curr);
-#if DOS_LINE_ENDING
-        if (line_len>1 && curr[line_len-2]=='\r') {
-            curr[line_len-2]='\n', curr[line_len-1]='\0';
-            --line_len;
-        }
-#endif
-        /* join lines ending in \ with the next line (the last line must not end with \) */
-        while (line_len>1 && curr[line_len-2]=='\\') {
-            line_len -= 2; /* removes '\\' and '\n' */
-            fgets(curr+line_len, 0x7FFFFFFF, fp);
-            line_len += strlen(curr+line_len);
-#if DOS_LINE_ENDING
-            if (line_len>1 && curr[line_len-2]=='\r') {
-                curr[line_len-2]='\n', curr[line_len-1]='\0';
-                --line_len;
-            }
-#endif
-        }
-        if (line_len > MAX_LOG_LINE_LEN)
-            TERMINATE("Logical line exceeds maximum length of %u characters", MAX_LOG_LINE_LEN);
-        curr += line_len;
-    }
-
-    curr = buf;
+    curr = buf = malloc(flen+2);
+    flen = fread(buf, sizeof(char), flen, fp);
+    buf[flen] = '\0';
     fclose(fp);
+
     /*
      * Set the current file global var. Each token has attached
      * the name of the file from where it was obtained. This is
@@ -274,6 +245,60 @@ static char *get_lexeme(int i)
     return p->lexeme;
 }
 
+static int get_next_char(void)
+{
+    if (*curr == '\0')
+        return '\0';
+
+    if (*curr == '\r') {
+        ++curr;
+        if (*curr == '\n') /* DOS EOL */
+            ++curr;
+        return '\n';
+    }
+
+    while (*curr=='\\' && (*(curr+1)=='\n' || *(curr+1)=='\r')) {
+        ++curr;
+        if (*curr=='\r' && *(curr+1)=='\n')
+            ++curr;
+        ++curr;
+        ++curr_line, curr_column=0;
+    }
+
+    return *curr++;
+}
+
+static int peek(int n)
+{
+    char *cp = curr;
+
+next:
+    if (*curr == '\0')
+        return '\0';
+
+    if (*cp == '\r') {
+        ++cp;
+        if (*cp == '\n')
+            ++cp;
+        if (--n)
+            goto next;
+        return '\n';
+    }
+
+    while (*cp=='\\' && (*(cp+1)=='\n' || *(cp+1)=='\r')) {
+        ++cp;
+        if (*cp=='\r' && *(cp+1)=='\n')
+            ++cp;
+        ++cp;
+    }
+
+    if (--n) {
+        ++cp;
+        goto next;
+    }
+    return *cp;
+}
+
 /*
  * Return the next token.
  * Start to read at `curr'.
@@ -283,14 +308,16 @@ static PreToken get_token(void)
 {
     State state;
     PreToken token;
-    int tok_str_ind, save;
-    static int curr_column = 0;
+    int tok_str_ind, save, cb;
 
+    cb = 0; /* consecutive backslashes counter (even = stop, odd = don't stop) */
     tok_str_ind = 0;
     state = STATE_START;
 
     while (state != STATE_DONE) {
-        int c = *curr++;
+        int c;
+
+        c = get_next_char();
         save = TRUE;
         ++curr_column;
 
@@ -308,11 +335,11 @@ static PreToken get_token(void)
                 state = STATE_INCHAR;
             } else if (c == '\"') {
                 state = STATE_INSTR;
-            } else if ((c=='/') && ((*curr=='/')||(*curr=='*'))) { // /* or //
+            } else if ((c=='/') && ((peek(1)=='/')||(peek(1)=='*'))) { // /* or //
                 save = FALSE;
-                if (*curr == '/')
+                if (peek(1) == '/')
                     state = STATE_INLINECOMMENT;
-                else if (*curr == '*')
+                else
                     state = STATE_INCOMMENT1;
             } else {
                 state = STATE_DONE;
@@ -322,7 +349,6 @@ static PreToken get_token(void)
                     token = PRE_TOK_EOF;
                     break;
                 case '\n':
-                    // save = FALSE;
                     token = PRE_TOK_NL;
                     ++curr_line, curr_column=0;
                     break;
@@ -344,91 +370,91 @@ static PreToken get_token(void)
                 /*
                  * multi-char punctuators
                  */
-#define ADVANCE() (++curr_column, *curr++)
+#define ADVANCE() (get_next_char())
 #define REWIND()  (--curr_column, --curr)
 #define SAVE_AND_ADVANCE() token_string[tok_str_ind++] = (char)c, c = ADVANCE()
                 case '+': /* +, ++ or += */
-                    if (*curr=='+' || *curr=='=')
+                    if (peek(1)=='+' || peek(1)=='=')
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '-': /* -, --, -> or -= */
-                    if (*curr=='-' || *curr=='>' || *curr=='=')
+                    if (peek(1)=='-' || peek(1)=='>' || peek(1)=='=')
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '*': /* * or *= */
-                    if (*curr == '=')
+                    if (peek(1) == '=')
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '/': /* / or /= */
-                    if (*curr == '=')
+                    if (peek(1) == '=')
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '%': /* % or %= */
-                    if (*curr == '=')
+                    if (peek(1) == '=')
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '^': /* ^ or ^= */
-                    if (*curr == '=')
+                    if (peek(1) == '=')
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '~': /* ~ or ~= */
-                    if (*curr == '=')
+                    if (peek(1) == '=')
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '=': /* = or == */
-                    if (*curr == '=')
+                    if (peek(1) == '=')
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '|': /* |, || or |= */
-                    if (*curr=='|' || *curr=='=')
+                    if (peek(1)=='|' || peek(1)=='=')
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '&': /* &, && or &= */
-                    if (*curr=='&' || *curr=='=')
+                    if (peek(1)=='&' || peek(1)=='=')
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '!': /* ! or != */
-                    if (*curr == '=')
+                    if (peek(1) == '=')
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '#': /* # or ## */
-                    if (*curr == '#')
+                    if (peek(1) == '#')
                         SAVE_AND_ADVANCE();
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '<': /* <, <=, << or <<= */
-                    if (*curr == '=') {
+                    if (peek(1) == '=') {
                         SAVE_AND_ADVANCE();
-                    } else if (*curr == '<') {
+                    } else if (peek(1) == '<') {
                         SAVE_AND_ADVANCE();
-                        if (*curr == '=')
+                        if (peek(1) == '=')
                             SAVE_AND_ADVANCE();
                     }
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '>': /* >, >=, >> or >>= */
-                    if (*curr == '=') {
+                    if (peek(1) == '=') {
                         SAVE_AND_ADVANCE();
-                    } else if (*curr == '>') {
+                    } else if (peek(1) == '>') {
                         SAVE_AND_ADVANCE();
-                        if (*curr == '=')
+                        if (peek(1) == '=')
                             SAVE_AND_ADVANCE();
                     }
                     token = PRE_TOK_PUNCTUATOR;
                     break;
                 case '.': /* . or ... */
-                    if (*curr=='.' && *(curr+1)=='.') {
+                    if (peek(1)=='.' && peek(2)=='.') {
                         SAVE_AND_ADVANCE();
                         SAVE_AND_ADVANCE();
                     }
@@ -454,65 +480,32 @@ static PreToken get_token(void)
             }
             break;
         case STATE_INCHAR:
-            REWIND();
-            if (*curr=='\0' || *curr=='\n') {
+            if (c=='\0' || c=='\n') {
                 ERROR("missing terminating \"'\" character");
-            } else if (*curr == '\'') {
-                ERROR("empty character constant");
-            } else {
-                /*
-                 *   If ' is found and it is preceded by:
-                 * 1) an even number of backslashes = stop
-                 *      'a'
-                 *      '\\',
-                 *      '\\\\'
-                 * 2) an odd number of backslashes = don't stop
-                 *      'abc\'def',
-                 *      '\'   <-error!
-                 *      '\\\' <-error!
-                 */
-                int cb; /* consecutive backslashes */
-
-                cb = 0;
-                if (*curr == '\\')
-                    ++cb;
-                token_string[tok_str_ind++] = ADVANCE();
-                while (*curr!='\'' || cb%2!=0) {
-                    if (*curr=='\0' || *curr=='\n')
-                        ERROR("missing terminating \"'\" character");
-                    else if (*curr == '\\')
-                        ++cb;
-                    else
-                        cb = 0;
-                    token_string[tok_str_ind++] = ADVANCE();
+            } else if (c=='\'' && cb%2==0) {
+                if (tok_str_ind == 0) {
+                    ERROR("empty character constant");
+                } else {
+                    save = FALSE;
+                    state = STATE_DONE;
+                    token = PRE_TOK_CHACON;
                 }
-                ADVANCE(); /* skip ' */
-                save = FALSE;
-                state = STATE_DONE;
-                token = PRE_TOK_CHACON;
+            } else if (c == '\\') {
+                ++cb;
+            } else {
+                cb = 0;
             }
             break;
         case STATE_INSTR:
-            REWIND();
-            if (*curr=='\0' || *curr=='\n') {
+            if (c=='\0' || c=='\n') {
                 ERROR("missing terminating '\"' character");
-            } else {
-                /* backslashes: the same rule as for character constants */
-                int cb;
-
-                cb = 0;
-                while (*curr!='"' || cb%2!=0) {
-                    if (*curr=='\0' || *curr=='\n')
-                        ERROR("missing terminating '\"' character");
-                    else if (*curr == '\\')
-                        ++cb;
-                    else
-                        cb = 0;
-                    token_string[tok_str_ind++] = ADVANCE();
-                }
-                c = ADVANCE(); /* " */
+            } if (c=='\"' && cb%2==0) {
                 state = STATE_DONE;
                 token = PRE_TOK_STRLIT;
+            } else if (c == '\\') {
+                ++cb;
+            } else {
+                cb = 0;
             }
             break;
         case STATE_INCOMMENT1:
@@ -526,11 +519,11 @@ static PreToken get_token(void)
             break;
         case STATE_INCOMMENT2:
             save = FALSE;
-            if (c == '\0')
+            if (c == '\0') {
                 ERROR("unterminated comment");
-            else if (c == '/')
+            } else if (c == '/') {
                 state = STATE_START;
-            else if (c != '*') {
+            } else if (c != '*') {
                 state = STATE_INCOMMENT1;
                 if (c == '\n')
                     ++curr_line, curr_column=0;
@@ -552,8 +545,11 @@ static PreToken get_token(void)
             break;
         } /* switch (state) */
 
-        if (save)
+        if (save) {
+            if (tok_str_ind > MAX_LOG_LINE_LEN)
+                TERMINATE("Logical line exceeds maximum length of %u characters", MAX_LOG_LINE_LEN);
             token_string[tok_str_ind++] = (char)c;
+        }
         if (state == STATE_DONE)
             token_string[tok_str_ind] = '\0';
     } /* while (state != STATE_DONE) */
