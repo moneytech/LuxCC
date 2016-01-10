@@ -58,6 +58,7 @@
 
 
 
+
 <meta http-equiv="content-type" content="text/html; charset=utf-8"><meta http-equiv="content-type" content="text/html; charset=utf-8"></head><body><span style="font-family: monospace;"></span><span style="font-family: monospace;">Luxcc usage and internals documentation. I will try to maintain this document updated as things evolve.</span><br>
 <br>
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big>Index<br></big></big></big><span style="font-family: Times New Roman;">
@@ -113,6 +114,9 @@ LuxCC currently targets:<br>
   </li>
   <li>LuxVM 32-bit</li>
   <li>LuxVM 64-bit</li>
+  <li>MIPS32<br>
+  </li>
+
 </ul>The compiler is intended to run/target Linux only. Porting it to
 Windows would require some considerable amount of work (I suppose
 porting it to other Unix-like OS should be easier).<br>
@@ -213,7 +217,7 @@ lexeme: `*'</span><br>
 <span style="font-family: monospace;"></span><span style="font-family: monospace;"> ...</span><br>
 <span style="font-family: monospace;"></span></div>
 <ul>
-  <li>Dump function intermediate code (x86 only)</li>
+  <li>Dump function intermediate code (*)</li>
 </ul>
 <div style="margin-left: 40px;"><span style="font-family: monospace;">$ luxdvr -dump-ic ackermann src/tests/execute/ackermann.c</span><br style="font-family: monospace;">
 <span style="font-family: monospace;">$ cat src/tests/execute/ackermann.ic</span><br style="font-family: monospace;">
@@ -236,18 +240,20 @@ lexeme: `*'</span><br>
 <span style="font-family: monospace;">$ dot -Tpng src/tests/execute/ackermann.ast.dot -o ackermann_ast.png<br>
 </span></div>
 <ul>
-  <li>Dump function CFG (x86/x64 only)</li>
+  <li>Dump function CFG (*)</li>
 </ul>
 <div style="margin-left: 40px;"><span style="font-family: monospace;">$ luxdvr -dump-cfg ackermann src/tests/execute/ackermann.c</span><br style="font-family: monospace;">
 <span style="font-family: monospace;">$ dot -Tpng src/tests/execute/ackermann.cfg.dot -o ackermann_cfg.png<br>
 </span></div>
 
 <ul>
-  <li>Dump program call-graph (x86/x64 only)</li>
+  <li>Dump program call-graph (*)</li>
 </ul>
 <div style="margin-left: 40px;"><span style="font-family: monospace;">$ luxdvr -dump-cg src/tests/execute/ackermann.c</span><br style="font-family: monospace;">
 <span style="font-family: monospace;">$ dot -Tpng src/tests/execute/ackermann.cg.dot -o ackermann_cg.png<br>
 </span></div>
+<br>
+(*) these options are only available for targets that use the IC to generate target code. See <a href="#Target_Code_Generation">Target Code Generation</a>.<br>
 <br>
 Type <span style="font-family: monospace;">luxdvr -h</span> to see additional command-line options.<br>
 <br>
@@ -768,7 +774,19 @@ resolved at the end of each function.<br>
       <td style="vertical-align: top;">a = (zero extend to long long)b<br>
       </td>
     </tr>
-<tr><td style="vertical-align: top;">OpAsn<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = b<br></td></tr><tr><td style="vertical-align: top;">OpIndAsn<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">*b = c<br></td></tr><tr><td style="vertical-align: top;">OpAddrOf<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = &amp;b<br></td></tr><tr><td style="vertical-align: top;">OpInd<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = *b<br></td></tr><tr><td style="vertical-align: top;">OpLab<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">Define label a<br></td></tr><tr><td style="vertical-align: top;">OpJmp<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">Unconditionally jump to label a<br></td></tr><tr><td style="vertical-align: top;">OpCBr<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">If b is TRUE jump to label a, else to label c<br></td></tr><tr><td style="vertical-align: top;">OpSwitch<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">Switch over b (c == # of cases)<br></td></tr><tr><td style="vertical-align: top;">OpCase<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a == case's value, b == case's label (c is TRUE when `default')<br></td></tr><tr><td style="vertical-align: top;">OpArg<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">Pass b as an argument (c == sizeof(b))<br></td></tr><tr><td style="vertical-align: top;">OpCall<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b() (c == # of args)<br></td></tr><tr><td style="vertical-align: top;">OpIndCall<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = (*b)() (c == # of args)<br></td></tr><tr><td style="vertical-align: top;">OpRet<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">Return value b to the caller<br></td></tr><tr>
+<tr><td style="vertical-align: top;">OpAsn<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = b<br></td></tr><tr><td style="vertical-align: top;">OpIndAsn<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">*b = c<br></td></tr><tr><td style="vertical-align: top;">OpAddrOf<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = &amp;b<br></td></tr><tr><td style="vertical-align: top;">OpInd<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">a = *b<br></td></tr><tr><td style="vertical-align: top;">OpLab<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">Define label a<br></td></tr><tr><td style="vertical-align: top;">OpJmp<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">Unconditionally jump to label a<br></td></tr><tr><td style="vertical-align: top;">OpCBr<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">If b is TRUE jump to label a, else to label c<br></td></tr><tr><td style="vertical-align: top;">OpSwitch<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">Switch over b (c == # of cases)<br></td></tr><tr><td style="vertical-align: top;">OpCase<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a == case's value, b == case's label (c is TRUE when `default')<br></td></tr><tr>
+      <td style="vertical-align: top;">OpBegArg<br>
+      </td>
+      <td style="vertical-align: top;">-<br>
+      </td>
+      <td style="vertical-align: top;">-<br>
+      </td>
+      <td style="vertical-align: top;">-<br>
+      </td>
+      <td style="vertical-align: top;">Signal the start of arguments computation<br>
+      </td>
+    </tr>
+<tr><td style="vertical-align: top;">OpArg<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">Pass b as an argument (c == sizeof(b))<br></td></tr><tr><td style="vertical-align: top;">OpCall<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b() (c == # of args)<br></td></tr><tr><td style="vertical-align: top;">OpIndCall<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = (*b)() (c == # of args)<br></td></tr><tr><td style="vertical-align: top;">OpRet<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">Return value b to the caller<br></td></tr><tr>
       <td style="vertical-align: top;">OpNOp<br>
       </td>
       <td style="vertical-align: top;">-<br>
@@ -820,6 +838,12 @@ Here is an example call-graph (From the program <span style="font-family: monosp
 <img style="width: 900px; height: 542px;" alt="" src="res/img5.png"><br>
 It can be observed from the graph that <span style="font-family: monospace;">main()</span> has no incoming edges and that <span style="font-family: monospace;">flush_input()</span> goes unused in the program.<br>
 <br><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Data-Flow_Analysis"></a>3.7 Data-Flow Analysis<br></big></big></big><br>TODO<br><br><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Target_Code_Generation"></a>3.8 Target Code Generation</big></big></big><br>
+<br>
+Target code generation is done directly from the AST for the LuxVM
+target and from the IC for the other targets. The generation of target
+code from the IC is mostly useful for register-based target machines (a
+stack-based machine, like LuxVM, as little use for it).<br>
+
 <br>
 <big style="text-decoration: underline;"><big style="font-weight: bold;"><a name="LuxVM_Target"></a>3.8.1 LuxVM target<br>
 </big></big><br>
@@ -1463,8 +1487,12 @@ should be equal to cc3 (in a byte-to-byte basis).<br>
   <li><a href="http://www.open-std.org/jtc1/sc22/wg14/www/docs/dr.htm">WG14 Defect Report Summary</a></li>
   <li><a href="http://www.sco.com/developers/devspecs/abi386-4.pdf">System V ABI-i386</a></li>
   <li><a href="http://www.x86-64.org/documentation/abi.pdf">System V ABI-AMD64</a></li>
-  <li><a href="http://www.agner.org/optimize/calling_conventions.pdf">Calling conventions</a><br>
+  <li><a href="http://www.agner.org/optimize/calling_conventions.pdf">Calling conventions</a></li>
+  <li><a href="http://math-atlas.sourceforge.net/devel/assembly/mipsabi32.pdf">MIPS o32 ABI (the old ABI)<br>
+    </a></li>
+  <li><a href="http://www.linux-mips.org/pub/linux/mips/doc/NUBI/MD00438-2C-NUBIDESC-SPC-00.16.pdf">MIPS NUBI ABI (the new ABI)</a><br>
   </li>
+
 
 </ul>
 <span style="font-family: monospace;"></span>
