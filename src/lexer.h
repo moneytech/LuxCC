@@ -157,6 +157,7 @@ typedef enum {
     TOK_STATIC_ASSERT,
     TOK_ASM,
     TOK_BUILTIN_VA_START,
+    TOK_ALIGNOF,
 } Token;
 
 typedef struct TokenNode TokenNode;

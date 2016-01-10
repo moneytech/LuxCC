@@ -16,11 +16,12 @@
 #define not_equal(s, t) (strcmp((s), (t)) != 0)
 
 #define NELEMS(a) (sizeof(a)/sizeof(a[0]))
+#define is_po2(x) (x!=0 && (x & (x-1))==0)
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 unsigned long hash2(unsigned long k);
 unsigned hash(char *s);
 int round_up(int num, int mul);
-#define is_po2(x) (x!=0 && (x & (x-1))==0)
 int ilog2(unsigned val);
 int file_exists(char *file_path);
 char *replace_extension(char *fname, char *newext);

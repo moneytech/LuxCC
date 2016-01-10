@@ -6,4 +6,5 @@ else
 	/bin/bash scripts/testall_x64.sh
 fi
 /bin/bash scripts/testall_vm.sh
+/bin/bash scripts/testall_mips.sh
 src/tools/tester src/tests/analyze/*.c

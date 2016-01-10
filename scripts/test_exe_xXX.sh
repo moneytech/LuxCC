@@ -32,7 +32,7 @@ for file in $(find $TESTS_PATH/ | grep '\.c') ; do
 	fi
 
 	# compare
-	if ! cmp "${file%.*}.output" "${file%.*}.expect" ; then
+	if ! cmp -s "${file%.*}.output" "${file%.*}.expect" ; then
 		echo "failed: $file"
 		let fail_counter=fail_counter+1
 		fail_files="$fail_files $file"		

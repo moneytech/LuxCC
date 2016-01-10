@@ -1,11 +1,20 @@
 #ifndef LUXCC_H_
 #define LUXCC_H_
 
+enum {
+    ARCH_X86,
+    ARCH_X64,
+    ARCH_VM32,
+    ARCH_VM64,
+    ARCH_MIPS,
+};
+
 extern unsigned warning_count;
 extern unsigned error_count;
 extern int disable_warnings;
 extern int colored_diagnostics;
 extern int targeting_arch64;
+extern int target_arch;
 extern int include_liblux;
 extern char *cg_outpath;
 extern char *cfg_outpath;

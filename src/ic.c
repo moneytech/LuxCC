@@ -95,6 +95,12 @@ int size_of_local_area = 0;
 static int local_offset;
 /* ---- */
 
+/*
+ * MIPS stuff
+ */
+#define MIPS_PARAM_END 8 /* 8($fp) */
+/* --- */
+
 static Arena *id_table_arena;
 static struct IDNode {
     char *sid;
@@ -887,18 +893,21 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
     unsigned entry_label;
 
     nfree_reg = 6;
+    param_offs = 0;
 
     ty.decl_specs = decl_specs;
     ty.idl = header->child->child;
     if ((cat=get_type_category(&ty))==TOK_STRUCT || cat==TOK_UNION) {
         /* allocate space for the 'return value address' */
-        if (targeting_arch64) {
+        if (target_arch == ARCH_X64) {
             if (get_sizeof(&ty) > 16) {
                 local_offset -= 8;
                 --nfree_reg; /* rdi becomes unavailable */
             }
-        } else {
+        } else if (target_arch == ARCH_X86) {
             local_offset -= 4;
+        } else if (target_arch == ARCH_MIPS) {
+            param_offs += 4;
         }
     }
 
@@ -907,7 +916,7 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
     if (get_type_spec(p->decl->decl_specs)->op==TOK_VOID && p->decl->idl==NULL)
         p = NULL; /* function with no parameters */
 
-    if (targeting_arch64) {
+    if (target_arch == ARCH_X64) {
         DeclList *tmp;
         int is_vararg;
 
@@ -917,7 +926,7 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
                 is_vararg = TRUE;
         }
 
-        param_offs = X64_PARAM_END;
+        param_offs += X64_PARAM_END;
         reg_param_offs = is_vararg ? -48 : local_offset-8;
         while (p != NULL) {
             unsigned siz;
@@ -967,8 +976,8 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
         } else {
             local_offset = reg_param_offs+8;
         }
-    } else {
-        param_offs = X86_PARAM_END;
+    } else if (target_arch==ARCH_X86 || target_arch==ARCH_MIPS) {
+        param_offs += X86_PARAM_END;
         while (p != NULL) {
             if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
                 break; /* start of optional parameters (`...') */
@@ -978,22 +987,6 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
             ty.decl_specs = p->decl->decl_specs;
             ty.idl = p->decl->idl->child;
             param_offs += round_up(get_sizeof(&ty), 4);
-
-            /*if (cg_node(curr_cg_node).pn == NULL) {
-                cg_node(curr_cg_node).pn = malloc(sizeof(ParamNid));
-                cg_node(curr_cg_node).pn->sid = p->decl->idl->str;
-                cg_node(curr_cg_node).pn->nid = -1;
-                cg_node(curr_cg_node).pn->next = NULL;
-            } else {
-                ParamNid *pn;
-
-                for (pn = cg_node(curr_cg_node).pn; pn->next != NULL; pn = pn->next);
-                pn->next = malloc(sizeof(ParamNid));
-                pn = pn->next;
-                pn->sid = p->decl->idl->str;
-                pn->nid = -1;
-                pn->next = NULL;
-            }*/
 
             p = p->next;
         }
@@ -2914,6 +2907,8 @@ unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned fal
             unsigned a1, a2;
             DeclList *p;
 
+            emit_i(OpBegArg, NULL, 0, 0, 0);
+
             a2 = new_address(IConstKind);
             na = function_argument(e->child[1], e->locals);
             address(a2).cont.val = na;
@@ -3013,18 +3008,6 @@ unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned fal
         address(a1).cont.nid = get_var_nid(e->attr.str, e->attr.var.scope);
         if (e->attr.var.duration == DURATION_AUTO)
             address(a1).cont.var.offset = location_get_offset(e->attr.str);
-
-        /*if (e->attr.var.is_param) {
-            ParamNid *pn;
-
-            for (pn = cg_node(curr_cg_node).pn; pn != NULL; pn = pn->next) {
-                if (equal(pn->sid, e->attr.str)) {
-                    pn->nid = address(a1).cont.nid;
-                    break;
-                }
-            }
-            assert(pn != NULL);
-        }*/
 
         if (is_addr || (cat=get_type_category(&e->type))==TOK_SUBSCRIPT || cat==TOK_FUNCTION) {
             unsigned a2;
@@ -3154,10 +3137,14 @@ static void dump_ic(unsigned fn)
             print_addr(p->arg1);
             fprintf(ic_file, ", L%lld", address(p->arg2).cont.val);
             break;
+        case OpBegArg:
+            fprintf(ic_file, "begarg");
+            break;
 
         case OpArg:
             fprintf(ic_file, "arg ");
             print_addr(p->arg1);
+            fprintf(ic_file, " %d", p->arg2);
             break;
         case OpCall:
         case OpIndCall:

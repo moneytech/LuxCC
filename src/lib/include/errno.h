@@ -21,4 +21,10 @@ extern int *errno;
 
 #endif
 
+#ifdef __mips__
+
+extern int errno;
+
+#endif
+
 #endif

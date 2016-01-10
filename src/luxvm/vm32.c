@@ -766,7 +766,7 @@ void disassemble_data(int32_t *data, int32_t data_size)
 
 void vm_usage(void)
 {
-    printf("usage: %s [vm-options] <program> [program-options]\n", prog_name);
+    printf("usage: %s [vm-options] <program> [program-arguments]\n", prog_name);
     exit(0);
 }
 
@@ -823,7 +823,7 @@ int main(int argc,char *argv[])
             disas = TRUE;
             break;
         case 'h':
-            printf("usage: %s [ options ] <program>\n"
+            printf("usage: %s [vm-options] <program> [program-arguments]\n"
                    "  The available options are:\n"
                    "    -s<size>    specify stack size\n"
                    "    -d          disassemble code and data after loading\n"

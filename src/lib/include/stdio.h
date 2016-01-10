@@ -16,9 +16,9 @@
 // #define FILENAME_MAX
 // #define L_tmpnam
 
-#define SEEK_SET	0
-#define SEEK_CUR	1
-#define SEEK_END	2
+#define SEEK_SET    0
+#define SEEK_CUR    1
+#define SEEK_END    2
 
 // #define TMP_MAX
 
@@ -30,7 +30,8 @@ extern FILE *stdin, *stdout, *stderr;
 #define stdout stdout
 #define stderr stderr
 
-#ifdef __LuxVM__
+#if defined __LuxVM__ || defined __mips__
+
 /* File access functions */
 int fclose(FILE *stream);
 FILE *fopen(const char *filename, const char *mode);
@@ -62,9 +63,9 @@ void rewind(FILE *stream);
 
 /* Error-handling functions */
 int ferror(FILE *stream);
-#endif
 
-#if defined __i386__ || defined __x86_64__
+#else
+
 /* Operations on files */
 int remove(const char *filename);
 int rename(const char *old, const char *new);

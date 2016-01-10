@@ -5,6 +5,16 @@ int main(void)
     int a;
     long long e;
 
+    a = 1;
+    switch (a) {
+    case 1: printf("GOOD\n"); break;
+    case 2: printf("BAD\n"); break;
+    }
+    switch (a) {
+    case 0: printf("BAD\n"); break;
+    default: printf("GOOD\n"); break;
+    }
+
     a = 10;
     switch (a) {
     case 1: printf("BAD\n"); break;

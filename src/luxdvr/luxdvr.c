@@ -55,8 +55,14 @@ enum {
     DVR_VM64_TARGET     = 0x040,
     DVR_X86_TARGET      = 0x080,
     DVR_X64_TARGET      = 0x100,
+    DVR_MIPS_TARGET     = 0x200,
 };
-#define DVR_TARGETS (DVR_VM32_TARGET+DVR_VM64_TARGET+DVR_X86_TARGET+DVR_X64_TARGET)
+#define DVR_TARGETS \
+    (DVR_VM32_TARGET \
+    +DVR_VM64_TARGET \
+    +DVR_X86_TARGET \
+    +DVR_X64_TARGET \
+    +DVR_MIPS_TARGET)
 
 typedef struct PathList PathList;
 struct PathList {
@@ -398,6 +404,9 @@ int main(int argc, char *argv[])
                 } else if (equal(m, "vm64")) {
                     driver_flags &= ~DVR_TARGETS;
                     driver_flags |= DVR_VM64_TARGET;
+                } else if (equal(m, "mips")) {
+                    driver_flags &= ~DVR_TARGETS;
+                    driver_flags |= DVR_MIPS_TARGET;
                 }
             }
                 break;
@@ -459,7 +468,8 @@ ok_1:
                    "  vm32\n"
                    "  vm64\n"
                    "  x86\n"
-                   "  x64\n");
+                   "  x64\n"
+                   "  mips\n");
         else
             printf("\nFor a list of valid arguments to -m, use -h -v.\n");
         goto done;
@@ -478,6 +488,17 @@ ok_1:
         string_printf(ld_cmd, "%s -vm64", search_required("luxvmld", TRUE));
         string_printf(ld_cmd, " %s", search_required("crt64.o", FALSE));
         string_printf(ld_cmd, " %s", search_required("libc.o", FALSE));
+    } else if (driver_flags & DVR_MIPS_TARGET) {
+        p = strdup(strbuf(ld_cmd));
+        string_clear(ld_cmd);
+        parse_conf_file("mips.conf");
+        string_printf(ld_cmd, "%s %s", search_required("luxldmips", TRUE), p);
+        string_printf(ld_cmd, " %s", search_required("crt_mips.o", FALSE));
+        string_printf(ld_cmd, " %s", search_required("mips_memcpy.o", FALSE));
+        string_printf(ld_cmd, " %s", search_required("liblux_mips.o", FALSE));
+        string_printf(ld_cmd, " %s", search_required("libc_mips.o", FALSE));
+        string_printf(as_cmd, "%s", search_required("luxasmips", TRUE));
+        free(p);
     } else if (driver_flags & DVR_X64_TARGET) {
         p = strdup(strbuf(ld_cmd));
         string_clear(ld_cmd);

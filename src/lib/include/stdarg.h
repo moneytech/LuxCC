@@ -7,7 +7,7 @@
 typedef char *va_list;
 #endif
 
-#ifdef __i386__
+#if defined __i386__ || defined __mips__
 #define va_start(ap, last)  (ap = (va_list)&last + _INTSIZEOF(last))
 #define va_arg(ap, type)    (*(type *)((ap += _INTSIZEOF(type)) - _INTSIZEOF(type)))
 #define va_copy(dest, src)  (dest) = (src)
@@ -60,4 +60,3 @@ static void *__va_arg(va_list ap, unsigned long siz)
 #endif
 
 #endif
-

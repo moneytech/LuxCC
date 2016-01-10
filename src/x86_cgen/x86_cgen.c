@@ -132,8 +132,9 @@ static void dump_reg_descr_tab(void);
 static void spill_reg(X86_Reg r);
 static void spill_all(void);
 static void spill_aliased_objects(void);
-static X86_Reg get_reg(int intr);
 static X86_Reg get_reg0(void);
+static X86_Reg get_reg(int i);
+static X86_Reg2 get_reg2(int i);
 
 static void x86_load(X86_Reg r, unsigned a);
 static void x86_load2(X86_Reg2 r, unsigned a);
@@ -845,7 +846,7 @@ static void update_tar_descriptors(X86_Reg res, unsigned tar, unsigned char live
     }
 }
 
-void update_tar_descriptors2(X86_Reg2 res, unsigned tar, unsigned char liveness, int next_use)
+static void update_tar_descriptors2(X86_Reg2 res, unsigned tar, unsigned char liveness, int next_use)
 {
     /* Note:
         maintain the order of the operations for x86_store()
@@ -1936,7 +1937,7 @@ static void x86_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
             emitln("mov dword [%s+4], %u", x86_reg_str[pr], p[1]);
         } else if (address(arg2).kind == StrLitKind) {
             emitln("mov dword [%s], _@S%d", x86_reg_str[pr], new_string_literal(arg2));
-            emitln("mov dword [%s+4], 0");
+            emitln("mov dword [%s+4], 0", x86_reg_str[pr]);
         } else {
             X86_Reg2 r;
 
@@ -2378,6 +2379,11 @@ static void x86_case(int i, unsigned tar, unsigned arg1, unsigned arg2)
     /* nothing */
 }
 
+static void x86_begarg(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    /* nothing */
+}
+
 static void (*instruction_handlers[])(int, unsigned, unsigned, unsigned) = {
     x86_add, x86_sub, x86_mul, x86_div,
     x86_rem, x86_shl, x86_shr, x86_and,
@@ -2391,7 +2397,7 @@ static void (*instruction_handlers[])(int, unsigned, unsigned, unsigned) = {
 
     x86_ind_asn, x86_lab, x86_jmp, x86_arg,
     x86_ret, x86_switch, x86_case, x86_cbr,
-    x86_nop
+    x86_begarg, x86_nop
 };
 
 void x86_function_definition(TypeExp *decl_specs, TypeExp *header)

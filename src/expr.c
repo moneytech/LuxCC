@@ -1323,7 +1323,9 @@ void analyze_unary_expression(ExecNode *e)
     case TOK_PRE_DEC:
         analyze_inc_dec_operator(e);
         break;
+    case TOK_ALIGNOF:
     case TOK_SIZEOF: {
+        char *op;
         Token cat;
         Declaration ty;
 
@@ -1345,11 +1347,12 @@ void analyze_unary_expression(ExecNode *e)
         cat = get_type_category(&ty);
         IS_ERROR_UNARY(e, cat);
 
+        op = (e->attr.op == TOK_SIZEOF)?"sizeof":"__alignof__";
         if (cat == TOK_FUNCTION)
-            ERROR_R(e, "invalid application of `sizeof' to a function type");
+            ERROR_R(e, "invalid application of `%s' to a function type", op);
         else if (cat==TOK_SUBSCRIPT && ty.idl->attr.e==NULL
         || is_struct_union_enum(cat) && !is_complete(get_type_spec(ty.decl_specs)->str))
-            ERROR_R(e, "invalid application of `sizeof' to incomplete type");
+            ERROR_R(e, "invalid application of `%s' to incomplete type", op);
 
         /*
          * #2 The sizeof operator yields the size (in bytes) of its operand, which may be an
@@ -1366,7 +1369,7 @@ void analyze_unary_expression(ExecNode *e)
         /* convert node to integer constant */
         e->kind.exp = IConstExp;
         e->type.decl_specs = get_type_node(TOK_UNSIGNED_LONG);
-        e->attr.uval = get_sizeof(&ty);
+        e->attr.uval = (e->attr.op == TOK_SIZEOF)?get_sizeof(&ty):get_alignment(&ty);
         break;
     }
     case TOK_ADDRESS_OF: {

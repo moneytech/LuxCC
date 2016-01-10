@@ -2,6 +2,7 @@ GETARCH = $(shell uname -i)
 CC=../luxcc
 AS=../luxas/luxas
 VMAS=../luxvm/luxvmas
+MIPSAS=../luxmips/luxasmips
 LIBC_FILES=libc.c ctype.c errno.c stdio.c stdlib.c string.c
 ifeq ($(GETARCH), i386)
 	CRT = crt32
@@ -9,9 +10,13 @@ else
 	CRT = crt64
 endif
 
-all: $(CRT).o libc.o liblux.o
+all: $(CRT).o libc.o liblux.o liblux_mips.o libc_mips.o crt_mips.o mips_memcpy.o
 
-$(CRT).o:
+#
+# LuxVM stuff.
+#
+
+$(CRT).o: $(CRT).s
     ifeq ($(GETARCH), i386)
 	$(VMAS) -vm32 crt32.s -o crt32.o
     else
@@ -31,6 +36,22 @@ liblux.o: liblux.c
     else
 	@true
     endif
+
+#
+# MIPS stuff.
+#
+
+crt_mips.o: crt_mips.asm
+	$(MIPSAS) crt_mips.asm -o crt_mips.o
+
+mips_memcpy.o: mips_memcpy.asm
+	$(MIPSAS) mips_memcpy.asm -o mips_memcpy.o
+
+liblux_mips.o: liblux.c
+	$(CC) -q -z -mmips liblux.c -o liblux_mips.asm && $(MIPSAS) liblux_mips.asm -o liblux_mips.o
+
+libc_mips.o: $(LIBC_FILES)
+	$(CC) -q -mmips libc.c -o libc_mips.asm && $(MIPSAS) libc_mips.asm -o libc_mips.o
 
 clean:
 	rm -f *.o

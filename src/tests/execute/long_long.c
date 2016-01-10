@@ -192,6 +192,7 @@ int main(void)
 
     /* long long integer constants */
 
+    printf("lliconsts:\n");
     printf("%lld\n", 274877907043);
     printf("%lld\n", 274877907043LL);
     printf("%lld\n", 274877907043ULL);
@@ -217,6 +218,7 @@ int main(void)
             unsigned long long m2;
         } s0 = { 0xabcdef122345678, x1, 0x10000000000 };
 
+        printf("llauto:\n");
         printf("%lld, %llx\n", x0, x1);
         printf("%llu, %llx\n", x2, x3);
         printf("%llx, %lld, %lld\n", a0[0], a0[1], a0[2]);
@@ -225,10 +227,12 @@ int main(void)
 
     /* long long arguments */
 
+    printf("llarg:\n");
     llarg(9223372036854775807, 1099511627776, 18446744073709551615ULL, 8589934592LL);
 
     /* long long operations */
 
+    printf("llopts:\n");
     lloptest(1, 1);
     lloptest(1, -1);
     lloptest(34359738368, -255);
@@ -237,11 +241,13 @@ int main(void)
     lloptest(1099511627776, 1125899906842624);
     lloptest(9223372036854775807, 4611686018427387904);
 
+    printf("ullopts:\n");
     ulloptest(1, 1);
     ulloptest(2147483648, 4294967296);
     ulloptest(8589934592, 17179869184);
     ulloptest(9223372036854775808ULL, 18446744073709551615ULL);
 
+    printf("shifts:\n");
     llshift(0x8000000000000000, 63);
     llshift(0x8000000000000000, 31);
     llshift(0x7FFFFFFFFFFFFFFF, 63);
@@ -258,6 +264,7 @@ int main(void)
 
     /* long long return values */
 
+    printf("ret vals:\n");
     printf("%lld\n", llretval(1));
     printf("%lld\n", llretval(-1));
     printf("%lld\n", llretval(18446744073709551615ULL));
@@ -270,6 +277,7 @@ int main(void)
         int x[] = { 11, 22, 33, 44, 55 };
         long long i = 3;
 
+        printf("ptrs:\n");
         printf("%d\n", x[i]);
         printf("%d\n", i[x]);
         printf("%d\n", *(x+i));
@@ -282,6 +290,7 @@ int main(void)
     {
         long long i = 10;
 
+        printf("post/pre inc:\n");
         printf("%lld\n", i++);
         printf("%lld\n", ++i);
         printf("%lld\n", i--);

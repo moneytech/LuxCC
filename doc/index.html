@@ -47,7 +47,18 @@
 
 
 
-<meta http-equiv="content-type" content="text/html; charset=utf-8"></head><body><span style="font-family: monospace;"></span><span style="font-family: monospace;">Luxcc usage and internals documentation. I will try to maintain this document updated as things evolve.</span><br>
+
+
+
+
+
+
+
+
+
+
+
+<meta http-equiv="content-type" content="text/html; charset=utf-8"><meta http-equiv="content-type" content="text/html; charset=utf-8"></head><body><span style="font-family: monospace;"></span><span style="font-family: monospace;">Luxcc usage and internals documentation. I will try to maintain this document updated as things evolve.</span><br>
 <br>
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big>Index<br></big></big></big><span style="font-family: Times New Roman;">
 </span>
@@ -67,8 +78,10 @@
     <ul>
       <li><span style="font-family: Times New Roman;"><a href="#LuxVM_Target">3.8.1 LuxVM Target</a></span></li>
       <li><span style="font-family: Times New Roman;"><a href="#x86_Target">3.8.2 x86 Target</a></span></li>
-      <li><span style="font-family: Times New Roman;"><a href="#x64_Target">3.8.3 x64 Target</a><br>
+      <li><span style="font-family: Times New Roman;"><a href="#x64_Target">3.8.3 x64 Target</a></span></li>
+      <li><span style="font-family: Times New Roman;"><a href="#MIPS_Target">3.8.4 MIPS Target</a><br>
 </span></li>
+
 
 
     </ul>
@@ -260,19 +273,14 @@ zero).</li>
 </ul><strong>Basic operation:</strong><br>
 <br style="font-family: Times New Roman;">
 1) Read and buffer the source file.<br style="font-family: Times New Roman;">
-<br style="font-family: Times New Roman;">
-2) Perform line splicing.<br style="font-family: Times New Roman;">
-<br style="font-family: Times New Roman;">
-3) Tokenize the buffered file. The main functions in charge of this are<span style="font-family: Times New Roman;"> </span><span style="font-family: monospace;">tokenize()</span><span style="font-family: Times New Roman;"> </span>and<span style="font-family: Times New Roman;"> </span><span style="font-family: monospace;">get_token()</span>. After this, the
+<br style="font-family: Times New Roman;">2) Tokenize the buffered file. The main functions in charge of this are<span style="font-family: Times New Roman;"> </span><span style="font-family: monospace;">tokenize()</span><span style="font-family: Times New Roman;"> </span>and<span style="font-family: Times New Roman;"> </span><span style="font-family: monospace;">get_token()</span>. After this, the
 preprocessor is left with a list of preprocessor tokens (<span style="color: black; font-family: monospace;">PreTokenNode</span><span style="font-family: Times New Roman;"> </span>structs) as its main
 input. The buffered file is freed.<br style="font-family: Times New Roman;">
-<br style="font-family: Times New Roman;">
-4)<span style="font-family: Times New Roman;"> </span>Parse the
+<br style="font-family: Times New Roman;">3)<span style="font-family: Times New Roman;"> </span>Parse the
 preprocessing token list. The parser (the preprocessor's one) not only
 check for gramatical correctness, it also executes directives, expands
 macros, and marks the tokens that must be skipped by the lexer.<br style="font-family: Times New Roman;">
-<br style="font-family: Times New Roman;">
-5) Return the resulting list of preprocessing tokens.<br style="font-family: Times New Roman;">
+<br style="font-family: Times New Roman;">4) Return the resulting list of preprocessing tokens.<br style="font-family: Times New Roman;">
 <br style="font-family: Times New Roman;">
 As mentioned previously, the main data structure that the preprocessor
 manipulates is a linked list of<span style="font-family: Times New Roman;"> <span style="color: black; font-family: monospace;">PreTokenNode</span> </span>nodes<span style="font-family: Times New Roman;">:</span><br>
@@ -1184,11 +1192,11 @@ int main(void)<br>
 +----------+<br>
 |&nbsp; 20&nbsp;&nbsp;  &nbsp;&nbsp;  |<br>
 +----------+<br>
-|&nbsp; x1&nbsp;&nbsp;  &nbsp;&nbsp;  | &lt;---+<br>
+|&nbsp; x1&nbsp;&nbsp;  &nbsp;&nbsp;  |-----+<br>
 +</span><span style="font-family: monospace;">----------+&nbsp;&nbsp;&nbsp;&nbsp;  |<br>
 |&nbsp; 10&nbsp;&nbsp;  &nbsp;&nbsp;  |&nbsp;&nbsp;  &nbsp; |<br>
 +</span><span style="font-family: monospace;">----------+ &nbsp;&nbsp;&nbsp;  |<br>
-|&nbsp; x0 &nbsp;  &nbsp;&nbsp;  | &lt;-+ |<br>
+|&nbsp; x0 &nbsp;  &nbsp;&nbsp;  |---+ |<br>
 +</span><span style="font-family: monospace;">----------+&nbsp;&nbsp; | |<br>
 </span><span style="font-family: monospace;">|&nbsp; x1 (c)&nbsp;  | &lt;-+-+<br>
 +</span><span style="font-family: monospace;">----------+&nbsp;&nbsp;  |<br>
@@ -1200,8 +1208,138 @@ int main(void)<br>
 <span style="font-family: monospace;">rdi: 10 (b)</span><br style="font-family: monospace;">
 <span style="font-family: monospace;">rsi: 20 (d)<br>
 <br>
-</span></div>
+</span></div><big style="text-decoration: underline;"><big style="font-weight: bold;"><a name="MIPS_Target"></a>3.8.4 MIPS Target</big></big><br>
+<ul>
+  <li>The code generator tries to follow the o32 <a href="http://math-atlas.sourceforge.net/devel/assembly/mipsabi32.pdf">MIPS ABI</a>, albeit with some differences in what respect to stack frame layout (making it more x86-like) and alignment of objects (<span style="font-family: monospace;">long long</span>s are 4 byte aligned).<br>
+  </li>
+  <li>The stack grows downwards and is 4-byte aligned. The layout of a stack frame is as follows:</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; High addresses<br>
+<br>
+| ...&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; |<br>
++</span><span style="font-family: monospace;">--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ </span><br>
+<span style="font-family: monospace;"></span><span style="font-family: monospace;">| second leftmost stack argument&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp;&nbsp; |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- 28($fp)<br>
+</span><span style="font-family: monospace;">| leftmost (dword) stack argument&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp; |</span><br style="font-family: monospace;">
 
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- 24($fp)<br>
+</span><span style="font-family: monospace;">| $a3&nbsp; &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+|</span><br style="font-family: monospace;">
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- 20($fp)<br>
+</span><span style="font-family: monospace;">| $a2&nbsp; &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+|</span><br style="font-family: monospace;">
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- 16($fp)<br>
+</span><span style="font-family: monospace;">| $a1&nbsp; &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+|</span><br style="font-family: monospace;">
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- 12($fp)<br>
+</span><span style="font-family: monospace;">| $a0 (1) &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+|</span><br style="font-family: monospace;">
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- 8($fp)&nbsp; (also old $sp)<br>
+</span><span style="font-family: monospace;">| return address&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ <br>
+</span><span style="font-family: monospace;">| saved $fp&nbsp; &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+|</span><br style="font-family: monospace;">
+
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- $fp<br>
+</span><span style="font-family: monospace;">| first (dword) local variable&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+
+
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- -4($fp)<br>
+</span><span style="font-family: monospace;">| ... (more vars and temps)&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+
+
+
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- -4*X($fp)<br>
+</span><span style="font-family: monospace;">| space for temp struct/union (2)&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp; |</span><br style="font-family: monospace;">
+
+
+
+
+
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- -4*X($fp)</span><span style="font-family: monospace;"></span><br>
+<span style="font-family: monospace;">
+| ...&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; | } $sp moves around here<br>
++</span><span style="font-family: monospace;">--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ <br>
+| ...&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; |<br>
+</span><span style="font-family: monospace;">
+<br>
+&nbsp;&nbsp;&nbsp; Low addresses<br>
+<br>
+</span>(1) olds the 'return value address' when the function returns a struct or union value.<br>
+(2) is present only when somewhere in the body of the function there is a call to a struct/union valued function.<br>
+</div>
+<ul>
+  
+  
+  <li>The generated code uses only temporary registers $t0-$t8 ($8-$15, $24) to
+calculate expressions. Register $t9 ($25) is used as a temporary
+register that is "always available". It does not use "saved registers"
+$s0-$s7 ($16-$23). The only callee save registers that are modified are
+$fp, $sp, and $ra, and they are saved and restored in the
+prologue/epilogue of the function respectively.</li>
+  <li>Argument registers $a0-$a3 ($4-$7) are spilled into the space reserved by the caller upon entry to a function.</li>
+  <li>Argument bigger than 4 bytes are passed on registers (up to four)
+and if necessary the rest is passed on the stack. That is, a called
+function may receive a big object partially in registers and partially
+on the stack.</li>
+  <li>A function returning a struct/union copies the return value into
+space allocated by the caller (a pointer to that space is passed by the
+caller through $a0 and the called function returns that same pointer in
+$v0).</li>
+  <li>When a struct/union needs to be copied, the special function <span style="font-family: monospace;">__lux_mips_memcpy()</span> (<span style="font-family: monospace;">src/lib/mips_memcpy.asm</span>) is called.</li>
+  <li>Branch delay slots are filled with <span style="font-family: monospace;">nop</span> instructions.<br>
+  </li>
+
+
+
+<ul>
+    
+  </ul>
+</ul>
 
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Compiler_Driver"></a>3.9 Compiler Driver<br>
 </big></big></big><br>
@@ -1307,7 +1445,10 @@ should be equal to cc3 (in a byte-to-byte basis).<br>
   <li>Old-style function definitions:<span style="font-family: monospace;"> void foo(x, y) char *x; int y; { ... }. </span>Write instead <span style="font-family: monospace;">void foo(char *x, int y) { ... }</span><br style="font-family: monospace;"></li>
   <li>Function declarators with empty parameter type lists are interpreted as taking no parameters: <span style="font-family: monospace;">void bar() </span>is seen as<span style="font-family: monospace;"> void bar(void)</span></li><li>Implicit declaration of functions (the use of a function without a visible prototype is considered an error)<br>
   </li>
-<li>The 'implicit <span style="font-family: monospace;">int</span>' rule<br></li><li>Bit-fields</li><li>Floating point numbers</li><li>Wide character constants/string literals</li></ul>Most of the new features introduced with C99 are missing. The only C99 features that do are supported are:<br><ul><li>Macros with a variable number of arguments</li>
+<li>The 'implicit <span style="font-family: monospace;">int</span>' rule<br></li><li>Bit-fields</li><li>Floating point numbers</li><li>Wide character constants/string literals</li>
+  <li>Only fully bracketed initializers are handled. For example, to initialize <span style="font-family: monospace;">int a[1][1]</span> you must write <span style="font-family: monospace;">{{1}, {2}}</span> (<span style="font-family: monospace;">{1, 2}</span> doesn't work)<br>
+  </li>
+</ul>Most of the new features introduced with C99 are missing. The only C99 features that do are supported are:<br><ul><li>Macros with a variable number of arguments</li>
   <li>The <span style="font-family: monospace;">long long</span> type<br>
   </li>
 <li>The permission of a trailing comma after an enumerator list<span style="font-family: Times New Roman;"><span style="text-decoration: underline;"><span style="font-weight: bold;"></span></span></span></li></ul><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Resources"></a>6. Resources<br></big></big></big><br>Here I will write down some resources that I found useful during the development of this project:<br><ul><li><a href="http://port70.net/%7Ensz/c/">Standards and Rationales</a></li>

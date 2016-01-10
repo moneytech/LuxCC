@@ -92,7 +92,7 @@ A3 f11(char *s1, char *s2)
 void f12(int n, ...)
 {
 	va_list ap;
-	
+
 	va_start(ap, n);
 	while (n--)
 		printf("%d ", va_arg(ap, int));
@@ -104,22 +104,23 @@ A3 f13(long a, long b, long c, long d, ...)
 	va_list ap;
 	A3 x;
 	A1 tmp;
-	
+
 	va_start(ap, d);
 	a += b+c+d;
-	
-	/* 
+
+	/*
+     * => x64
 	 * expect long (in register), A1 (in stack),
-	 * long (in stack (remember the hidden first arg)), 
+	 * long (in stack (remember the hidden first arg)),
 	 * and A1 (in stack).
 	 */
 	a += va_arg(ap, long);
-	tmp = va_arg(ap, A1);	
+	tmp = va_arg(ap, A1);
 	strcpy(x.a, tmp.a);
 	a += va_arg(ap, long);
 	tmp = va_arg(ap, A1);
 	strcat(x.a, tmp.a);
-	
+
 	printf("a=%ld\n", a);
 	return x;
 }

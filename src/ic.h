@@ -68,6 +68,7 @@ typedef enum {
     OpCase,
 
     OpCBr,
+    OpBegArg,
     OpNOp,
 } OpKind;
 
@@ -154,12 +155,6 @@ struct CFGNode { /* CFG node == basic block */
 extern CFGNode *cfg_nodes;
 extern unsigned cfg_nodes_counter;
 #define cfg_node(n) (cfg_nodes[n])
-
-/*struct ParamNid {
-    char *sid;
-    int nid;
-    ParamNid *next;
-};*/
 
 /*
  * Call Graphs

@@ -2058,6 +2058,11 @@ static void x64_case(int i, unsigned tar, unsigned arg1, unsigned arg2)
     /* nothing */
 }
 
+static void x64_begarg(int i, unsigned tar, unsigned arg1, unsigned arg2)
+{
+    /* nothing */
+}
+
 static void (*instruction_handlers[])(int, unsigned, unsigned, unsigned) = {
     x64_add, x64_sub, x64_mul, x64_div,
     x64_rem, x64_shl, x64_shr, x64_and,
@@ -2071,7 +2076,7 @@ static void (*instruction_handlers[])(int, unsigned, unsigned, unsigned) = {
 
     x64_ind_asn, x64_lab, x64_jmp, x64_arg,
     x64_ret, x64_switch, x64_case, x64_cbr,
-    x64_nop
+    x64_begarg, x64_nop
 };
 
 static void x64_spill_reg_args(DeclList *p, int offs)

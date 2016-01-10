@@ -70,6 +70,8 @@ void radixSort(int * array, int size){
 
     printf("\n\tBucket: ");
     printArray(bucket, 10);
+
+    printf("%d/%d = %d\n", largestNum, significantDigit, largestNum/significantDigit);
   }
 }
 

@@ -632,8 +632,10 @@ TypeExp *specifier_qualifier_list(int type_spec_seen)
 
     if (in_first_type_specifier())
         n = type_specifier(), type_spec_seen = TRUE;
-    else /*if (in_first_type_qualifier())*/
+    else if (in_first_type_qualifier())
         n = type_qualifier();
+    else
+        ERROR("expecting type specifier or qualifier; found `%s'", get_lexeme(1));
     if (in_first_specifier_qualifier_list() && (lookahead(1)!=TOK_ID || !type_spec_seen))
         n->child = specifier_qualifier_list(type_spec_seen);
     return n;
@@ -1831,9 +1833,10 @@ ExecNode *unary_expression(void)
         match(TOK_DEC);
         n->child[0] = unary_expression();
         break;
+    case TOK_ALIGNOF:
     case TOK_SIZEOF: {
-        n = new_op_node(TOK_SIZEOF);
-        match(TOK_SIZEOF);
+        n = new_op_node(lookahead(1));
+        match(lookahead(1));
         if (lookahead(1) == TOK_LPAREN) {
             TokenNode *temp;
 
