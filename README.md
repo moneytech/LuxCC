@@ -11,6 +11,7 @@ Currently supported targets are:
 * i386
 * x86_64
 * LuxVM (32 & 64 bits)
+* MIPS32
 
 Note that this is a one-man project developed mainly for educational purposes (and fun!). It is not intended to replace any existing compiler/tool.
 
@@ -24,11 +25,11 @@ Install (this is optional)
 
     make install
 
-Do a quick test
+Do a quick test (run execution tests for the LuxVM target only)
 
     make test
 
-Test everything (this may take a while)
+Test everything (run all tests for all targets)
 
     make fulltest
 
