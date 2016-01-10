@@ -1,6 +1,6 @@
 This directory contains:
 
-    a) C standard library functions used by the VM target.
+    a) C standard library functions used by the VM and MIPS targets.
 
         The sources come mainly from:
           * The Sanos kernel: http://www.jbox.dk/sanos/source/lib/
@@ -8,4 +8,4 @@ This directory contains:
 
     b) crt32.o and crt64.o used by the VM32 and VM64 targets, respectively.
 
-    c) liblux.o used to emulate 64-bits operation in x86-32.
+    c) liblux.o used to emulate 64-bits operation in x86-32 and MIPS.
