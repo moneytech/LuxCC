@@ -187,7 +187,7 @@ void emu_init(void)
     R[29] = BASE_ADDR+segs_siz+HEAP_SIZE+STACK_SIZE;
 
     /* set heap pointer */
-    hptr = (Header *)(main_mem+(BASE_ADDR+segs_siz));
+    hptr = (Header *)(main_mem+segs_siz);
     /* set first block (it is never freed) */
     hptr->next = hptr;
     hptr->used_size = 1;

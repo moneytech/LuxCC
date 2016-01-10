@@ -834,7 +834,7 @@ void label(char *id)
     match(TOK_COLON);
 }
 
-void ierr(char *instr)
+int ierr(char *instr)
 {
     --line_number;
     ERR("invalid operands to instruction `%s'", instr);
