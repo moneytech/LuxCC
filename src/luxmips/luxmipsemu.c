@@ -283,7 +283,10 @@ void *do_realloc(void *ap, unsigned size)
         void *newap;
 
         if ((newap=do_malloc(size)) != NULL) {
-            memcpy(newap, ap, (size<p->used_size)?size:p->used_size);
+            unsigned oldsiz;
+
+            oldsiz = p->used_size*sizeof(Header);
+            memcpy(newap, ap, (size<oldsiz)?size:oldsiz);
             do_free(ap);
             return newap;
         }
