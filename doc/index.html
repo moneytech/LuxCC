@@ -59,6 +59,7 @@
 
 
 
+
 <meta http-equiv="content-type" content="text/html; charset=utf-8"><meta http-equiv="content-type" content="text/html; charset=utf-8"></head><body><span style="font-family: monospace;"></span><span style="font-family: monospace;">Luxcc usage and internals documentation. I will try to maintain this document updated as things evolve.</span><br>
 <br>
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big>Index<br></big></big></big><span style="font-family: Times New Roman;">
@@ -1470,12 +1471,20 @@ should be equal to cc3 (in a byte-to-byte basis).<br>
   <li>Function declarators with empty parameter type lists are interpreted as taking no parameters: <span style="font-family: monospace;">void bar() </span>is seen as<span style="font-family: monospace;"> void bar(void)</span></li><li>Implicit declaration of functions (the use of a function without a visible prototype is considered an error)<br>
   </li>
 <li>The 'implicit <span style="font-family: monospace;">int</span>' rule<br></li><li>Bit-fields</li><li>Floating point numbers</li><li>Wide character constants/string literals</li>
-  <li>Only fully bracketed initializers are handled. For example, to initialize <span style="font-family: monospace;">int a[1][1]</span> you must write <span style="font-family: monospace;">{{1}, {2}}</span> (<span style="font-family: monospace;">{1, 2}</span> doesn't work)<br>
+  <li>Only fully bracketed initializers are handled. For example, to initialize <span style="font-family: monospace;">int a[1][1]</span> you must write <span style="font-family: monospace;">{{1}, {2}}</span> (<span style="font-family: monospace;">{1, 2}</span> doesn't work)</li>
+  <li>Currently <span style="font-family: monospace;">register</span> and <span style="font-family: monospace;">volatile</span> don't have any effect on the generated code (though they affect the semantic analysis part of the compiler).<br>
   </li>
+
 </ul>Most of the new features introduced with C99 are missing. The only C99 features that do are supported are:<br><ul><li>Macros with a variable number of arguments</li>
   <li>The <span style="font-family: monospace;">long long</span> type<br>
   </li>
-<li>The permission of a trailing comma after an enumerator list<span style="font-family: Times New Roman;"><span style="text-decoration: underline;"><span style="font-weight: bold;"></span></span></span></li></ul><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Resources"></a>6. Resources<br></big></big></big><br>Here I will write down some resources that I found useful during the development of this project:<br><ul><li><a href="http://port70.net/%7Ensz/c/">Standards and Rationales</a></li>
+<li>The permission of a trailing comma after an enumerator list</li>
+  <li>C++ style comments (<span style="font-family: monospace;">//</span>)</li>
+  <li><span style="font-family: monospace;">stdint.h</span></li>
+  <li>The <span style="font-family: monospace;">__func__</span> predefined identifier</li>
+  <li>The <span style="font-family: monospace;">va_copy</span> macro<br>
+  </li>
+</ul><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Resources"></a>6. Resources<br></big></big></big><br>Here I will write down some resources that I found useful during the development of this project:<br><ul><li><a href="http://port70.net/%7Ensz/c/">Standards and Rationales</a></li>
   <li><a href="http://www.netzmafia.de/skripten/unix/chist.html">The Development of the C Language*<span style="font-family: 'Times New Roman';"><span style="font-weight: bold;"></span></span></a></li>
   <li><a href="http://jclt.iecc.com/">The Journal of C Language Translation</a><br>
   </li>
