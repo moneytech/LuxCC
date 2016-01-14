@@ -161,7 +161,10 @@ void emu_init(void)
     unsigned argv_siz, argv_str_siz;
     char **p1, *p2;
 
-    buf = read_file(emu_argv[0]);
+    if ((buf=read_file(emu_argv[0])) == NULL) {
+        fprintf(stderr, "%s: cannot read file `%s'\n", emu_name, emu_argv[0]);
+        exit(EXIT_FAILURE);
+    }
     ehdr = (Elf32_Ehdr *)buf;
     validate_ELF(ehdr);
     sht = (Elf32_Shdr *)(buf+ehdr->e_shoff);
