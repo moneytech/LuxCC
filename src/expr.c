@@ -609,6 +609,15 @@ int can_assign_to(Declaration *dest_ty, ExecNode *e)
                     /* the source operand is `void *' */
                     if (is_func_ptr(cat_d, *dest_ty)) {
                         /* the destination operand is a function pointer */
+                        /*
+                         * Check for the special case of NULL:
+                         *      func_ptr = (void *)0;
+                         */
+                        if (e->kind.exp==OpExp
+                        && e->attr.op==TOK_CAST
+                        && e->child[0]->kind.exp==IConstExp
+                        && e->child[0]->attr.val==0)
+                            return TRUE;
                         WARNING(e, "void pointer implicitly converted to function pointer");
                         return TRUE;
                     }
@@ -1086,6 +1095,14 @@ void analyze_relational_equality_expression(ExecNode *e)
                 if (ty1!=TOK_FUNCTION && e->child[0]->type.idl->child==NULL
                 && get_type_spec(e->child[0]->type.decl_specs)->op==TOK_VOID) {
                     /* the left operand is a void pointer */
+
+                    /* check for the special case of (void *)0 as left operand */
+                    if (e->child[0]->kind.exp==OpExp
+                    && e->child[0]->attr.op==TOK_CAST
+                    && e->child[0]->child[0]->kind.exp==IConstExp
+                    && e->child[0]->child[0]->attr.val==0)
+                        goto done;
+
                     if (ty2==TOK_FUNCTION
                     || e->child[1]->type.idl->child!=NULL&&e->child[1]->type.idl->child->op==TOK_FUNCTION)
                         WARNING(e, "comparison of `void *' with function pointer");
@@ -1094,6 +1111,14 @@ void analyze_relational_equality_expression(ExecNode *e)
                 } else if (ty2!=TOK_FUNCTION && e->child[1]->type.idl->child==NULL
                 && get_type_spec(e->child[1]->type.decl_specs)->op==TOK_VOID) {
                     /* the right operand is a void pointer */
+
+                    /* check for the special case of (void *)0 as right operand */
+                    if (e->child[1]->kind.exp==OpExp
+                    && e->child[1]->attr.op==TOK_CAST
+                    && e->child[1]->child[0]->kind.exp==IConstExp
+                    && e->child[1]->child[0]->attr.val==0)
+                        goto done;
+
                     if (ty1==TOK_FUNCTION
                     || e->child[0]->type.idl->child!=NULL&&e->child[0]->type.idl->child->op==TOK_FUNCTION)
                         WARNING(e, "comparison of `void *' with function pointer");
