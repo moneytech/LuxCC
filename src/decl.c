@@ -739,7 +739,7 @@ int are_compatible(TypeExp *ds1, TypeExp *dct1,
         p2 = dct2->attr.dl;
         while (p1!=NULL && p2!=NULL) {
             /*
-             * 6.7.6#15
+             * 6.7.5.3#15
              * [...]In the determination of type compatibility and of a composite type, each
              * parameter declared [...] with qualified type is taken as having the unqualified
              * version of its declared type.
