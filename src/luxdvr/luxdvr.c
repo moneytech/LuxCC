@@ -38,6 +38,7 @@ char helpstr[] =
     "  -dump-ic<func>   Dump intermediate code for function <func>\n"
     "  -dump-cfg<func>  Dump CFG for function <func>\n"
     "  -dump-cg         Dump program call-graph\n"
+    "  -verbose-asm     Comment the generated assembly to make it more readable\n"
     "\nLinker options (x86 only):\n"
     "  -Xe<sym>         Set <sym> as the entry point symbol\n"
     "  -Xl<name>        Link against object file/library <name>\n"
@@ -284,6 +285,7 @@ int main(int argc, char *argv[])
                 dump-cfg    -> G
                 dump-cg     -> C
                 dump-ic     -> N
+                verbose-asm -> v
              The rest of the options are equal to both.
             */
             case 'a':
@@ -436,7 +438,12 @@ int main(int argc, char *argv[])
                     unknown_opt(argv[i]);
                 break;
             case 'v':
-                verbose = TRUE;
+                if (equal(argv[i], "-v"))
+                    verbose = TRUE;
+                else if (equal(argv[i], "-verbose-asm"))
+                    string_printf(cc_cmd, " -v");
+                else
+                    unknown_opt(argv[i]);
                 break;
             case '\0': /* stray '-' */
                 break;

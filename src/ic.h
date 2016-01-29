@@ -115,6 +115,7 @@ struct Quad {
 extern Quad *ic_instructions;
 extern unsigned ic_instructions_counter;
 #define instruction(n) (ic_instructions[n])
+extern char **C_source;
 
 /*
  * Edges

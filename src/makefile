@@ -1,8 +1,8 @@
 CC=gcc
 CFLAGS=-c -g -fwrapv -Wall -Wconversion -Wno-switch -Wno-parentheses -Wno-sign-conversion
 PROG = luxcc
-OBJS = luxcc.o pre.o lexer.o parser.o util.o decl.o expr.o stmt.o ic.o arena.o error.o loc.o bset.o str.o dflow.o opt.o
-SRCS = luxcc.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c error.c loc.c bset.c str.c dflow.c opt.c
+OBJS = luxcc.o pre.o lexer.o parser.o util.o decl.o expr.o stmt.o ic.o arena.o error.o loc.o bset.o str.o dflow.o opt.o ast2c.o
+SRCS = luxcc.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c error.c loc.c bset.c str.c dflow.c opt.c ast2c.c
 
 all: $(PROG)
 
@@ -32,6 +32,7 @@ bset.o: bset.h
 str.o: str.h
 dflow.o: dflow.h bset.h util.h ic.h parser.h lexer.h pre.h expr.h
 opt.o: opt.h bset.h util.h ic.h expr.h
+ast2c.o: ast2c.h str.h
 vm32_cgen.o: vm32_cgen/vm32_cgen.h vm32_cgen/vm32_cgen.c decl.h parser.h lexer.h pre.h util.h expr.h stmt.h arena.h imp_lim.h error.h loc.h
 	$(CC) $(CFLAGS) vm32_cgen/vm32_cgen.c
 vm64_cgen.o: vm64_cgen/vm64_cgen.h vm64_cgen/vm64_cgen.c decl.h parser.h lexer.h pre.h util.h expr.h stmt.h arena.h imp_lim.h error.h loc.h

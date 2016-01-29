@@ -16,6 +16,7 @@
 #include "loc.h"
 #include "dflow.h"
 #include "bset.h"
+#include "ast2c.h"
 #include "luxcc.h"
 
 #define ID_TABLE_SIZE 1009
@@ -28,6 +29,8 @@ typedef struct Label Label;
 unsigned ic_instructions_max;
 unsigned ic_instructions_counter;
 Quad *ic_instructions;
+
+char **C_source;
 
 #define AINIT   IINIT*3
 #define AGROW   2
@@ -242,13 +245,22 @@ static void new_cfg_node(unsigned leader)
 static void emit_i(OpKind op, Declaration *type, unsigned tar, unsigned arg1, unsigned arg2)
 {
     if (ic_instructions_counter >= ic_instructions_max) {
-        Quad *p;
+        void *p;
+        unsigned old_max;
 
         /* grow */
+        old_max = ic_instructions_max;
         ic_instructions_max *= IGROW;
         if ((p=realloc(ic_instructions, ic_instructions_max*sizeof(Quad))) == NULL)
             ic_out_of_memory("emit_i");
         ic_instructions = p;
+
+        if (verbose_asm) {
+            if ((p=realloc(C_source, ic_instructions_max*sizeof(char *))) == NULL)
+                ic_out_of_memory("emit_i");
+            C_source = p;
+            memset(C_source+old_max, 0, sizeof(char *)*(ic_instructions_max-old_max));
+        }
     }
     ic_instructions[ic_instructions_counter].op = op;
     ic_instructions[ic_instructions_counter].type = type;
@@ -256,6 +268,11 @@ static void emit_i(OpKind op, Declaration *type, unsigned tar, unsigned arg1, un
     ic_instructions[ic_instructions_counter].arg1 = arg1;
     ic_instructions[ic_instructions_counter].arg2 = arg2;
     ++ic_instructions_counter;
+}
+
+static void emit_src(char *s)
+{
+    C_source[ic_instructions_counter] = s;
 }
 
 static unsigned new_address(AddrKind kind)
@@ -335,6 +352,9 @@ static void ic_init(void)
         goto out_mem;
     ic_instructions_max = IINIT;
     ic_instructions_counter = 0;
+
+    if (verbose_asm && (C_source=calloc(1, ic_instructions_max*sizeof(char *)))==NULL)
+        goto out_mem;
 
     /* init address buffer */
     if ((ic_addresses=malloc(AINIT*sizeof(Address))) == NULL)
@@ -1539,11 +1559,16 @@ void ic_if_statement(ExecNode *s)
     if (else_part)
         L3 = new_label();
 
+    if (verbose_asm)
+        emit_src(ast2c(s));
     ic_controlling_expression(s->child[0], L1, L2);
     emit_label(L1);
     ic_statement(s->child[1]);
-    if (else_part)
+    if (else_part) {
         emit_i(OpJmp, NULL, L3, 0, 0);
+        if (verbose_asm)
+            emit_src("else");
+    }
     emit_label(L2);
     if (else_part) {
         ic_statement(s->child[2]);
@@ -1563,17 +1588,22 @@ void ic_while_statement(ExecNode *s)
     L3:
     ...
      */
+    char *ce;
     unsigned L1, L2, L3;
 
     L1 = new_label();
     L2 = new_label();
     L3 = new_label();
 
+    if (verbose_asm)
+        emit_src(ce = ast2c(s));
     ic_controlling_expression(s->child[0], L1, L3);
     emit_label(L1);
     push_break_target(L3), push_continue_target(L2);
     ic_statement(s->child[1]);
     pop_break_target(), pop_continue_target();
+    if (verbose_asm)
+        emit_src(ce);
     emit_label(L2);
     ic_controlling_expression(s->child[0], L1, L3);
     emit_label(L3);
@@ -1606,6 +1636,8 @@ void ic_do_statement(ExecNode *s)
     push_break_target(L3), push_continue_target(L2);
     ic_statement(s->child[1]);
     pop_break_target(), pop_continue_target();
+    if (verbose_asm)
+        emit_src(ast2c(s));
     emit_label(L2);
     ic_controlling_expression(s->child[0], L1, L3);
     emit_label(L3);
@@ -1625,27 +1657,40 @@ void ic_for_statement(ExecNode *s)
     L3:
     ...
      */
+    char *ce;
     unsigned L1, L2, L3;
 
     L1 = new_label();
     L2 = new_label();
     L3 = new_label();
 
-    if (s->child[1] != NULL)
+    if (s->child[1] != NULL) {
+        if (verbose_asm)
+            emit_src(ast2c(s->child[1]));
         ic_expression2(s->child[1], NOLAB, NOLAB);
-    if (s->child[0] != NULL)
+    }
+    if (s->child[0] != NULL) {
+        if (verbose_asm)
+            emit_src(ce = ast2c(s->child[0]));
         ic_controlling_expression(s->child[0], L1, L3);
+    }
     emit_label(L1);
     push_break_target(L3), push_continue_target(L2);
     ic_statement(s->child[3]);
     pop_break_target(), pop_continue_target();
     emit_label(L2);
-    if (s->child[2] != NULL)
+    if (s->child[2] != NULL) {
+        if (verbose_asm)
+            emit_src(ast2c(s->child[2]));
         ic_expression2(s->child[2], NOLAB, NOLAB);
-    if (s->child[0] != NULL)
+    }
+    if (s->child[0] != NULL) {
+        if (verbose_asm)
+            emit_src(ce);
         ic_controlling_expression(s->child[0], L1, L3);
-    else
+    } else {
         emit_i(OpJmp, NULL, L1, 0, 0);
+    }
     emit_label(L3);
 }
 
@@ -1653,6 +1698,8 @@ void ic_label_statement(ExecNode *s)
 {
     int iprev;
 
+    if (verbose_asm)
+        emit_src(ast2c(s));
     iprev = ic_instructions_counter-1;
     if (instruction(iprev).op != OpLab) {
         unsigned L;
@@ -1668,22 +1715,30 @@ void ic_label_statement(ExecNode *s)
 
 void ic_goto_statement(ExecNode *s)
 {
+    if (verbose_asm)
+        emit_src(ast2c(s));
     gotos_to_fix[gotos_to_fix_counter++] = ic_instructions_counter;
     emit_i(OpJmp, (Declaration *)s->attr.str, 0, 0, 0);
 }
 
 void ic_continue_statement(void)
 {
+    if (verbose_asm)
+        emit_src("continue;");
     emit_i(OpJmp, NULL, ctarget_stack[ct_stack_top], 0, 0);
 }
 
 void ic_break_statement(void)
 {
+    if (verbose_asm)
+        emit_src("break;");
     emit_i(OpJmp, NULL, btarget_stack[bt_stack_top], 0, 0);
 }
 
 void ic_return_statement(ExecNode *s)
 {
+    if (verbose_asm)
+        emit_src(ast2c(s));
     if (s->child[0] != NULL) {
         Declaration *ty;
 
@@ -1708,6 +1763,8 @@ void ic_switch_statement(ExecNode *s)
 
     ++ic_switch_nesting_level;
 
+    if (verbose_asm)
+        emit_src(ast2c(s));
     EXIT = new_label();
     push_break_target(EXIT);
     a = new_address(IConstKind);
@@ -1758,6 +1815,9 @@ void ic_case_statement(ExecNode *s)
     OpKind prev_op;
     SwitchLabel *np;
 
+    if (verbose_asm)
+        emit_src(ast2c(s));
+
     iprev = ic_instructions_counter-1;
     prev_op = instruction(iprev).op;
 
@@ -1779,6 +1839,9 @@ void ic_default_statement(ExecNode *s)
     unsigned iprev;
     OpKind prev_op;
     SwitchLabel *np;
+
+    if (verbose_asm)
+        emit_src("default:");
 
     iprev = ic_instructions_counter-1;
     prev_op = instruction(iprev).op;
@@ -1868,8 +1931,12 @@ void ic_compound_statement(ExecNode *s, int push_scope)
         }
     }
 
+    /*if (verbose_asm)
+        emit_src("{");*/
     for (sl = s->child[0]; sl != NULL; sl = sl->sibling)
         ic_statement(sl);
+    /*if (verbose_asm)
+        emit_src("}");*/
 
     if (local_offset < size_of_local_area)
         size_of_local_area = local_offset;
@@ -1882,8 +1949,11 @@ void ic_compound_statement(ExecNode *s, int push_scope)
 
 void ic_expression_statement(ExecNode *s)
 {
-    if (s->child[0] != NULL)
+    if (s->child[0] != NULL) {
+        if (verbose_asm)
+            emit_src(ast2c(s));
         ic_expression2(s->child[0], NOLAB, NOLAB);
+    }
 }
 
 void register_label(char *str, unsigned addr)

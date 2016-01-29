@@ -2472,6 +2472,8 @@ void x86_function_definition(TypeExp *decl_specs, TypeExp *header)
         arg1 = instruction(i).arg1;
         arg2 = instruction(i).arg2;
 
+        if (verbose_asm && C_source[i]!=NULL)
+            emitln("; %s", C_source[i]);
         instruction_handlers[instruction(i).op](i, tar, arg1, arg2);
     }
     size_of_local_area -= round_up(temp_struct_size, 4);

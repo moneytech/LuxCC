@@ -24,5 +24,6 @@ extern char *ic_function_to_print;
 extern unsigned stat_number_of_pre_tokens;
 extern unsigned stat_number_of_c_tokens;
 extern unsigned stat_number_of_ast_nodes;
+extern int verbose_asm;
 
 #endif

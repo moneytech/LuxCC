@@ -22,6 +22,7 @@ char *cg_outpath;
 char *cfg_outpath, *cfg_function_to_print;
 char *ic_outpath, *ic_function_to_print;
 int include_liblux = TRUE;
+int verbose_asm;
 
 unsigned stat_number_of_pre_tokens;
 unsigned stat_number_of_c_tokens;
@@ -180,6 +181,9 @@ int main(int argc, char *argv[])
             break;
         case 'T':
             flags |= OPT_DUMP_TOKENS;
+            break;
+        case 'v':
+            verbose_asm = TRUE;
             break;
         case 'z': /* only used when compiling liblux */
             include_liblux = FALSE;

@@ -2169,6 +2169,8 @@ void x64_function_definition(TypeExp *decl_specs, TypeExp *header)
         arg1 = instruction(i).arg1;
         arg2 = instruction(i).arg2;
 
+        if (verbose_asm && C_source[i]!=NULL)
+            emitln("; %s", C_source[i]);
         instruction_handlers[instruction(i).op](i, tar, arg1, arg2);
     }
 
