@@ -60,6 +60,8 @@
 
 
 
+
+
 <meta http-equiv="content-type" content="text/html; charset=utf-8"><meta http-equiv="content-type" content="text/html; charset=utf-8"></head><body><span style="font-family: monospace;"></span><span style="font-family: monospace;">Luxcc usage and internals documentation. I will try to maintain this document updated as things evolve.</span><br>
 <br>
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big>Index<br></big></big></big><span style="font-family: Times New Roman;">
@@ -76,7 +78,7 @@
 </li>
     <li><a href="#Dumping_and_Drawing_Stuff">2.3 Dumping and Drawing Stuff</a><br>
     </li>
-</ul><li><a href="#Internals">3. Internals</a></li><ul><li><a href="#Compiler_Overview"><span style="font-family: Times New Roman;">3.1 Compiler Overview</span></a><br><a href="#Preprocessor"><span style="font-family: Times New Roman;"></span></a></li><li><a href="#Preprocessor"><span style="font-family: Times New Roman;">3.2 Preprocessor</span></a></li><li><span style="font-family: Times New Roman;"><a href="#Lexer">3.3 Lexer</a></span></li><li><span style="font-family: Times New Roman;"><a href="#Parser">3.4 Parser</a></span></li><li><span style="font-family: Times New Roman;"><a href="#Semantic_Analyzer">3.5 Semantic Analyzer</a></span></li><li><a href="#Intermediate_Code_Generation"><span style="font-family: Times New Roman;">3.6 Intermediate Code Generation</span></a></li><li><span style="font-family: Times New Roman;"><a href="#Data-Flow_Analysis">3.7 Data-Flow Analysis</a><br></span></li><li><span style="font-family: Times New Roman;"><a href="#Target_Code_Generation">3.8 Target Code Generation</a></span></li>
+</ul><li><a href="#Internals">3. Internals</a></li><ul><li><a href="#Compiler_Overview"><span style="font-family: Times New Roman;">3.1 Compiler Overview</span></a><br><a href="#Preprocessor"><span style="font-family: Times New Roman;"></span></a></li><li><a href="#Preprocessor"><span style="font-family: Times New Roman;">3.2 Preprocessor</span></a></li><li><span style="font-family: Times New Roman;"><a href="#Lexer">3.3 Lexer</a></span></li><li><span style="font-family: Times New Roman;"><a href="#Parser">3.4 Parser</a></span></li><li><span style="font-family: Times New Roman;"><a href="#Semantic_Analyzer">3.5 Semantic Analyzer</a></span></li><li><a href="#Intermediate_Code_Generation"><span style="font-family: Times New Roman;">3.6 Intermediate Code Generation</span></a></li><li><span style="font-family: Times New Roman;"><a href="#Control-Data-Flow_Analysis">3.7 Control- and Data-Flow Analysis</a><br></span></li><li><span style="font-family: Times New Roman;"><a href="#Target_Code_Generation">3.8 Target Code Generation</a></span></li>
     <ul>
       <li><span style="font-family: Times New Roman;"><a href="#LuxVM_Target">3.8.1 LuxVM Target</a></span></li>
       <li><span style="font-family: Times New Roman;"><a href="#x86_Target">3.8.2 x86 Target</a></span></li>
@@ -816,29 +818,65 @@ Also in this phase, offsets are assigned to local variables and
 parameters. This is a machine-dependent task, but is done here anyway
 for convenience.<br>
 <br>
-<span style="font-family: monospace;">ic_simplify()</span> folds constants (and conditional jumps acting on constants) and performs simple strength reduction.<br><br><strong>Graphs<br><br></strong>After
-the quads for one function have been generated, a control flow graph
-(CFG) is constructed. A CFG is composed of nodes called basic blocks
+<span style="font-family: monospace;">ic_simplify()</span> folds constants (and conditional jumps acting on constants) and performs simple strength reduction.<br><br><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Control-Data-Flow_Analysis"></a>3.7 Control- and Data-Flow Analysis<br></big></big></big><br><big><big style="font-weight: bold; text-decoration: underline;">Control-Flow analysis</big></big><br>
+<strong><br>
+<span style="font-weight: bold; color: rgb(0, 0, 153);">Intra-procedural CFA</span></strong><br>
+<strong><span style="font-weight: bold; color: rgb(0, 0, 153);"></span><br>
+</strong>The result of intra-procedural CFA is a control flow graph (CFG). A CFG is composed of nodes called basic blocks
 (BB), each BB being a sequence of jump-free (from/into- the BB) instructions.
 The jump instructions (at the end of BBs) are used to link together the
-graph nodes. The code uses the macro <span style="font-family: monospace;">cfg_node() </span>to access a particular CFG node.<br><br>A CFG node is represented by the type <span style="font-family: monospace;">CFGNode</span>:<br><br><div style="margin-left: 40px;"><span style="font-family: monospace;">typedef struct CFGNode CFGNode;<br>struct CFGNode { </span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; unsigned leader, last;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; GraphEdge out;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; GraphEdge in;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; BSet *UEVar;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; BSet *VarKill;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; BSet *LiveOut;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; BSet *Dom;&nbsp;&nbsp;  </span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; unsigned PO, RPO;<br>}<br></span></div><ul><li><span style="font-family: monospace;">leader</span>: node's first instruction.<br></li><li><span style="font-family: monospace;">last</span>: node's last instruction.<br></li><li><span style="font-family: monospace;">out</span>: successor nodes.<br></li><li><span style="font-family: monospace;">in</span>: predecessor nodes.<br></li><li><span style="font-family: monospace;">UEVar, VarKill, LiveOut, Dom</span>: sets used for data-flow analysis (explained later).<br></li><li><span style="font-family: monospace;">PO, RPO</span>: node's post-order and reverse post-order numbers.<br></li></ul>Here is an example CFG (from the function <span style="font-family: monospace;">duff_device()</span> at <span style="font-family: monospace;">src/tests/execute/duff_dev.c</span>):<br>
+graph nodes (nodes can also be linked through 'fall-through' behavior). The macro <span style="font-family: monospace;">cfg_node()</span> is used to access a particular CFG node.<br>
 <br>
+A CFG node is represented by the type <span style="font-family: monospace;">CFGNode</span>:<br>
+<br>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">typedef struct CFGNode CFGNode;<br>struct CFGNode { </span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; unsigned leader, last;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; GraphEdge out;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; GraphEdge in;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; BSet *UEVar;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; BSet *VarKill;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; BSet *LiveOut;</span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; BSet *Dom;&nbsp;&nbsp;  </span><br style="font-family: monospace;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; unsigned PO, RPO;<br>}<br></span></div>
+<ul>
+<li><span style="font-family: monospace;">leader</span>: node's first instruction.<br></li><li><span style="font-family: monospace;">last</span>: node's last instruction.<br></li><li><span style="font-family: monospace;">out</span>: successor nodes.<br></li><li><span style="font-family: monospace;">in</span>: predecessor nodes.<br></li><li><span style="font-family: monospace;">UEVar, VarKill, LiveOut, Dom</span>: sets used for data-flow analysis (explained later).<br></li><li><span style="font-family: monospace;">PO, RPO</span>: node's post-order and reverse post-order numbers.<br></li>
+</ul>The function in charge of building the CFG is <span style="font-family: monospace;">build_CFG()</span>. This function operates according to the following algorithm:<br>
+<ol>
+  <li>Build the ENTRY node. This is a special node that every CFG has. In this particular case it is composed of a single uncoditional jump instruction.</li>
+  <li>Search for <span style="font-style: italic;">leader</span>
+instructions. An instruction is a leader if it is at the beginning of a
+basic block. Are leaders the first instruction, the second instruction,
+label instructions that are the target of some jump or branch, and the
+instructions that immediately follow a jump. Create a CFG node for each
+new leader encountered.</li>
+  <li>Search for <span style="font-style: italic;">last</span>
+instructions. An instruction is a last if it is the last instruction in
+the function or if it is immediately before a leader. After finding a
+last, add edges depending on what instruction the last is.<br>
+  </li>
+</ol>
+Here is an example CFG (from the function <span style="font-family: monospace;">duff_device()</span> at <span style="font-family: monospace;">src/tests/execute/duff_dev.c</span>):<br>
+
+<br>
+
 <img style="width: 800px; height: 528px;" alt="" src="res/img4.png"><br>
+
 <br>
+<span style="font-weight: bold; color: rgb(0, 0, 153);">Inter-procedural CFA</span><br>
+<br>
+
 The
 CFG represents the interaction and flow of control between instructions
-within a single function. In order to represent the transfer of control
+within a single function. In order to represent the transfers of control
 between functions, yet another data structure is used: a call graph
 (CG). Each function is a node in the call graph and each function call
 gives rise to an edge from the caller node to the callee node. A CG
-node is represented by the type <span style="font-family: monospace;">CGNode</span> and to access a particular CG node the code uses the macro <span style="font-family: monospace;">cg_node()</span>.
+node is represented by the type <span style="font-family: monospace;">CGNode</span>. To access a particular CG node the code uses the macro <span style="font-family: monospace;">cg_node()</span>.
 Note that only direct function calls (that is, not through of pointers)
 cause an edge to be added. To add edges from indirect calls would
-require of a somewhat more sophisticated pointer analysis.<br><br>
+require of a somewhat more sophisticated pointer analysis.<br>
+<br>
+
 Here is an example call-graph (From the program <span style="font-family: monospace;">src/tests/execute/tiny_basic.c</span>):<br>
+
 <img style="width: 900px; height: 542px;" alt="" src="res/img5.png"><br>
+
 It can be observed from the graph that <span style="font-family: monospace;">main()</span> has no incoming edges and that <span style="font-family: monospace;">flush_input()</span> goes unused in the program.<br>
-<br><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Data-Flow_Analysis"></a>3.7 Data-Flow Analysis<br></big></big></big><br>TODO<br><br><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Target_Code_Generation"></a>3.8 Target Code Generation</big></big></big><br>
+<big style="font-weight: bold; text-decoration: underline;"><br>
+<big>Data-Flow analysis</big></big><br>
+TODO<br><br><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Target_Code_Generation"></a>3.8 Target Code Generation</big></big></big><br>
 <br>
 Target code generation is done directly from the AST for the LuxVM
 target and from the IC for the other targets. The generation of target
