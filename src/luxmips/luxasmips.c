@@ -7,7 +7,7 @@
     label = ID ":"
     source_line = instruction [ operand [ "," operand [ "," operand ] ] ] EOL
     operand = REG | asm_expr [ "(" REG ")" ]
-    asm_expr = "-" NUM | ID [ ( "+" | "-" ) NUM ]
+    asm_expr = [ "-" ] NUM | ID [ ( "+" | "-" ) NUM ]
     directive = "%" ( "segment" | "section" ) id |
                 "%" "extern" id { "," id } |
                 "%" "global" id { "," id } |
