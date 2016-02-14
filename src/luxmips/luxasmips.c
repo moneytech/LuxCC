@@ -288,7 +288,7 @@ int eval_expr(AsmExpr *e)
         Symbol *s;
 
         if ((s=lookup_symbol(e->id)) == NULL)
-            ERR("symbol `%s' undefined", e->id);
+            ERR2(e, "symbol `%s' undefined", e->id);
         e->sym = s;
         return s->val+e->num;
     }
@@ -1014,7 +1014,7 @@ void source_line(char *instr)
         write_dword(FUNCT(0x23)+RD(op1.a.reg)+RS(0)+RT(op2.a.reg));
         break;
 
-    case TY_LA:     /* la rX, label => lui rX, label>>16 ; addiu rX, rX, label0xFFFF */
+    case TY_LA:     /* la rX, label => lui rX, label>>16 ; addiu rX, rX, label&0xFFFF */
         if (no!=2 || op1.kind!=RegKind || op2.kind!=ExprKind || op2.a.expr.op==TOK_NUM)
             ierr(i->mne);
         write_dword(OPC(0x0F)+RT(op1.a.reg)+IMM(0));

@@ -483,16 +483,16 @@ ok_1:
     }
     if (driver_flags & DVR_VM32_TARGET) {
         parse_conf_file("vm32.conf");
-        string_printf(as_cmd, "%s -vm32", search_required("luxvmas", TRUE));
+        string_printf(as_cmd, "%s -vm32", search_required("luxasvm", TRUE));
         string_clear(ld_cmd);
-        string_printf(ld_cmd, "%s -vm32", search_required("luxvmld", TRUE));
+        string_printf(ld_cmd, "%s -vm32", search_required("luxldvm", TRUE));
         string_printf(ld_cmd, " %s", search_required("crt32.o", FALSE));
         string_printf(ld_cmd, " %s", search_required("libc.o", FALSE));
     } else if (driver_flags & DVR_VM64_TARGET) {
         parse_conf_file("vm64.conf");
-        string_printf(as_cmd, "%s -vm64", search_required("luxvmas", TRUE));
+        string_printf(as_cmd, "%s -vm64", search_required("luxasvm", TRUE));
         string_clear(ld_cmd);
-        string_printf(ld_cmd, "%s -vm64", search_required("luxvmld", TRUE));
+        string_printf(ld_cmd, "%s -vm64", search_required("luxldvm", TRUE));
         string_printf(ld_cmd, " %s", search_required("crt64.o", FALSE));
         string_printf(ld_cmd, " %s", search_required("libc.o", FALSE));
     } else if (driver_flags & DVR_MIPS_TARGET) {

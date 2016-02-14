@@ -7,18 +7,18 @@ else
 	VMOBJ = vm64.o
 endif
 
-all: luxvm luxvmas luxvmld
+all: luxvm luxasvm luxldvm
 
 luxvm: $(VMOBJ) ../util.o operations.o
 	$(CC) -o luxvm $(VMOBJ) ../util.o operations.o
-luxvmas: as.o ../util.o operations.o
-	$(CC) -o luxvmas as.o ../util.o operations.o
-luxvmld: ld.o ../arena.o ../util.o
-	$(CC) -o luxvmld ld.o ../arena.o ../util.o
+luxasvm: as.o ../util.o operations.o
+	$(CC) -o luxasvm as.o ../util.o operations.o
+luxldvm: ld.o ../arena.o ../util.o
+	$(CC) -o luxldvm ld.o ../arena.o ../util.o
 .c.o:
 	$(CC) $(CFLAGS) $*.c
 clean:
-	rm -f *.o luxvm luxvmas luxvmld
+	rm -f *.o luxvm luxasvm luxldvm
 
 $(VMOBJ): vm.h as.h operations.h
 as.o: as.h vm.h ../util.h operations.h

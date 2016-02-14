@@ -1,6 +1,6 @@
 COMPILER="src/luxvm/luxvm src/tests/self/luxcc1.vme"
-ASSEMBLER=src/luxvm/luxvmas
-LINKER=src/luxvm/luxvmld
+ASSEMBLER=src/luxvm/luxasvm
+LINKER=src/luxvm/luxldvm
 LIBC=src/lib/libc.o
 OUTPROG=luxcc2.vme
 if uname -i | grep -q "i386"; then

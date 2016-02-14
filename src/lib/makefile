@@ -1,7 +1,7 @@
 GETARCH = $(shell uname -i)
 CC=../luxcc
 AS=../luxas/luxas
-VMAS=../luxvm/luxvmas
+VMAS=../luxvm/luxasvm
 MIPSAS=../luxmips/luxasmips
 LIBC_FILES=libc.c ctype.c errno.c stdio.c stdlib.c string.c
 ifeq ($(GETARCH), i386)
