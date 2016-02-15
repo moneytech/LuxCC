@@ -11,6 +11,7 @@
 #include "x86_cgen/x86_cgen.h"
 #include "x64_cgen/x64_cgen.h"
 #include "mips_cgen/mips_cgen.h"
+// #include "arm_cgen/arm_cgen.h"
 #include "util.h"
 
 unsigned warning_count, error_count;
@@ -52,12 +53,14 @@ enum {
     OPT_VM32_TARGET     = 0x100,
     OPT_VM64_TARGET     = 0x200,
     OPT_MIPS_TARGET     = 0x400,
+    OPT_ARM_TARGET      = 0x800,
 };
 #define TARGET_MASK (OPT_X86_TARGET|\
                      OPT_X64_TARGET|\
                      OPT_VM32_TARGET|\
                      OPT_VM64_TARGET|\
-                     OPT_MIPS_TARGET)
+                     OPT_MIPS_TARGET|\
+                     OPT_ARM_TARGET)
 
 int main(int argc, char *argv[])
 {
@@ -135,6 +138,8 @@ int main(int argc, char *argv[])
                 flags |= OPT_VM64_TARGET;
             else if (equal(targ, "mips"))
                 flags |= OPT_MIPS_TARGET;
+            else if (equal(targ, "arm"))
+                flags |= OPT_ARM_TARGET;
         }
             break;
         case 'o':
@@ -222,6 +227,10 @@ int main(int argc, char *argv[])
         target_arch = ARCH_MIPS;
         install_macro(SIMPLE_MACRO, "__mips__", &one_node, NULL);
         break;
+    case OPT_ARM_TARGET:
+        target_arch = ARCH_ARM;
+        install_macro(SIMPLE_MACRO, "__arm__", &one_node, NULL);
+        break;
     default:
         target_arch = ARCH_X86;
         flags |= OPT_X86_TARGET;
@@ -274,6 +283,7 @@ int main(int argc, char *argv[])
         case OPT_X86_TARGET:
         case OPT_X64_TARGET:
         case OPT_MIPS_TARGET:
+        case OPT_ARM_TARGET:
             if (ic_function_to_print != NULL)  ic_outpath = replace_extension(inpath, ".ic");
             if (cfg_function_to_print != NULL) cfg_outpath = replace_extension(inpath, ".cfg.dot");
             if (flags & OPT_PRINT_CG)          cg_outpath = replace_extension(inpath, ".cg.dot");
@@ -282,6 +292,7 @@ int main(int argc, char *argv[])
             case OPT_X86_TARGET:  x86_cgen(fp); break;
             case OPT_X64_TARGET:  x64_cgen(fp); break;
             case OPT_MIPS_TARGET: mips_cgen(fp); break;
+            // case OPT_ARM_TARGET: arm_cgen(fp); break;
             }
 
             if (ic_function_to_print != NULL) free(ic_outpath);

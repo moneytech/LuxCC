@@ -43,10 +43,60 @@ static TypeTag *tags[MAX_NEST][HASH_SIZE];
 static int nesting_level = OUTERMOST_LEVEL;
 static int delayed_delete;
 static int scope_id;
+static TokenNode *typedef_name_info;
 
 static Arena *oids_arena[MAX_NEST];
 static Arena *tags_arena[MAX_NEST];
 static Arena *decl_node_arena;
+
+static DeclList *new_param_decl(TypeExp *decl_specs, TypeExp *declarator)
+{
+    DeclList *n;
+
+    n = new_decl_list_node();
+    n->decl = new_declaration_node();
+    n->decl->decl_specs = decl_specs;
+    n->decl->idl = declarator;
+    n->next = NULL;
+    return n;
+}
+
+TypeExp *dup_declarator(TypeExp *d)
+{
+    TypeExp *n;
+
+    if (d == NULL)
+        return d;
+
+    n = new_type_exp_node();
+    *n = *d;
+    n->info = typedef_name_info;
+    if (d->op == TOK_FUNCTION) {
+        DeclList *p, *temp;
+
+        p = d->attr.dl;
+        n->attr.dl = temp = new_param_decl(p->decl->decl_specs, dup_declarator(p->decl->idl));
+        p = p->next;
+        while (p != NULL) {
+            temp->next = new_param_decl(p->decl->decl_specs, dup_declarator(p->decl->idl));
+            temp=temp->next, p=p->next;
+        }
+    }
+    n->child = dup_declarator(d->child);
+    return n;
+}
+
+TypeExp *dup_decl_specs(TypeExp *ds)
+{
+    TypeExp *n;
+
+    if (ds == NULL)
+        return NULL;
+    n = new_type_exp_node();
+    *n = *ds;
+    n->child = dup_decl_specs(ds->child);
+    return n;
+}
 
 void decl_init(void)
 {
@@ -688,7 +738,7 @@ int compare_decl_specs(TypeExp *ds1, TypeExp *ds2, int qualified)
 }
 
 /*
- * Return TRUE if the two types are compatible, FALSE otherwise.
+ * Return TRUE if the two types are compatible.
  * If 'qualified' is TRUE, type qualifiers are taken into account.
  * If 'compose' is TRUE, array types are composed.
  */
@@ -878,57 +928,6 @@ static void analyze_declarator2(TypeExp *decl_specs, TypeExp *declarator)
         break;
     }
     analyze_declarator2(decl_specs, declarator->child);
-}
-
-static TokenNode *typedef_name_info;
-
-static DeclList *new_param_decl(TypeExp *decl_specs, TypeExp *declarator)
-{
-    DeclList *n;
-
-    n = new_decl_list_node();
-    n->decl = new_declaration_node();
-    n->decl->decl_specs = decl_specs;
-    n->decl->idl = declarator;
-    n->next = NULL;
-    return n;
-}
-
-TypeExp *dup_declarator(TypeExp *d)
-{
-    TypeExp *n;
-
-    if (d == NULL)
-        return d;
-
-    n = new_type_exp_node();
-    *n = *d;
-    n->info = typedef_name_info;
-    if (d->op == TOK_FUNCTION) {
-        DeclList *p, *temp;
-
-        p = d->attr.dl;
-        n->attr.dl = temp = new_param_decl(p->decl->decl_specs, dup_declarator(p->decl->idl));
-        p = p->next;
-        while (p != NULL) {
-            temp->next = new_param_decl(p->decl->decl_specs, dup_declarator(p->decl->idl));
-            temp=temp->next, p=p->next;
-        }
-    }
-    n->child = dup_declarator(d->child);
-    return n;
-}
-
-TypeExp *dup_decl_specs(TypeExp *ds)
-{
-    TypeExp *n;
-
-    if (ds == NULL)
-        return NULL;
-    n = new_type_exp_node();
-    *n = *ds;
-    n->child = dup_decl_specs(ds->child);
-    return n;
 }
 
 static void replace_typedef_name(Declaration *decl)

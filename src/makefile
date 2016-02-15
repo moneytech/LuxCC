@@ -6,8 +6,8 @@ SRCS = luxcc.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c e
 
 all: $(PROG)
 
-$(PROG): $(OBJS) vm32_cgen.o vm64_cgen.o x86_cgen.o x64_cgen.o mips_cgen.o
-	$(CC) -o $(PROG) $(OBJS) vm32_cgen.o vm64_cgen.o x86_cgen.o x64_cgen.o mips_cgen.o
+$(PROG): $(OBJS) vm32_cgen.o vm64_cgen.o x86_cgen.o x64_cgen.o mips_cgen.o arm_cgen.o
+	$(CC) -o $(PROG) $(OBJS) vm32_cgen.o vm64_cgen.o x86_cgen.o x64_cgen.o mips_cgen.o arm_cgen.o
 .c.o:
 	$(CC) $(CFLAGS) $*.c
 clean:
@@ -16,7 +16,7 @@ depend:
 	makedepend -- $(CFLAGS) -- $(SRCS) -Y
 # DO NOT DELETE
 
-luxcc.o: parser.h lexer.h pre.h ic.h bset.h vm32_cgen/vm32_cgen.h vm64_cgen/vm64_cgen.h x86_cgen/x86_cgen.h x64_cgen/x64_cgen.h mips_cgen/mips_cgen.h
+luxcc.o: parser.h lexer.h pre.h ic.h bset.h vm32_cgen/vm32_cgen.h vm64_cgen/vm64_cgen.h x86_cgen/x86_cgen.h x64_cgen/x64_cgen.h mips_cgen/mips_cgen.h arm_cgen/arm_cgen.h
 pre.o: pre.h util.h imp_lim.h error.h
 lexer.o: lexer.h pre.h util.h error.h
 parser.o: parser.h lexer.h pre.h util.h decl.h expr.h stmt.h error.h
@@ -46,5 +46,8 @@ error.h bset.h str.h dflow.h
 mips_cgen.o: mips_cgen/mips_cgen.c mips_cgen/mips_cgen.h decl.h parser.h lexer.h pre.h util.h expr.h ic.h arena.h imp_lim.h \
 error.h bset.h str.h dflow.h
 	$(CC) $(CFLAGS) mips_cgen/mips_cgen.c
+arm_cgen.o: arm_cgen/arm_cgen.c arm_cgen/arm_cgen.h decl.h parser.h lexer.h pre.h util.h expr.h ic.h arena.h imp_lim.h \
+error.h bset.h str.h dflow.h
+	$(CC) $(CFLAGS) arm_cgen/arm_cgen.c
 
 .PHONY: all clean depend

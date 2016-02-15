@@ -7,6 +7,7 @@ enum {
     ARCH_VM32,
     ARCH_VM64,
     ARCH_MIPS,
+    ARCH_ARM,
 };
 
 extern unsigned warning_count;
