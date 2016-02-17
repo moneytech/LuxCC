@@ -4,6 +4,7 @@ echo "============================="
 echo " START MIPS TESTS"
 echo "============================="
 
+# assume default installation paths
 if [ ! -d "$HOME/mgc/embedded/codebench/mips-linux-gnux/" ] ; then
 	echo "cross-development environment not found."
 else

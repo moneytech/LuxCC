@@ -33,6 +33,8 @@ Test everything (run all tests for all targets)
 
     make fulltest
 
+The MIPS tests require of [Codebench (GNU/Linux release)](https://www.mentor.com/embedded-software/sourcery-tools/sourcery-codebench/editions/lite-edition/) to run.
+
 ## Documentation
 
 See `doc/index.html` for in-depth information on usage, internals, and more.
