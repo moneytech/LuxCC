@@ -1958,6 +1958,7 @@ unsigned get_alignment(Declaration *ty)
     case TOK_LONG_LONG: case TOK_UNSIGNED_LONG_LONG:
         switch (target_arch) {
         case ARCH_X64:
+        case ARCH_VM64:
         case ARCH_MIPS:
             alignment = 8;
             break;
