@@ -1771,25 +1771,16 @@ static void x64_jmp(int i, unsigned tar, unsigned arg1, unsigned arg2)
 static void x64_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     Token cat;
-    Declaration ty;
+    Declaration *ty;
 
-    /*
-     * Note:
-     * The argument type expressions comes from the formal parameter
-     * if the argument matches a non-optional parameter, or from the
-     * argument expression itself if the argument matches the `...'.
-     * If it comes from the formal parameter, an identifier node may
-     * have to be skipped.
-     */
-    ty = *instruction(i).type;
-    if (ty.idl!=NULL && ty.idl->op==TOK_ID)
-        ty.idl = ty.idl->child;
+    ty = instruction(i).type;
+    assert(ty->idl==NULL || ty->idl->op!=TOK_ID);
 
-    if ((cat=get_type_category(&ty))==TOK_STRUCT || cat==TOK_UNION) {
+    if ((cat=get_type_category(ty))==TOK_STRUCT || cat==TOK_UNION) {
         unsigned siz, asiz;
         int cluttered, savnb;
 
-        siz = get_sizeof(&ty);
+        siz = get_sizeof(ty);
         asiz = round_up(siz, 8);
         emitln("sub rsp, %u", asiz);
         arg_stack[arg_stack_top++] = asiz;

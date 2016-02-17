@@ -1,4 +1,10 @@
 /*
+    !!!
+        TODO: ADD SUPPORT FOR SHARED LIBRARIES. FOR NOW GCC MIPS CROSS-COMPILER IS USED AS THE LINKER.
+    !!!
+*/
+
+/*
     LUXLD: minimal ELF static linker for MIPS32 (little endian).
 
     This completes the MIPS toolchain (cc+as+ld).

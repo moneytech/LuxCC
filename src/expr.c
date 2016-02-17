@@ -1955,9 +1955,19 @@ unsigned get_alignment(Declaration *ty)
         new_ty.idl = ty->idl->child;
         alignment = get_alignment(&new_ty);
         break;
+    case TOK_LONG_LONG: case TOK_UNSIGNED_LONG_LONG:
+        switch (target_arch) {
+        case ARCH_X64:
+        case ARCH_MIPS:
+            alignment = 8;
+            break;
+        default:
+            alignment = 4;
+            break;
+        }
+        break;
     case TOK_STAR:
     case TOK_LONG: case TOK_UNSIGNED_LONG:
-    case TOK_LONG_LONG: case TOK_UNSIGNED_LONG_LONG:
         alignment = targeting_arch64 ? 8 : 4;
         break;
     case TOK_ENUM:

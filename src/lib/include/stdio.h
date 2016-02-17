@@ -30,7 +30,7 @@ extern FILE *stdin, *stdout, *stderr;
 #define stdout stdout
 #define stderr stderr
 
-#if defined __LuxVM__ || defined __mips__
+#ifdef __LuxVM__
 
 /* File access functions */
 int fclose(FILE *stream);

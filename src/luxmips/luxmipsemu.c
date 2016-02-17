@@ -1,4 +1,10 @@
 /*
+    !!!
+        NOT USED ANYMORE. QEMU IS USED INSTEAD NOW.
+    !!!
+*/
+
+/*
     Emulator for a subset of the MIPS32 ISA. It reads ELF static executables.
 
             Main memory organization

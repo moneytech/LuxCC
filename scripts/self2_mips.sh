@@ -1,8 +1,7 @@
-COMPILER="src/luxmips/luxmipsemu src/tests/self/luxcc1 -q -mmips"
+COMPILER="scripts/runmipselexe.sh src/tests/self/luxcc1 -q -mmips"
 ASSEMBLER=src/luxmips/luxasmips
-LINKER=src/luxmips/luxldmips
-LIBC=src/lib/libc_mips.o
-RUNC="src/lib/crt_mips.o src/lib/mips_memcpy.o src/lib/liblux_mips.o"
+LINKER="mips-linux-gnu-gcc -EL"
+RUNC="src/lib/mips_memcpy.o src/lib/liblux_mips.o"
 OUTPROG=luxcc2
 
 fail_counter=0
@@ -34,7 +33,7 @@ done
 
 # link
 if [ "$fail_counter" = "0" ]; then
-	$LINKER -o src/tests/self/$OUTPROG $RUNC $object_files $LIBC
+	$LINKER -o src/tests/self/$OUTPROG $RUNC $object_files
 	exit $?
 fi
 

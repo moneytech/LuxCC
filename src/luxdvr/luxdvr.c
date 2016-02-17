@@ -499,11 +499,12 @@ ok_1:
         p = strdup(strbuf(ld_cmd));
         string_clear(ld_cmd);
         parse_conf_file("mips.conf");
-        string_printf(ld_cmd, "%s %s", search_required("luxldmips", TRUE), p);
-        string_printf(ld_cmd, " %s", search_required("crt_mips.o", FALSE));
+        string_printf(ld_cmd, "mips-linux-gnu-gcc -EL %s", p);
+        // string_printf(ld_cmd, "%s %s", search_required("luxldmips", TRUE), p);
+        // string_printf(ld_cmd, " %s", search_required("crt_mips.o", FALSE));
         string_printf(ld_cmd, " %s", search_required("mips_memcpy.o", FALSE));
         string_printf(ld_cmd, " %s", search_required("liblux_mips.o", FALSE));
-        string_printf(ld_cmd, " %s", search_required("libc_mips.o", FALSE));
+        // string_printf(ld_cmd, " %s", search_required("libc_mips.o", FALSE));
         string_printf(as_cmd, "%s", search_required("luxasmips", TRUE));
         free(p);
     } else if (driver_flags & DVR_X64_TARGET) {

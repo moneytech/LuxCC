@@ -7,9 +7,17 @@
 typedef char *va_list;
 #endif
 
-#if defined __i386__ || defined __mips__
+#if __i386__
 #define va_start(ap, last)  (ap = (va_list)&last + _INTSIZEOF(last))
 #define va_arg(ap, type)    (*(type *)((ap += _INTSIZEOF(type)) - _INTSIZEOF(type)))
+#define va_copy(dest, src)  (dest) = (src)
+#define va_end(ap)
+#endif
+
+#ifdef __mips__
+#define va_start(ap, last)  (ap = (va_list)&last + _INTSIZEOF(last))
+#define va_arg(ap, type)    (*(type *)(ap = (va_list)(((unsigned)ap+__alignof__(type)-1)&~(__alignof__(type)-1)),\
+                                       (ap += _INTSIZEOF(type)) - _INTSIZEOF(type)))
 #define va_copy(dest, src)  (dest) = (src)
 #define va_end(ap)
 #endif

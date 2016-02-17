@@ -2086,21 +2086,12 @@ static void x86_jmp(int i, unsigned tar, unsigned arg1, unsigned arg2)
 static void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     Token cat;
-    Declaration ty;
+    Declaration *ty;
 
-    /*
-     * Note:
-     * The argument type expressions comes from the formal parameter
-     * if the argument matches a non-optional parameter, or from the
-     * argument expression itself if the argument matches the `...'.
-     * If it comes from the formal parameter, an identifier node may
-     * have to be skipped.
-     */
-    ty = *instruction(i).type;
-    if (ty.idl!=NULL && ty.idl->op==TOK_ID)
-        ty.idl = ty.idl->child;
+    ty = instruction(i).type;
+    assert(ty->idl==NULL || ty->idl->op!=TOK_ID);
 
-    if (ISLL(&ty)) {
+    if (ISLL(ty)) {
         char **op;
 
         op = x86_get_operand2(arg1);
@@ -2111,7 +2102,7 @@ static void x86_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
         unsigned siz, asiz;
         int cluttered, savnb;
 
-        siz = get_sizeof(&ty);
+        siz = get_sizeof(ty);
         asiz = round_up(siz, 4);
         emitln("sub esp, %u", asiz);
         arg_stack[arg_stack_top++] = asiz;

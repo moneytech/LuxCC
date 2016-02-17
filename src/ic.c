@@ -343,9 +343,13 @@ static void new_atv(int vnid)
     atv_table[atv_counter++] = vnid;
 }
 
+int alignment_stack[64], alignment_stack_top = -1;
+
 static void ic_init(void)
 {
     location_init();
+
+    // memset(alignment_stack, 0xFF, sizeof(int)*64);
 
     /* init instruction buffer */
     if ((ic_instructions=malloc(IINIT*sizeof(Quad))) == NULL)
@@ -996,7 +1000,7 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
         } else {
             local_offset = reg_param_offs+8;
         }
-    } else if (target_arch==ARCH_X86 || target_arch==ARCH_MIPS) {
+    } else if (target_arch == ARCH_X86) {
         param_offs += X86_PARAM_END;
         while (p != NULL) {
             if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
@@ -1006,6 +1010,22 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
             DEBUG_PRINTF("==> param:`%s', offset:%d\n", p->decl->idl->str, param_offs);
             ty.decl_specs = p->decl->decl_specs;
             ty.idl = p->decl->idl->child;
+            param_offs += round_up(get_sizeof(&ty), 4);
+
+            p = p->next;
+        }
+    } else if (target_arch == ARCH_MIPS) {
+        param_offs += MIPS_PARAM_END;
+        while (p != NULL) {
+            if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
+                break; /* start of optional parameters (`...') */
+
+            ty.decl_specs = p->decl->decl_specs;
+            ty.idl = p->decl->idl->child;
+
+            param_offs = round_up(param_offs, get_alignment(&ty));
+            location_new(p->decl->idl->str, param_offs);
+            DEBUG_PRINTF("==> param:`%s', offset:%d\n", p->decl->idl->str, param_offs);
             param_offs += round_up(get_sizeof(&ty), 4);
 
             p = p->next;
@@ -2323,6 +2343,125 @@ static unsigned get_step_size(ExecNode *e)
     return a;
 }
 
+static int function_argument2(ExecNode *arg, DeclList *param)
+{
+    int n;
+    int emit_pad_arg;
+
+    if (arg == NULL)
+        return 0;
+
+    n = 1;
+    emit_pad_arg = FALSE;
+    if (param->decl->idl==NULL || param->decl->idl->op!=TOK_ELLIPSIS) {
+        /* this argument matches a declared (non-optional) parameter */
+
+        Declaration *ty;
+
+        if (arg->kind.exp == -1) {
+            ty = &arg->type;
+        } else {
+            ty = param->decl;
+            if (ty->idl!=NULL && ty->idl->op==TOK_ID) { /* skip identifier */
+                ty = new_declaration_node();
+                ty->decl_specs = param->decl->decl_specs;
+                ty->idl = param->decl->idl->child;
+            }
+        }
+
+        if (alignment_stack[alignment_stack_top]) {
+            if ((get_sizeof(ty)%8) != 0)
+                alignment_stack[alignment_stack_top] = FALSE;
+        } else {
+            if (get_alignment(ty) == 8)
+                emit_pad_arg = TRUE;
+            alignment_stack[alignment_stack_top] = TRUE;
+        }
+
+        n += function_argument2(arg->sibling, param->next);
+        if (arg->kind.exp == -1)
+            emit_i(OpArg, ty, 0, (unsigned)arg->attr.val, 0);
+        else
+            emit_i(OpArg, ty, 0, ic_expr_convert(arg, ty), 0);
+    } else {
+        /* this and the arguments that follow match the `...' */
+
+        if (alignment_stack[alignment_stack_top]) {
+            if ((get_sizeof(&arg->type)%8) != 0)
+                alignment_stack[alignment_stack_top] = FALSE;
+        } else {
+            if (get_alignment(&arg->type) == 8)
+                emit_pad_arg = TRUE;
+            alignment_stack[alignment_stack_top] = TRUE;
+        }
+
+        n += function_argument2(arg->sibling, param);
+        if (arg->kind.exp == -1)
+            emit_i(OpArg, &arg->type, 0, (unsigned)arg->attr.val, 0);
+        else
+            emit_i(OpArg, &arg->type, 0, ic_expression(arg, FALSE, NOLAB, NOLAB), 0);
+    }
+    if (emit_pad_arg) {
+        emit_i(OpArg, &int_ty, 0, false_addr, 0);
+        ++n;
+    }
+    return n;
+}
+
+/*
+ * Along with function_argument2(), emit arguments for architectures
+ * that align long long to 8 bytes.
+ */
+static int aligned_function_argument(ExecNode *arg, DeclList *param)
+{
+    DeclList *tp;
+    ExecNode *ta;
+    Declaration *ty;
+    unsigned arg_addr;
+
+    /*
+     * Emit function call expressions first. This is done so the
+     * stack can always be considered aligned at the start of
+     * arguments computation. Otherwise things would get messy
+     * with nested function calls.
+     */
+    ta = arg;
+    tp = param;
+    while (ta != NULL) {
+        if (tp->decl->idl==NULL || tp->decl->idl->op!=TOK_ELLIPSIS) {
+            /* this argument matches a declared (non-optional) parameter */
+
+            if (ta->kind.exp!=OpExp || ta->attr.op!=TOK_FUNCTION) {
+                tp = tp->next;
+                goto next;
+            }
+
+            ty = tp->decl;
+            if (ty->idl!=NULL && ty->idl->op==TOK_ID) { /* skip identifier */
+                ty = new_declaration_node();
+                ty->decl_specs = tp->decl->decl_specs;
+                ty->idl = tp->decl->idl->child;
+            }
+
+            arg_addr = ic_expr_convert(ta, ty);
+            ta->type = *ty;
+            tp = tp->next;
+        } else {
+            /* this and the arguments that follow match the `...' */
+
+            if (ta->kind.exp!=OpExp || ta->attr.op!=TOK_FUNCTION)
+                goto next;
+
+            arg_addr = ic_expression(ta, FALSE, NOLAB, NOLAB);
+        }
+        ta->kind.exp = -1; /* mark it as already computed */
+        ta->attr.val = arg_addr;
+next:   ta = ta->sibling;
+    }
+
+    return function_argument2(arg, param);
+}
+
 /*
  * Push arguments from right to left recursively.
  * Return the number of arguments pushed.
@@ -2341,11 +2480,13 @@ static int function_argument(ExecNode *arg, DeclList *param)
         Declaration *ty;
 
         n += function_argument(arg->sibling, param->next);
-        ty = new_declaration_node();
-        *ty = *param->decl;
-        if (ty->idl!=NULL && ty->idl->op==TOK_ID) /* skip any identifier */
-            ty->idl = ty->idl->child;
-        emit_i(OpArg, param->decl, 0, ic_expr_convert(arg, ty), 0);
+        ty = param->decl;
+        if (ty->idl!=NULL && ty->idl->op==TOK_ID) { /* skip identifier */
+            ty = new_declaration_node();
+            ty->decl_specs = param->decl->decl_specs;
+            ty->idl = param->decl->idl->child;
+        }
+        emit_i(OpArg, ty, 0, ic_expr_convert(arg, ty), 0);
     } else {
         /* this and the arguments that follow match the `...' */
 
@@ -2980,21 +3121,34 @@ unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned fal
             emit_i(OpBegArg, NULL, 0, 0, 0);
 
             a2 = new_address(IConstKind);
-            na = function_argument(e->child[1], e->locals);
+            if (target_arch == ARCH_MIPS) {
+                Token cat;
+
+                alignment_stack[++alignment_stack_top] = TRUE;
+                /* take into account the 'return value address' (4 bytes) */
+                if ((cat=get_type_category(&e->type))==TOK_STRUCT || cat==TOK_UNION)
+                    alignment_stack[alignment_stack_top] = FALSE;
+                na = aligned_function_argument(e->child[1], e->locals);
+                --alignment_stack_top;
+            } else {
+                na = function_argument(e->child[1], e->locals);
+            }
             address(a2).cont.val = na;
 
-            /*
-             * An OpNOp right before an OpCall/OpIndCall indicates that the
-             * function being called has a variable number of arguments. The
-             * x64 code generator uses this to know if it must set rax to zero
-             * or not.
-             */
-            for (p = e->locals; p != NULL; p = p->next) {
-				if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS) {
-					emit_i(OpNOp, NULL, 0, 0, 0);
-					break;
-				}
-			}
+            if (target_arch == ARCH_X64) {
+                /*
+                 * An OpNOp right before an OpCall/OpIndCall indicates that the
+                 * function being called has a variable number of arguments. The
+                 * x64 code generator uses this to know if it must set rax to zero
+                 * or not.
+                 */
+                for (p = e->locals; p != NULL; p = p->next) {
+                    if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS) {
+                        emit_i(OpNOp, NULL, 0, 0, 0);
+                        break;
+                    }
+                }
+            }
 
             tmp = e->child[0];
             while (tmp->kind.exp==OpExp /*&& tmp->attr.op==TOK_STAR*/)
@@ -3214,7 +3368,6 @@ static void dump_ic(unsigned fn)
         case OpArg:
             fprintf(ic_file, "arg ");
             print_addr(p->arg1);
-            fprintf(ic_file, " %d", p->arg2);
             break;
         case OpCall:
         case OpIndCall:

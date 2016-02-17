@@ -62,6 +62,7 @@
 
 
 
+
 <meta http-equiv="content-type" content="text/html; charset=utf-8"><meta http-equiv="content-type" content="text/html; charset=utf-8"></head><body><span style="font-family: monospace;"></span><span style="font-family: monospace;">Luxcc usage and internals documentation. I will try to maintain this document updated as things evolve.</span><br>
 <br>
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big>Index<br></big></big></big><span style="font-family: Times New Roman;">
@@ -789,7 +790,7 @@ resolved at the end of each function.<br>
       <td style="vertical-align: top;">Signal the start of arguments computation<br>
       </td>
     </tr>
-<tr><td style="vertical-align: top;">OpArg<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">Pass b as an argument (c == sizeof(b))<br></td></tr><tr><td style="vertical-align: top;">OpCall<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b() (c == # of args)<br></td></tr><tr><td style="vertical-align: top;">OpIndCall<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = (*b)() (c == # of args)<br></td></tr><tr><td style="vertical-align: top;">OpRet<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">Return value b to the caller<br></td></tr><tr>
+<tr><td style="vertical-align: top;">OpArg<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">Pass b as an argument<br></td></tr><tr><td style="vertical-align: top;">OpCall<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = b() (c == # of args)<br></td></tr><tr><td style="vertical-align: top;">OpIndCall<br></td><td style="vertical-align: top;">a<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">c<br></td><td style="vertical-align: top;">a = (*b)() (c == # of args)<br></td></tr><tr><td style="vertical-align: top;">OpRet<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">b<br></td><td style="vertical-align: top;">-<br></td><td style="vertical-align: top;">Return value b to the caller<br></td></tr><tr>
       <td style="vertical-align: top;">OpNOp<br>
       </td>
       <td style="vertical-align: top;">-<br>
@@ -834,7 +835,9 @@ A CFG node is represented by the type <span style="font-family: monospace;">CFGN
 <li><span style="font-family: monospace;">leader</span>: node's first instruction.<br></li><li><span style="font-family: monospace;">last</span>: node's last instruction.<br></li><li><span style="font-family: monospace;">out</span>: successor nodes.<br></li><li><span style="font-family: monospace;">in</span>: predecessor nodes.<br></li><li><span style="font-family: monospace;">UEVar, VarKill, LiveOut, Dom</span>: sets used for data-flow analysis (explained later).<br></li><li><span style="font-family: monospace;">PO, RPO</span>: node's post-order and reverse post-order numbers.<br></li>
 </ul>The function in charge of building the CFG is <span style="font-family: monospace;">build_CFG()</span>. This function operates according to the following algorithm:<br>
 <ol>
-  <li>Build the ENTRY node. This is a special node that every CFG has. In this particular case it is composed of a single uncoditional jump instruction.</li>
+  <li>Build the ENTRY node. This is a special node that every CFG
+has. In this particular case it is composed of a single uncoditional
+jump instruction.</li>
   <li>Search for <span style="font-style: italic;">leader</span>
 instructions. An instruction is a leader if it is at the beginning of a
 basic block. Are leaders the first instruction, the second instruction,

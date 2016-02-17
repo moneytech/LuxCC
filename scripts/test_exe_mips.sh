@@ -1,7 +1,7 @@
 #!/bin/bash
 CC1="src/luxdvr/luxdvr -q -mmips"	# compiler being tested
 CC2="gcc -m32"      			# reference compiler
-EMU="src/luxmips/luxmipsemu"
+EMU="scripts/runmipselexe.sh"
 TESTS_PATH=src/tests/execute
 
 fail_counter=0
@@ -24,7 +24,7 @@ for file in $(find $TESTS_PATH/ | grep '\.c') ; do
 	echo $file
 
 	# out1	
-	$CC1 $file -o $TESTS_PATH/test1 && #&>/dev/null &&
+	$CC1 $file -o $TESTS_PATH/test1 &>/dev/null &&
 	$EMU $TESTS_PATH/test1 >"${file%.*}.output" 2>/dev/null
 	rm -f $TESTS_PATH/test1
 

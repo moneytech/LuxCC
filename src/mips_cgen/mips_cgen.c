@@ -1619,13 +1619,12 @@ static void mips_begarg(int i, unsigned tar, unsigned arg1, unsigned arg2)
 static void mips_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
     Token cat;
-    Declaration ty;
+    Declaration *ty;
 
-    ty = *instruction(i).type;
-    if (ty.idl!=NULL && ty.idl->op==TOK_ID)
-        ty.idl = ty.idl->child;
+    ty = instruction(i).type;
+    assert(ty->idl==NULL || ty->idl->op!=TOK_ID);
 
-    if (ISLL(&ty)) {
+    if (ISLL(ty)) {
         char **op;
 
         op = mips_get_operand2(arg1);
@@ -1636,7 +1635,7 @@ static void mips_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
     } else if (cat==TOK_STRUCT || cat==TOK_UNION) {
         unsigned siz, asiz;
 
-        siz = get_sizeof(&ty);
+        siz = get_sizeof(ty);
         asiz = round_up(siz, 4);
 
         emitln("addu $29, $29, -%u", asiz);
@@ -1910,6 +1909,7 @@ static void mips_spill_reg_args(DeclList *p)
 
         ty.decl_specs = p->decl->decl_specs;
         ty.idl = p->decl->idl->child;
+        arg_nb = round_up(arg_nb, get_alignment(&ty));
         arg_nb += round_up(get_sizeof(&ty), 4);
         if (arg_nb >= 16) {
             arg_nb = 16;
@@ -1951,7 +1951,7 @@ void mips_function_definition(TypeExp *decl_specs, TypeExp *header)
 
     curr_func = header->str;
     fn = new_cg_node(curr_func);
-    size_of_local_area = round_up(cg_node(fn).size_of_local_area, 4);
+    size_of_local_area = round_up(cg_node(fn).size_of_local_area, 8);
 
     ty.decl_specs = decl_specs;
     ty.idl = header->child->child;
@@ -1981,7 +1981,7 @@ void mips_function_definition(TypeExp *decl_specs, TypeExp *header)
             emitln("; %s", C_source[i]);
         instruction_handlers[instruction(i).op](i, tar, arg1, arg2);
     }
-    size_of_local_area -= round_up(temp_struct_size, 4);
+    size_of_local_area -= round_up(temp_struct_size, 8);
     pos_tmp = string_get_pos(func_body);
     while (--calls_to_fix_counter >= 0) {
         int n;
@@ -2235,7 +2235,7 @@ scalar:
         case TOK_UNSIGNED_LONG_LONG: {
             long long v;
 
-            emit_declln("%%align 4");
+            emit_declln("%%align 8");
             emit_decl("%%dword ");
             v = mips_static_expr(e);
             emit_declln("%u", ((unsigned *)&v)[0]);
