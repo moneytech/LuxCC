@@ -180,8 +180,16 @@ void parse_conf_file(char *cf)
             buf2[n] = '\0';
             pl = malloc(sizeof(PathList));
             pl->path = strdup(buf2);
-            pl->next = required_files[nreq].dirs;
-            required_files[nreq].dirs = pl;
+            pl->next = NULL;
+            if (required_files[nreq].dirs == NULL) {
+                required_files[nreq].dirs = pl;
+            } else {
+                PathList *t;
+
+                for (t = required_files[nreq].dirs; t->next != NULL; t = t->next)
+                    ;
+                t->next = pl;
+            }
             cp += n+1;
             if (done)
                 break;

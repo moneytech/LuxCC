@@ -1960,6 +1960,7 @@ unsigned get_alignment(Declaration *ty)
         case ARCH_X64:
         case ARCH_VM64:
         case ARCH_MIPS:
+        case ARCH_ARM:
             alignment = 8;
             break;
         default:

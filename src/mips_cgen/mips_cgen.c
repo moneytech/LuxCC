@@ -50,7 +50,7 @@ static int calls_to_fix_counter;
 static unsigned calls_to_fix[64];
 static int string_literals_counter;
 static FILE *mips_output_file;
-static int arg_stack[64], arg_stack_top;
+static int arg_offs, max_arg_offs;
 
 #define JMP_TAB_MIN_SIZ   3
 #define JMP_TAB_MAX_HOLES 10
@@ -540,9 +540,12 @@ void mips_store(MIPS_Reg r, unsigned a)
         switch (get_type_category(&e->type)) {
         case TOK_STRUCT:
         case TOK_UNION:
-            emitln("move $5, $%d", r);
-            mips_load_addr(4, a);
-            emitln("li $6, %u", get_sizeof(&e->type));
+            emitln("addu $29, $29, -12");
+            mips_load_addr(25, a);
+            emitln("sw $25, 0($29)");
+            emitln("sw $%d, 4($29)", r);
+            emitln("li $25, %u", get_sizeof(&e->type));
+            emitln("sw $25, 8($29)");
             emitln("jal __lux_mips_memcpy");
             emitln("nop");
             return;
@@ -735,6 +738,66 @@ static const char *libfuncs[] = {
     "__lux_scmp64",
 };
 
+static void mips_save_arg_regs(void)
+{
+    switch (arg_offs / 4) {
+    case 0:
+        break;
+    case 1:
+        emitln("addu $29, $29, -4");
+        emitln("sw $4, 0($29)");
+        break;
+    case 2:
+        emitln("addu $29, $29, -8");
+        emitln("sw $4, 0($29)");
+        emitln("sw $5, 4($29)");
+        break;
+    case 3:
+        emitln("addu $29, $29, -12");
+        emitln("sw $4, 0($29)");
+        emitln("sw $5, 4($29)");
+        emitln("sw $6, 8($29)");
+        break;
+    default:
+        emitln("addu $29, $29, -16");
+        emitln("sw $4, 0($29)");
+        emitln("sw $5, 4($29)");
+        emitln("sw $6, 8($29)");
+        emitln("sw $7, 12($29)");
+        break;
+    }
+}
+
+static void mips_restore_arg_regs(void)
+{
+    switch (arg_offs / 4) {
+    case 0:
+        break;
+    case 1:
+        emitln("lw $4, 0($29)");
+        emitln("addu $29, $29, 4");
+        break;
+    case 2:
+        emitln("lw $4, 0($29)");
+        emitln("lw $5, 4($29)");
+        emitln("addu $29, $29, 8");
+        break;
+    case 3:
+        emitln("lw $4, 0($29)");
+        emitln("lw $5, 4($29)");
+        emitln("lw $6, 8($29)");
+        emitln("addu $29, $29, 12");
+        break;
+    default:
+        emitln("lw $4, 0($29)");
+        emitln("lw $5, 4($29)");
+        emitln("lw $6, 8($29)");
+        emitln("lw $7, 12($29)");
+        emitln("addu $29, $29, 16");
+        break;
+    }
+}
+
 static void mips_do_libcall(int i, unsigned tar, unsigned arg1, unsigned arg2, int func)
 {
     MIPS_Reg2 res = { 2, 3 }, r1 = { 4, 5 }, r2 = { 6, 7 };
@@ -745,6 +808,7 @@ static void mips_do_libcall(int i, unsigned tar, unsigned arg1, unsigned arg2, i
     case LibUDiv:
     case LibSMod:
     case LibUMod:
+        mips_save_arg_regs();
         mips_load2(r1, arg1);
         mips_load2(r2, arg2);
         emitln("addu $29, $29, -16");
@@ -752,12 +816,14 @@ static void mips_do_libcall(int i, unsigned tar, unsigned arg1, unsigned arg2, i
         emitln("jal %s", libfuncs[func]);
         emitln("nop");
         emitln("addu $29, $29, 16");
+        mips_restore_arg_regs();
         UPDATE_ADDRESSES2(res);
         break;
 
     case LibShL:
     case LibSShR:
     case LibUShR:
+        mips_save_arg_regs();
         mips_load2(r1, arg1);
         mips_load(6, arg2);
         emitln("addu $29, $29, -16");
@@ -765,10 +831,12 @@ static void mips_do_libcall(int i, unsigned tar, unsigned arg1, unsigned arg2, i
         emitln("jal %s", libfuncs[func]);
         emitln("nop");
         emitln("addu $29, $29, 16");
+        mips_restore_arg_regs();
         UPDATE_ADDRESSES2(res);
         break;
 
     case LibNot:
+        mips_save_arg_regs();
         mips_load2(r1, arg1);
         emitln("li $6, 0");
         emitln("li $7, 0");
@@ -778,6 +846,7 @@ static void mips_do_libcall(int i, unsigned tar, unsigned arg1, unsigned arg2, i
         emitln("nop");
         emitln("addu $29, $29, 16");
         emitln("seq $2, $2, 1");
+        mips_restore_arg_regs();
         UPDATE_ADDRESSES_UNARY(2);
         break;
 
@@ -791,6 +860,7 @@ static void mips_do_libcall(int i, unsigned tar, unsigned arg1, unsigned arg2, i
     case LibUGET:
     case LibSLET:
     case LibULET:
+        mips_save_arg_regs();
         mips_load2(r1, arg1);
         mips_load2(r2, arg2);
         emitln("addu $29, $29, -16");
@@ -798,6 +868,7 @@ static void mips_do_libcall(int i, unsigned tar, unsigned arg1, unsigned arg2, i
         emitln("jal %s", libfuncs[func]);
         emitln("nop");
         emitln("addu $29, $29, 16");
+        mips_restore_arg_regs();
         switch (func) {
         case LibEq:
             emitln("seq $2, $2, 1");
@@ -1380,82 +1451,19 @@ static void mips_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
     }
 }
 
-static void mips_pre_call(int i, unsigned arg2)
+static void mips_post_call(void)
 {
-    Token cat;
-    int na, nb, top;
-
-    spill_all();
-
-    if ((cat=get_type_category(instruction(i).type))==TOK_STRUCT || cat==TOK_UNION) {
-        unsigned siz;
-
-        siz = get_sizeof(instruction(i).type);
-        if (siz > temp_struct_size)
-            temp_struct_size = siz;
-        calls_to_fix[calls_to_fix_counter++] = string_get_pos(func_body);
-        emitln("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"); /* addu $25, $30, <?> */
-        emitln("addu $29, $29, -4");
-        emitln("sw $25, 0($29)");
-        arg_stack[arg_stack_top++] = 4;
-        ++address(arg2).cont.val;
-    }
-
-    /*
-     * Move argument to registers.
-     */
-    nb = 0;
-    top = arg_stack_top;
-    for (na = (int)address(arg2).cont.val; na; na--)
-        nb += arg_stack[--top];
-    switch (nb) {
-    case 0:
-        emitln("addu $29, $29, -16");
-        break;
-    case 4:
-        emitln("lw $4, 0($29)");
-        emitln("addu $29, $29, -12");
-        break;
-    case 8:
-        emitln("lw $4, 0($29)");
-        emitln("lw $5, 4($29)");
-        emitln("addu $29, $29, -8");
-        break;
-    case 12:
-        emitln("lw $4, 0($29)");
-        emitln("lw $5, 4($29)");
-        emitln("lw $6, 8($29)");
-        emitln("addu $29, $29, -4");
-        break;
-    default:
-        emitln("lw $4, 0($29)");
-        emitln("lw $5, 4($29)");
-        emitln("lw $6, 8($29)");
-        emitln("lw $7, 12($29)");
-        break;
-    }
-}
-
-static void mips_post_call(unsigned arg2)
-{
-    int na, nb;
-
-    na = (int)address(arg2).cont.val;
-    nb = 0;
-    while (na--)
-        nb += arg_stack[--arg_stack_top];
-    assert(arg_stack_top >= 0);
-    if (nb < 16)
-        nb = 16;
-    emitln("addu $29, $29, %d", nb);
+    if (arg_offs > max_arg_offs)
+        max_arg_offs = arg_offs;
+    arg_offs = 0;
 }
 
 static void mips_indcall(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    mips_pre_call(i, arg2);
+    spill_all();
     emitln("jalr %s", mips_get_operand(arg1, 0));
     emitln("nop");
-    mips_post_call(arg2);
+    mips_post_call();
     update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
     if (tar) {
         Token cat;
@@ -1472,10 +1480,10 @@ static void mips_indcall(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
 static void mips_call(int i, unsigned tar, unsigned arg1, unsigned arg2)
 {
-    mips_pre_call(i, arg2);
+    spill_all();
     emitln("jal %s", address(arg1).cont.var.e->attr.str);
     emitln("nop");
-    mips_post_call(arg2);
+    mips_post_call();
     if (tar) {
         Token cat;
 
@@ -1539,9 +1547,13 @@ static void mips_ind_asn(int i, unsigned tar, unsigned arg1, unsigned arg2)
         unpin_reg(pr);
         goto done;
     } else if (cat==TOK_STRUCT || cat==TOK_UNION) {
-        mips_load(5, arg2);
-        mips_load(4, arg1);
-        emitln("li $6, %u", get_sizeof(instruction(i).type));
+        emitln("addu $29, $29, -12");
+        mips_load(25, arg1);
+        emitln("sw $25, 0($29)");
+        mips_load(25, arg2);
+        emitln("sw $25, 4($29)");
+        emitln("li $25, %u", get_sizeof(instruction(i).type));
+        emitln("sw $25, 8($29)");
         emitln("jal __lux_mips_memcpy");
         emitln("nop");
         goto done;
@@ -1621,40 +1633,130 @@ static void mips_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
     Token cat;
     Declaration *ty;
 
+    if (arg2 == 1) { /* the 'return value address' is being requested */
+        unsigned siz;
+
+        siz = get_sizeof(instruction(i).type);
+        if (siz > temp_struct_size)
+            temp_struct_size = siz;
+        calls_to_fix[calls_to_fix_counter++] = string_get_pos(func_body);
+        emitln("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"); /* addu $4, $30, <?> */
+        arg_offs += 4;
+        return;
+    }
+
     ty = instruction(i).type;
     assert(ty->idl==NULL || ty->idl->op!=TOK_ID);
 
     if (ISLL(ty)) {
-        char **op;
+        arg_offs = round_up(arg_offs, 8);
+        if (arg_offs < 16) {
+            MIPS_Reg2 r;
 
-        op = mips_get_operand2(arg1);
-        emitln("addu $29, $29, -8");
-        emitln("sw %s, 0($29)", op[0]);
-        emitln("sw %s, 4($29)", op[1]);
-        arg_stack[arg_stack_top++] = 8;
+            r.r1 = 4+arg_offs/4;
+            r.r2 = r.r1+1;
+            mips_load2(r, arg1);
+        } else {
+            char **op;
+
+            op = mips_get_operand2(arg1);
+            emitln("sw %s, %d($29)", op[0], arg_offs);
+            emitln("sw %s, %d($29)", op[1], arg_offs+4);
+        }
+        arg_offs += 8;
     } else if (cat==TOK_STRUCT || cat==TOK_UNION) {
         unsigned siz, asiz;
 
         siz = get_sizeof(ty);
         asiz = round_up(siz, 4);
 
-        emitln("addu $29, $29, -%u", asiz);
-        mips_load(5, arg1);
-        emitln("move $4, $29");
-        emitln("li $6, %u", siz);
-        emitln("jal __lux_mips_memcpy");
-        emitln("nop");
-        arg_stack[arg_stack_top++] = asiz;
+        arg_offs = round_up(arg_offs, get_alignment(ty));
+        if (arg_offs < 16) {
+            int nr, ar;
+            MIPS_Reg r;
+
+            nr = asiz/4;
+            ar = 4-arg_offs/4;
+            r = 4+arg_offs/4;
+
+            if (nr <= ar) { /* full registers */
+                mips_load(25, arg1);
+                switch (nr) {
+                case 1:
+                    emitln("lw $%d, 0($25)", r);
+                    break;
+                case 2:
+                    emitln("lw $%d, 0($25)", r);
+                    emitln("lw $%d, 4($25)", r+1);
+                    break;
+                case 3:
+                    emitln("lw $%d, 0($25)", r);
+                    emitln("lw $%d, 4($25)", r+1);
+                    emitln("lw $%d, 8($25)", r+2);
+                    break;
+                case 4:
+                    emitln("lw $%d, 0($25)", r);
+                    emitln("lw $%d, 4($25)", r+1);
+                    emitln("lw $%d, 8($25)", r+2);
+                    emitln("lw $%d, 12($25)", r+3);
+                    break;
+                }
+            } else { /* part registers, part stack */
+                int siz2;
+
+                mips_load(25, arg1);
+                switch (ar) {
+                case 1:
+                    emitln("lw $%d, 0($25)", r);
+                    siz2 = siz-4;
+                    break;
+                case 2:
+                    emitln("lw $%d, 0($25)", r);
+                    emitln("lw $%d, 4($25)", r+1);
+                    siz2 = siz-8;
+                    break;
+                case 3:
+                    emitln("lw $%d, 0($25)", r);
+                    emitln("lw $%d, 4($25)", r+1);
+                    emitln("lw $%d, 8($25)", r+2);
+                    siz2 = siz-12;
+                    break;
+                }
+                emitln("addu $29, $29, -12");
+                emitln("addu $25, $25, %d", siz-siz2);
+                emitln("sw $25, 4($29)");
+                emitln("addu $25, $29, %d", 16+12);
+                emitln("sw $25, 0($29)");
+                emitln("li $25, %u", siz2);
+                emitln("sw $25, 8($29)");
+                emitln("jal __lux_mips_memcpy");
+                emitln("nop");
+            }
+        } else { /* full stack */
+            emitln("addu $29, $29, -12");
+            emitln("addu $25, $29, %d", arg_offs+12);
+            emitln("sw $25, 0($29)");
+            mips_load(25, arg1);
+            emitln("sw $25, 4($29)");
+            emitln("li $25, %u", siz);
+            emitln("sw $25, 8($29)");
+            emitln("jal __lux_mips_memcpy");
+            emitln("nop");
+        }
+        arg_offs += asiz;
     } else {
         MIPS_Reg r;
 
-        if (const_addr(arg1) || (r=addr_reg1(arg1))==-1) {
-            r = (MIPS_Reg)25;
-            mips_load(r, arg1);
+        if (arg_offs < 16) {
+            mips_load(4+arg_offs/4, arg1);
+        } else {
+            if (const_addr(arg1) || (r=addr_reg1(arg1))==-1) {
+                r = (MIPS_Reg)25;
+                mips_load(r, arg1);
+            }
+            emitln("sw $%d, %d($29)", r, arg_offs);
         }
-        emitln("addu $29, $29, -4");
-        emitln("sw $%d, 0($29)", r);
-        arg_stack[arg_stack_top++] = 4;
+        arg_offs += 4;
     }
     update_arg_descriptors(arg1, arg1_liveness(i), arg1_next_use(i));
 }
@@ -1666,12 +1768,16 @@ static void mips_ret(int i, unsigned tar, unsigned arg1, unsigned arg2)
 
         mips_load2(r, arg1);
     } else if (big_return) {
-        mips_load(5, arg1);
-        emitln("lw $4, 8($30)");
-        emitln("move $2, $4");
-        emitln("li $6, %u", get_sizeof(instruction(i).type));
+        emitln("addu $29, $29, -12");
+        emitln("lw $25, 8($30)");
+        emitln("sw $25, 0($29)");
+        mips_load(25, arg1);
+        emitln("sw $25, 4($29)");
+        emitln("li $25, %u", get_sizeof(instruction(i).type));
+        emitln("sw $25, 8($29)");
         emitln("jal __lux_mips_memcpy");
         emitln("nop");
+        emitln("lw $2, 8($30)");
     } else {
         mips_load(2, arg1);
     }
@@ -1989,7 +2095,7 @@ void mips_function_definition(TypeExp *decl_specs, TypeExp *header)
 
         string_set_pos(func_body, calls_to_fix[calls_to_fix_counter]);
         s = string_curr(func_body);
-        n = sprintf(s, "addu $25, $30, %d", size_of_local_area);
+        n = sprintf(s, "addu $4, $30, %d", size_of_local_area);
         s[n++] = ' ';
         for (; s[n] == 'X'; n++)
             s[n] = ' ';
@@ -1997,6 +2103,12 @@ void mips_function_definition(TypeExp *decl_specs, TypeExp *header)
     string_set_pos(func_body, pos_tmp);
 
     size_of_local_area -= 8;
+    if (!cg_node(fn).is_leaf) {
+        if (max_arg_offs < 16)
+            size_of_local_area -= 16;
+        else
+            size_of_local_area -= round_up(max_arg_offs, 8);
+    }
     emit_prologln("addu $29, $29, %d", size_of_local_area);
     emit_prologln("sw $31, %d($29)", -size_of_local_area-4);
     emit_prologln("sw $30, %d($29)", -size_of_local_area-8);
@@ -2020,6 +2132,7 @@ void mips_function_definition(TypeExp *decl_specs, TypeExp *header)
     string_clear(func_epilog);
     temp_struct_size = 0;
     calls_to_fix_counter = 0;
+    arg_offs = max_arg_offs = 0;
     /*memset(pinned, 0, sizeof(int)*MIPS_NREG);*/
     free_all_temps();
 #if 1
@@ -2116,6 +2229,7 @@ static long long mips_static_expr(ExecNode *e)
             emit_decl("%s+", e->attr.str);
         return 0;
     }
+    assert(0);
 }
 
 void mips_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)

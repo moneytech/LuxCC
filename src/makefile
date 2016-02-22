@@ -6,8 +6,8 @@ SRCS = luxcc.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c e
 
 all: $(PROG)
 
-$(PROG): $(OBJS) vm32_cgen.o vm64_cgen.o x86_cgen.o x64_cgen.o mips_cgen.o #arm_cgen.o
-	$(CC) -o $(PROG) $(OBJS) vm32_cgen.o vm64_cgen.o x86_cgen.o x64_cgen.o mips_cgen.o #arm_cgen.o
+$(PROG): $(OBJS) vm32_cgen.o vm64_cgen.o x86_cgen.o x64_cgen.o mips_cgen.o arm_cgen.o
+	$(CC) -o $(PROG) $(OBJS) vm32_cgen.o vm64_cgen.o x86_cgen.o x64_cgen.o mips_cgen.o arm_cgen.o
 .c.o:
 	$(CC) $(CFLAGS) $*.c
 clean:
@@ -46,8 +46,8 @@ error.h bset.h str.h dflow.h
 mips_cgen.o: mips_cgen/mips_cgen.c mips_cgen/mips_cgen.h decl.h parser.h lexer.h pre.h util.h expr.h ic.h arena.h imp_lim.h \
 error.h bset.h str.h dflow.h
 	$(CC) $(CFLAGS) mips_cgen/mips_cgen.c
-#arm_cgen.o: arm_cgen/arm_cgen.c arm_cgen/arm_cgen.h decl.h parser.h lexer.h pre.h util.h expr.h ic.h arena.h imp_lim.h \
-#error.h bset.h str.h dflow.h
-#	$(CC) $(CFLAGS) arm_cgen/arm_cgen.c
+arm_cgen.o: arm_cgen/arm_cgen.c arm_cgen/arm_cgen.h decl.h parser.h lexer.h pre.h util.h expr.h ic.h arena.h imp_lim.h \
+error.h bset.h str.h dflow.h
+	$(CC) $(CFLAGS) arm_cgen/arm_cgen.c
 
 .PHONY: all clean depend

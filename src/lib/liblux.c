@@ -204,3 +204,72 @@ long long __lux_smod64(LongLong a, LongLong b)
 {
     return __sdivmod64(a, b, 0);
 }
+
+static uint32_t __udivmod32(uint32_t a, uint32_t b, int retquo)
+{
+    int i;
+    uint32_t q, r;
+
+    if (b == 0) i = 0, 123/i;
+    q = r = 0;
+    for (i = 31; i >= 0; i--) {
+        r <<= 1;
+        r |= !!(a&(1U<<i));
+        if (r >= b) {
+            r -= b;
+            q |= 1U<<i;
+        }
+    }
+    return retquo ? q : r;
+}
+
+long long __lux_udiv32(uint32_t a, uint32_t b)
+{
+    return __udivmod32(a, b, 1);
+}
+
+long long __lux_umod32(uint32_t a, uint32_t b)
+{
+    return __udivmod32(a, b, 0);
+}
+
+static int32_t __sdivmod32(int32_t a, int32_t b, int retquo)
+{
+    int i;
+    int as, bs;
+    int32_t q, r;
+
+    if (b == 0) i = 0, 123/i;
+    as = bs = 0;
+    if (a & 0x80000000) {
+        a = -a;
+        as = 1;
+    }
+    if (b & 0x80000000) {
+        b = -b;
+        bs = 1;
+    }
+    q = r = 0;
+    for (i = 31; i >= 0; i--) {
+        r <<= 1;
+        r |= !!(a&(1<<i));
+        if (r >= b) {
+            r -= b;
+            q |= 1<<i;
+        }
+    }
+    if (retquo)
+        return (as != bs) ? -q : q;
+    else
+        return as ? -r : r;
+}
+
+long long __lux_sdiv32(int32_t a, int32_t b)
+{
+    return __sdivmod32(a, b, 1);
+}
+
+long long __lux_smod32(int32_t a, int32_t b)
+{
+    return __sdivmod32(a, b, 0);
+}

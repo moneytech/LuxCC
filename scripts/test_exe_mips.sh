@@ -32,7 +32,7 @@ for file in $(find $TESTS_PATH/ | grep '\.c') ; do
 	if [ ! "$LUX_DONT_RECALC" = "1" ] ; then	
 		$CC2 $file -o $TESTS_PATH/test2 2>/dev/null
 		$TESTS_PATH/test2 >"${file%.*}.expect" 2>/dev/null
-		rm -f $TESTS_PATH/test2
+		rm -f $TESTS_PATH/test2		
 	fi
 	
 	# compare

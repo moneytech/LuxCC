@@ -101,7 +101,7 @@ static int local_offset;
 /*
  * MIPS stuff
  */
-#define MIPS_PARAM_END 8 /* 8($fp) */
+#define MIPS_ARM_PARAM_END 8 /* 8($fp) */
 /* --- */
 
 static Arena *id_table_arena;
@@ -343,13 +343,9 @@ static void new_atv(int vnid)
     atv_table[atv_counter++] = vnid;
 }
 
-int alignment_stack[64], alignment_stack_top = -1;
-
 static void ic_init(void)
 {
     location_init();
-
-    // memset(alignment_stack, 0xFF, sizeof(int)*64);
 
     /* init instruction buffer */
     if ((ic_instructions=malloc(IINIT*sizeof(Quad))) == NULL)
@@ -930,7 +926,7 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
             }
         } else if (target_arch == ARCH_X86) {
             local_offset -= 4;
-        } else if (target_arch == ARCH_MIPS) {
+        } else if (target_arch==ARCH_MIPS || target_arch==ARCH_ARM) {
             param_offs += 4;
         }
     }
@@ -984,7 +980,6 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
                     reg_param_offs -= 8;
                     --nfree_reg;
                 }
-
             }
 
             p = p->next;
@@ -1014,8 +1009,8 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
 
             p = p->next;
         }
-    } else if (target_arch == ARCH_MIPS) {
-        param_offs += MIPS_PARAM_END;
+    } else if (target_arch==ARCH_MIPS || target_arch==ARCH_ARM) {
+        param_offs += MIPS_ARM_PARAM_END;
         while (p != NULL) {
             if (p->decl->idl!=NULL && p->decl->idl->op==TOK_ELLIPSIS)
                 break; /* start of optional parameters (`...') */
@@ -1039,6 +1034,7 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
     emit_i(OpJmp, NULL, entry_label, 0, 0);
     emit_label(entry_label);
 
+    cg_node(curr_cg_node).is_leaf = TRUE;
     ic_compound_statement(header->attr.e, FALSE);
     emit_label(exit_label); /* return's target */
 
@@ -2029,27 +2025,51 @@ void ic_zero(unsigned id, unsigned offset, unsigned nb)
      */
     unsigned a1;
 
-    /* arg #3 */
-    a1 = new_address(IConstKind);
-    address(a1).cont.uval = nb;
-    emit_i(OpArg, &unsigned_ty, 0, a1, 0);
-    /* arg #2 */
-    a1 = new_address(IConstKind);
-    address(a1).cont.uval = 0;
-    emit_i(OpArg, &int_ty, 0, a1, 0);
-    /* arg #1 */
-    a1 = new_temp_addr();
-    emit_i(OpAddrOf, NULL, a1, id, 0);
-    if (offset > 0) {
-        unsigned a2, a3;
+    if (target_arch==ARCH_MIPS || target_arch==ARCH_ARM) {
+        /* arg #1 */
+        a1 = new_temp_addr();
+        emit_i(OpAddrOf, NULL, a1, id, 0);
+        if (offset > 0) {
+            unsigned a2, a3;
 
-        a2 = new_address(IConstKind);
-        address(a2).cont.uval = offset;
-        a3 = new_temp_addr();
-        emit_i(OpAdd, &long_ty, a3, a1, a2);
-        a1 = a3;
+            a2 = new_address(IConstKind);
+            address(a2).cont.uval = offset;
+            a3 = new_temp_addr();
+            emit_i(OpAdd, &long_ty, a3, a1, a2);
+            a1 = a3;
+        }
+        emit_i(OpArg, &int_ty, 0, a1, 0);
+        /* arg #2 */
+        a1 = new_address(IConstKind);
+        address(a1).cont.uval = 0;
+        emit_i(OpArg, &int_ty, 0, a1, 0);
+        /* arg #3 */
+        a1 = new_address(IConstKind);
+        address(a1).cont.uval = nb;
+        emit_i(OpArg, &unsigned_ty, 0, a1, 0);
+    } else {
+        /* arg #3 */
+        a1 = new_address(IConstKind);
+        address(a1).cont.uval = nb;
+        emit_i(OpArg, &unsigned_ty, 0, a1, 0);
+        /* arg #2 */
+        a1 = new_address(IConstKind);
+        address(a1).cont.uval = 0;
+        emit_i(OpArg, &int_ty, 0, a1, 0);
+        /* arg #1 */
+        a1 = new_temp_addr();
+        emit_i(OpAddrOf, NULL, a1, id, 0);
+        if (offset > 0) {
+            unsigned a2, a3;
+
+            a2 = new_address(IConstKind);
+            address(a2).cont.uval = offset;
+            a3 = new_temp_addr();
+            emit_i(OpAdd, &long_ty, a3, a1, a2);
+            a1 = a3;
+        }
+        emit_i(OpArg, &int_ty, 0, a1, 0);
     }
-    emit_i(OpArg, &int_ty, 0, a1, 0);
     /* do the call */
     a1 = new_address(IConstKind);
     address(a1).cont.val = 3;
@@ -2085,22 +2105,43 @@ void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned 
                 address(a1).cont.uval = n;
                 nfill = nelem-n;
             }
-            emit_i(OpArg, &int_ty, 0, a1, 0);
-            a1 = new_address(StrLitKind);
-            address(a1).cont.str = e->attr.str;
-            emit_i(OpArg, &int_ty, 0, a1, 0);
-            a1 = new_temp_addr();
-            emit_i(OpAddrOf, NULL, a1, id, 0);
-            if (offset > 0) {
-                unsigned a2, a3;
+            if (target_arch==ARCH_MIPS || target_arch==ARCH_ARM) {
+                unsigned a2;
 
-                a2 = new_address(IConstKind);
-                address(a2).cont.uval = offset;
-                a3 = new_temp_addr();
-                emit_i(OpAdd, &long_ty, a3, a1, a2);
-                a1 = a3;
+                a2 = new_temp_addr();
+                emit_i(OpAddrOf, NULL, a2, id, 0);
+                if (offset > 0) {
+                    unsigned a3, a4;
+
+                    a3 = new_address(IConstKind);
+                    address(a3).cont.uval = offset;
+                    a4 = new_temp_addr();
+                    emit_i(OpAdd, &long_ty, a4, a2, a3);
+                    a2 = a4;
+                }
+                emit_i(OpArg, &int_ty, 0, a2, 0);
+                a2 = new_address(StrLitKind);
+                address(a2).cont.str = e->attr.str;
+                emit_i(OpArg, &int_ty, 0, a2, 0);
+                emit_i(OpArg, &int_ty, 0, a1, 0);
+            } else {
+                emit_i(OpArg, &int_ty, 0, a1, 0);
+                a1 = new_address(StrLitKind);
+                address(a1).cont.str = e->attr.str;
+                emit_i(OpArg, &int_ty, 0, a1, 0);
+                a1 = new_temp_addr();
+                emit_i(OpAddrOf, NULL, a1, id, 0);
+                if (offset > 0) {
+                    unsigned a2, a3;
+
+                    a2 = new_address(IConstKind);
+                    address(a2).cont.uval = offset;
+                    a3 = new_temp_addr();
+                    emit_i(OpAdd, &long_ty, a3, a1, a2);
+                    a1 = a3;
+                }
+                emit_i(OpArg, &int_ty, 0, a1, 0);
             }
-            emit_i(OpArg, &int_ty, 0, a1, 0);
             a1 = new_address(IConstKind);
             address(a1).cont.val = 3;
             emit_i(OpCall, &int_ty, new_temp_addr(), memcpy_addr, a1);
@@ -2343,23 +2384,27 @@ static unsigned get_step_size(ExecNode *e)
     return a;
 }
 
+typedef struct {
+    unsigned addr;
+    Declaration *ty;
+    TokenNode *old_info;
+} ComputedArg;
+
 static int function_argument2(ExecNode *arg, DeclList *param)
 {
     int n;
-    int emit_pad_arg;
 
     if (arg == NULL)
         return 0;
 
     n = 1;
-    emit_pad_arg = FALSE;
     if (param->decl->idl==NULL || param->decl->idl->op!=TOK_ELLIPSIS) {
         /* this argument matches a declared (non-optional) parameter */
 
         Declaration *ty;
 
         if (arg->kind.exp == -1) {
-            ty = &arg->type;
+            ty = ((ComputedArg *)arg->info)->ty;
         } else {
             ty = param->decl;
             if (ty->idl!=NULL && ty->idl->op==TOK_ID) { /* skip identifier */
@@ -2369,48 +2414,77 @@ static int function_argument2(ExecNode *arg, DeclList *param)
             }
         }
 
-        if (alignment_stack[alignment_stack_top]) {
-            if ((get_sizeof(ty)%8) != 0)
-                alignment_stack[alignment_stack_top] = FALSE;
+        if (arg->kind.exp == -1) {
+            TokenNode *old_info;
+
+            emit_i(OpArg, ty, 0, ((ComputedArg *)arg->info)->addr, 0);
+            arg->kind.exp = OpExp;
+            old_info = ((ComputedArg *)arg->info)->old_info;
+            free(arg->info);
+            arg->info = old_info;
         } else {
-            if (get_alignment(ty) == 8)
-                emit_pad_arg = TRUE;
-            alignment_stack[alignment_stack_top] = TRUE;
+            emit_i(OpArg, ty, 0, ic_expr_convert(arg, ty), 0);
         }
 
         n += function_argument2(arg->sibling, param->next);
-        if (arg->kind.exp == -1)
-            emit_i(OpArg, ty, 0, (unsigned)arg->attr.val, 0);
-        else
-            emit_i(OpArg, ty, 0, ic_expr_convert(arg, ty), 0);
     } else {
         /* this and the arguments that follow match the `...' */
 
-        if (alignment_stack[alignment_stack_top]) {
-            if ((get_sizeof(&arg->type)%8) != 0)
-                alignment_stack[alignment_stack_top] = FALSE;
+        if (arg->kind.exp == -1) {
+            TokenNode *old_info;
+
+            emit_i(OpArg, &arg->type, 0, ((ComputedArg *)arg->info)->addr, 0);
+            arg->kind.exp = OpExp;
+            old_info = ((ComputedArg *)arg->info)->old_info;
+            free(arg->info);
+            arg->info = old_info;
         } else {
-            if (get_alignment(&arg->type) == 8)
-                emit_pad_arg = TRUE;
-            alignment_stack[alignment_stack_top] = TRUE;
+            emit_i(OpArg, &arg->type, 0, ic_expression(arg, FALSE, NOLAB, NOLAB), 0);
         }
 
         n += function_argument2(arg->sibling, param);
-        if (arg->kind.exp == -1)
-            emit_i(OpArg, &arg->type, 0, (unsigned)arg->attr.val, 0);
-        else
-            emit_i(OpArg, &arg->type, 0, ic_expression(arg, FALSE, NOLAB, NOLAB), 0);
-    }
-    if (emit_pad_arg) {
-        emit_i(OpArg, &int_ty, 0, false_addr, 0);
-        ++n;
     }
     return n;
 }
 
+static int contains_function_call(ExecNode *e)
+{
+    switch (e->kind.exp) {
+    case OpExp:
+        switch (e->attr.op) {
+        case TOK_CONDITIONAL:
+            return contains_function_call(e->child[0])
+            || contains_function_call(e->child[1])
+            || contains_function_call(e->child[2]);
+
+        case TOK_CAST: case TOK_PRE_INC:
+        case TOK_PRE_DEC: case TOK_POS_INC:
+        case TOK_POS_DEC: case TOK_ADDRESS_OF:
+        case TOK_INDIRECTION: case TOK_NEGATION:
+        case TOK_COMPLEMENT: case TOK_UNARY_MINUS:
+        case TOK_UNARY_PLUS: case TOK_SUBSCRIPT:
+        case TOK_DOT: case TOK_ARROW:
+            return contains_function_call(e->child[0]);
+
+        case TOK_FUNCTION:
+            return TRUE;
+
+        default:
+            return contains_function_call(e->child[0]) || contains_function_call(e->child[1]);
+        } /* switch (e->attr.op) */
+        break;
+    case IConstExp:
+    case StrLitExp:
+    case IdExp:
+        return FALSE;
+    } /* switch (e->kind.exp) */
+    assert(0);
+}
+
 /*
  * Along with function_argument2(), emit arguments for architectures
- * that align long long to 8 bytes.
+ * that align long long to 8 bytes. The arguments are computed from
+ * left to right.
  */
 static int aligned_function_argument(ExecNode *arg, DeclList *param)
 {
@@ -2418,6 +2492,7 @@ static int aligned_function_argument(ExecNode *arg, DeclList *param)
     ExecNode *ta;
     Declaration *ty;
     unsigned arg_addr;
+    ComputedArg *ca;
 
     /*
      * Emit function call expressions first. This is done so the
@@ -2431,7 +2506,7 @@ static int aligned_function_argument(ExecNode *arg, DeclList *param)
         if (tp->decl->idl==NULL || tp->decl->idl->op!=TOK_ELLIPSIS) {
             /* this argument matches a declared (non-optional) parameter */
 
-            if (ta->kind.exp!=OpExp || ta->attr.op!=TOK_FUNCTION) {
+            if (!contains_function_call(ta)) {
                 tp = tp->next;
                 goto next;
             }
@@ -2444,18 +2519,22 @@ static int aligned_function_argument(ExecNode *arg, DeclList *param)
             }
 
             arg_addr = ic_expr_convert(ta, ty);
-            ta->type = *ty;
             tp = tp->next;
         } else {
             /* this and the arguments that follow match the `...' */
 
-            if (ta->kind.exp!=OpExp || ta->attr.op!=TOK_FUNCTION)
+            if (!contains_function_call(ta))
                 goto next;
 
             arg_addr = ic_expression(ta, FALSE, NOLAB, NOLAB);
+            ty = NULL; /* not used */
         }
+        ca = malloc(sizeof(ComputedArg));
+        ca->ty = ty;
+        ca->addr = arg_addr;
+        ca->old_info = ta->info;
+        ta->info = (TokenNode *)ca;
         ta->kind.exp = -1; /* mark it as already computed */
-        ta->attr.val = arg_addr;
 next:   ta = ta->sibling;
     }
 
@@ -3118,18 +3197,20 @@ unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned fal
             unsigned a1, a2;
             DeclList *p;
 
+            cg_node(curr_cg_node).is_leaf = FALSE;
             emit_i(OpBegArg, NULL, 0, 0, 0);
 
             a2 = new_address(IConstKind);
-            if (target_arch == ARCH_MIPS) {
+            if (target_arch==ARCH_MIPS || target_arch==ARCH_ARM) {
                 Token cat;
 
-                alignment_stack[++alignment_stack_top] = TRUE;
-                /* take into account the 'return value address' (4 bytes) */
-                if ((cat=get_type_category(&e->type))==TOK_STRUCT || cat==TOK_UNION)
-                    alignment_stack[alignment_stack_top] = FALSE;
-                na = aligned_function_argument(e->child[1], e->locals);
-                --alignment_stack_top;
+                na = 0;
+                if ((cat=get_type_category(&e->type))==TOK_STRUCT || cat==TOK_UNION) {
+                    /* this is to accommodate the 'return value address' (note arg2!=0) */
+                    emit_i(OpArg, &e->type, 0, false_addr, 1);
+                    ++na;
+                }
+                na += aligned_function_argument(e->child[1], e->locals);
             } else {
                 na = function_argument(e->child[1], e->locals);
             }

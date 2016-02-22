@@ -67,7 +67,9 @@ int main(void)
     printf("%d\n", __alignof__(short));
     printf("%d\n", __alignof__(int));
     printf("%d\n", __alignof__(long));
-    printf("%d\n", __alignof__(long long));
+    /* gcc aligns long long's within structs to 4 bytes,
+       yet __alignof__(long long) returns 8. Weird... */
+    /*printf("%d\n", __alignof__(long long));*/
 
     f0(1152921504606846976LL);
     f1(10, 576460752303423488LL);

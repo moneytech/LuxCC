@@ -63,6 +63,12 @@
 
 
 
+
+
+
+
+
+
 <meta http-equiv="content-type" content="text/html; charset=utf-8"><meta http-equiv="content-type" content="text/html; charset=utf-8"></head><body><span style="font-family: monospace;"></span><span style="font-family: monospace;">Luxcc usage and internals documentation. I will try to maintain this document updated as things evolve.</span><br>
 <br>
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big>Index<br></big></big></big><span style="font-family: Times New Roman;">
@@ -84,8 +90,10 @@
       <li><span style="font-family: Times New Roman;"><a href="#LuxVM_Target">3.8.1 LuxVM Target</a></span></li>
       <li><span style="font-family: Times New Roman;"><a href="#x86_Target">3.8.2 x86 Target</a></span></li>
       <li><span style="font-family: Times New Roman;"><a href="#x64_Target">3.8.3 x64 Target</a></span></li>
-      <li><span style="font-family: Times New Roman;"><a href="#MIPS_Target">3.8.4 MIPS Target</a><br>
+      <li><span style="font-family: Times New Roman;"><a href="#MIPS_Target">3.8.4 MIPS Target</a></span></li>
+      <li><span style="font-family: Times New Roman;"><a href="#ARM_Target">3.8.5 ARM Target</a><br>
 </span></li>
+
 
 
 
@@ -1276,9 +1284,9 @@ int main(void)<br>
 <br>
 </span></div><big style="text-decoration: underline;"><big style="font-weight: bold;"><a name="MIPS_Target"></a>3.8.4 MIPS Target</big></big><br>
 <ul>
-  <li>The code generator tries to follow the o32 <a href="http://math-atlas.sourceforge.net/devel/assembly/mipsabi32.pdf">MIPS ABI</a>, albeit with some differences in what respect to stack frame layout (making it more x86-like) and alignment of objects (<span style="font-family: monospace;">long long</span>s are 4 byte aligned).<br>
+  <li>The code generator tries to follow the o32 <a href="http://math-atlas.sourceforge.net/devel/assembly/mipsabi32.pdf">MIPS ABI</a>, albeit with some differences in what respect to stack frame layout (making it more x86-like).<br>
   </li>
-  <li>The stack grows downwards and is 4-byte aligned. The layout of a stack frame is as follows:</li>
+  <li>The stack grows downwards and is 8-byte aligned. The layout of a stack frame is as follows:</li>
 </ul>
 <div style="margin-left: 40px;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; High addresses<br>
 <br>
@@ -1353,7 +1361,7 @@ int main(void)<br>
 
 
 
-<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- -4*X($fp)<br>
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- -8*X($fp)<br>
 </span><span style="font-family: monospace;">| space for temp struct/union (2)&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
 &nbsp; &nbsp; |</span><br style="font-family: monospace;">
 
@@ -1361,12 +1369,12 @@ int main(void)<br>
 
 
 
-<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- -4*X($fp)</span><span style="font-family: monospace;"></span><br>
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- -8*X($fp)</span><span style="font-family: monospace;"></span><br>
 <span style="font-family: monospace;">
-| ...&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+| argument build area&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
 &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
-&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; | } $sp moves around here<br>
-+</span><span style="font-family: monospace;">--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ <br>
+&nbsp; &nbsp;&nbsp;&nbsp; |<br>
++</span><span style="font-family: monospace;">--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- $sp<br>
 | ...&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
 &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
 &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
@@ -1392,13 +1400,20 @@ prologue/epilogue of the function respectively.</li>
 and if necessary the rest is passed on the stack. That is, a called
 function may receive a big object partially in registers and partially
 on the stack.</li>
+  <li><span style="font-family: monospace;">long long</span> arguments,
+when passed in registers, must be passed in an even/odd register pair
+($a0/$a1 or $a2/$a3). For example if the&nbsp; function is <span style="font-family: monospace;">foo(int a, long long b);</span>&nbsp;
+a will go into $a0, $1 will be wasted (unused), and b will go into
+$a2/$a3.<br>
+  </li>
+
   <li>A function returning a struct/union copies the return value into
 space allocated by the caller (a pointer to that space is passed by the
 caller through $a0 and the called function returns that same pointer in
 $v0).</li>
   <li>When a struct/union needs to be copied, the special function <span style="font-family: monospace;">__lux_mips_memcpy()</span> (<span style="font-family: monospace;">src/lib/mips_memcpy.asm</span>) is called.</li>
-  <li>Branch delay slots are filled with <span style="font-family: monospace;">nop</span> instructions.<br>
-  </li>
+  <li>Branch delay slots are filled with <span style="font-family: monospace;">nop</span> instructions.</li></ul><big style="text-decoration: underline;"><big style="font-weight: bold;"></big></big><ul>
+
 
 
 
@@ -1406,6 +1421,7 @@ $v0).</li>
     
   </ul>
 </ul>
+
 
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Compiler_Driver"></a>3.9 Compiler Driver<br>
 </big></big></big><br>

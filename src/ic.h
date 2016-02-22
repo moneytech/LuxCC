@@ -167,6 +167,7 @@ struct CGNode { /* CG node == function */
     BSet *modified_static_objects;
     unsigned size_of_local_area;
     unsigned PO, RPO;
+    int is_leaf;
     /*ParamNid *pn;*/
 };
 extern CGNode *cg_nodes;
