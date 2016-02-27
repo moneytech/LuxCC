@@ -27,7 +27,7 @@ typedef short MIPS_Reg;
 typedef struct { MIPS_Reg r1, r2; } MIPS_Reg2;
 
 static int pinned[MIPS_NREG] = {
-    1, 1, 1, 1, /* $zero, $at, $v0, $v1 */
+    1, 1, 0, 0, /* $zero, $at, $v0, $v1 */
     1, 1, 1, 1, /* $a0, $a1, $a2, $a3 */
     0, 0, 0, 0, /* $t0, $t1, $t2, $t3 */
     0, 0, 0, 0, /* $t4, $t5, $t6, $t7 */
@@ -1633,7 +1633,7 @@ static void mips_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
     Token cat;
     Declaration *ty;
 
-    if (arg2 == 1) { /* the 'return value address' is being requested */
+    if (arg2 != 0) { /* the 'return value address' is being requested */
         unsigned siz;
 
         siz = get_sizeof(instruction(i).type);
@@ -1680,6 +1680,7 @@ static void mips_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
             r = 4+arg_offs/4;
 
             if (nr <= ar) { /* full registers */
+                /* XXX: may read off limits at most 3 bytes */
                 mips_load(25, arg1);
                 switch (nr) {
                 case 1:
@@ -1702,7 +1703,7 @@ static void mips_arg(int i, unsigned tar, unsigned arg1, unsigned arg2)
                     break;
                 }
             } else { /* part registers, part stack */
-                int siz2;
+                unsigned siz2;
 
                 mips_load(25, arg1);
                 switch (ar) {

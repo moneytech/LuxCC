@@ -7,4 +7,5 @@ else
 fi
 /bin/bash scripts/testall_vm.sh
 /bin/bash scripts/testall_mips.sh
+/bin/bash scripts/testall_arm.sh
 src/tools/tester src/tests/analyze/*.c

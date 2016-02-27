@@ -14,7 +14,7 @@ typedef char *va_list;
 #define va_end(ap)
 #endif
 
-#ifdef __mips__
+#if defined __mips__ || defined __arm__
 #define va_start(ap, last)  (ap = (va_list)&last + _INTSIZEOF(last))
 #define va_arg(ap, type)    (*(type *)(ap = (va_list)(((unsigned)ap+__alignof__(type)-1)&~(__alignof__(type)-1)),\
                                        (ap += _INTSIZEOF(type)) - _INTSIZEOF(type)))

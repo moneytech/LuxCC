@@ -53,6 +53,27 @@ int string_printf(String *s, char *fmt, ...)
     return n;
 }
 
+int string_vprintf(String *s, char *fmt, va_list ap)
+{
+	va_list ap2;
+    unsigned avail, n;
+
+    va_copy(ap2, ap);
+    avail = s->buf_max-s->buf_next;
+    if ((n=vsnprintf(s->buf+s->buf_next, avail, fmt, ap)) >= avail) {
+        char *p;
+
+        if ((p=realloc(s->buf, s->buf_max*2+n)) == NULL)
+            return -1;
+        s->buf_max = s->buf_max*2+n;
+        s->buf = p;
+
+        vsprintf(s->buf+s->buf_next, fmt, ap2);
+    }
+    s->buf_next += n;
+    return n;
+}
+
 void string_write(String *s, FILE *fp)
 {
     fwrite(s->buf, 1, s->buf_next, fp);

@@ -2,6 +2,7 @@
 #define STR_H_
 
 #include <stdio.h>
+#include <stdarg.h>
 
 typedef struct String String;
 
@@ -12,6 +13,7 @@ typedef struct String String;
 String *string_new(unsigned siz);
 void string_free(String *s);
 int string_printf(String *s, char *fmt, ...);
+int string_vprintf(String *s, char *fmt, va_list ap);
 void string_write(String *s, FILE *fp);
 void string_clear(String *s);
 char *string_curr(String *s);

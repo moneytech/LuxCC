@@ -3206,9 +3206,11 @@ unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned fal
 
                 na = 0;
                 if ((cat=get_type_category(&e->type))==TOK_STRUCT || cat==TOK_UNION) {
-                    /* this is to accommodate the 'return value address' (note arg2!=0) */
-                    emit_i(OpArg, &e->type, 0, false_addr, 1);
-                    ++na;
+                    if (target_arch==ARCH_MIPS || get_sizeof(&e->type)>4) {
+                        /* this is to accommodate the 'return value address' (note arg2!=0) */
+                        emit_i(OpArg, &e->type, 0, false_addr, 1);
+                        ++na;
+                    }
                 }
                 na += aligned_function_argument(e->child[1], e->locals);
             } else {

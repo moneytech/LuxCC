@@ -69,6 +69,13 @@
 
 
 
+
+
+
+
+
+
+
 <meta http-equiv="content-type" content="text/html; charset=utf-8"><meta http-equiv="content-type" content="text/html; charset=utf-8"></head><body><span style="font-family: monospace;"></span><span style="font-family: monospace;">Luxcc usage and internals documentation. I will try to maintain this document updated as things evolve.</span><br>
 <br>
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big>Index<br></big></big></big><span style="font-family: Times New Roman;">
@@ -126,8 +133,10 @@ LuxCC currently targets:<br>
   </li>
   <li>LuxVM 32-bit</li>
   <li>LuxVM 64-bit</li>
-  <li>MIPS32<br>
+  <li>MIPS32</li>
+  <li>ARM<br>
   </li>
+
 
 </ul>The compiler is intended to run/target Linux only. Porting it to
 Windows would require some considerable amount of work (I suppose
@@ -159,8 +168,26 @@ respectively).<br>
 <span style="font-weight: bold;">musl libc</span><br>
 <br>
 Alternatively, you can use the lightweight <a href="http://www.musl-libc.org/">musl</a> standard library that is compatible with my linker (<span style="font-family: monospace;">luxld</span>) and works very well. If you have installed musl, you can indicate the driver to use it with the command-line switch <span style="font-family: monospace;">-use-musl</span>.<br>
-
-<br><big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Basic_usage"></a>2.2 Basic usage<br>
+<br>
+<span style="font-weight: bold;">MIPS/ARM dependencies</span><br>
+<br>
+QEMU user mode and ARM/MIPS libraries must be installed to compile and
+run programs for these platforms (currently I also depend on external
+linkers here).<br>
+For distros based on apt, everything required can be installed with a single command:<br>
+<br>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">sudo apt-get install qemu-user binutils-mips-linux-gnu binutils-arm-linux-gnueabi libc6-armel-cross libc6-dev-armel-cross</span><br>
+</div>
+<br>
+If binutils-mips-linux-gnu is not in your repos, try adding the following two lines to <span style="font-family: monospace;">/etc/apt/sources.list</span><br>
+<br>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">deb http://ftp.de.debian.org/debian squeeze main</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">deb http://www.emdebian.org/debian/ squeeze main</span><br>
+</div>
+<br>
+and doing a <span style="font-family: monospace;">sudo apt-get update</span>.<br>
+<br>
+<big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Basic_usage"></a>2.2 Basic usage<br>
 </big></big></big><br>
 In the following examples I will assume that you have run make install (replace <span style="font-family: monospace;">luxdvr</span> for <span style="font-family: monospace;">src/luxdvr/luxdvr</span> otherwise). I will also assume that the target is x86 (the default).<br>
 <br>
@@ -1389,7 +1416,7 @@ int main(void)<br>
 <ul>
   
   
-  <li>The generated code uses only temporary registers $t0-$t8 ($8-$15, $24) to
+  <li>The generated code uses only temporary registers $t0-$t8 ($8-$15, $24) and the return value registers $v0-$v1 ($2-$3) to
 calculate expressions. Register $t9 ($25) is used as a temporary
 register that is "always available". It does not use "saved registers"
 $s0-$s7 ($16-$23). The only callee save registers that are modified are
@@ -1412,7 +1439,159 @@ space allocated by the caller (a pointer to that space is passed by the
 caller through $a0 and the called function returns that same pointer in
 $v0).</li>
   <li>When a struct/union needs to be copied, the special function <span style="font-family: monospace;">__lux_mips_memcpy()</span> (<span style="font-family: monospace;">src/lib/mips_memcpy.asm</span>) is called.</li>
-  <li>Branch delay slots are filled with <span style="font-family: monospace;">nop</span> instructions.</li></ul><big style="text-decoration: underline;"><big style="font-weight: bold;"></big></big><ul>
+  <li>Branch delay slots are filled with <span style="font-family: monospace;">nop</span> instructions.</li></ul><big style="text-decoration: underline;"><big style="font-weight: bold;"><a name="ARM_Target"></a>3.8.5 ARM Target</big></big><br>
+<ul>
+  <li>The reference document is <a href="http://infocenter.arm.com/help/topic/com.arm.doc.ihi0042f/IHI0042F_aapcs.pdf">Procedure Call Standard for the ARM Architecture (AAPCS)</a>.</li>
+  <li>Register conventions: <br>
+  </li>
+  <ul>
+    <li>Callee save registers: r4-r11, r13.<br>
+    </li>
+    <li>Caller save registers: r0-r3, r12, r14.</li>
+    <li>r11 is used as the frame pointer (fp).</li>
+    <li>r12 is used as an auxiliary temporary register.<br>
+    </li>
+  </ul>
+
+  <li>The stack grows downwards and is 8-byte aligned. The layout of a stack frame is similar to that of MIPS and is as follows:</li>
+</ul>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">&nbsp;&nbsp;&nbsp; High addresses</span><br>
+<span style="font-family: monospace;">
+</span><br>
+<span style="font-family: monospace;">
+| ...&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; |</span><br>
+<span style="font-family: monospace;">
++</span><span style="font-family: monospace;">--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ </span><br>
+<span style="font-family: monospace;"></span><span style="font-family: monospace;">| second leftmost stack argument&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp;&nbsp; |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- </span><span style="font-family: monospace;">fp</span><span style="font-family: monospace;">+28</span><br>
+<span style="font-family: monospace;">
+</span><span style="font-family: monospace;">| leftmost (dword) stack argument&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp; |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- </span><span style="font-family: monospace;">fp</span><span style="font-family: monospace;">+24&nbsp; (also old sp)</span><br>
+<span style="font-family: monospace;">
+</span><span style="font-family: monospace;">| a4&nbsp; &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;
+|</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- </span><span style="font-family: monospace;">fp</span><span style="font-family: monospace;">+20</span><br>
+<span style="font-family: monospace;">
+</span><span style="font-family: monospace;">| a3&nbsp; &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;
+|</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- </span><span style="font-family: monospace;">fp</span><span style="font-family: monospace;">+16</span><br>
+<span style="font-family: monospace;">
+</span><span style="font-family: monospace;">| a2&nbsp; &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;
+|</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- </span><span style="font-family: monospace;">fp</span><span style="font-family: monospace;">+12</span><br>
+<span style="font-family: monospace;">
+</span><span style="font-family: monospace;">| a1 (1) &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;
+|</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- </span><span style="font-family: monospace;">fp</span><span style="font-family: monospace;">+8</span><br>
+<span style="font-family: monospace;">
+</span><span style="font-family: monospace;">| saved lr &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+</span><br>
+<span style="font-family: monospace;">
+</span><span style="font-family: monospace;">| saved fp &nbsp; &nbsp; &nbsp; &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- fp</span><br>
+<span style="font-family: monospace;">
+</span><span style="font-family: monospace;">| first (dword) local variable&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- </span><span style="font-family: monospace;">fp</span><span style="font-family: monospace;">-4</span><br>
+<span style="font-family: monospace;">
+</span><span style="font-family: monospace;">| ... (more vars and temps)&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- </span><span style="font-family: monospace;">fp</span><span style="font-family: monospace;">-8*X</span><br>
+<span style="font-family: monospace;">
+</span><span style="font-family: monospace;">| space for temp struct/union (2)&nbsp; &nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;
+&nbsp; &nbsp; |</span><br style="font-family: monospace;">
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- </span><span style="font-family: monospace;">fp</span><span style="font-family: monospace;">-8*X<br>
+</span><span style="font-family: monospace;">| callee save
+registers&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp; |<br>
++</span><span style="font-family: monospace;">--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- fp-8*X</span><br>
+<span style="font-family: monospace;">| argument build area&nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp; |<br>
+</span>
+<span style="font-family: monospace;">+--------------------------------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">----------</span><span style="font-family: monospace;">+ &lt;- sp</span><br>
+<span style="font-family: monospace;">
+| ...&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;
+&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; |</span><span style="font-family: monospace;"></span><span style="font-family: monospace;"></span><br>
+<span style="font-family: monospace;">
+</span><span style="font-family: monospace;">
+</span><br>
+<span style="font-family: monospace;">
+&nbsp;&nbsp;&nbsp; Low addresses</span><br>
+<span style="font-family: monospace;">
+</span><br>
+<span style="font-family: monospace;">
+</span>(1) olds the 'return value address' when the function returns a struct or union value.<br>
+
+(2) is present only when somewhere in the body of the function there is a call to a struct/union valued function.</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<ul>
 
 
 
@@ -1421,7 +1600,16 @@ $v0).</li>
     
   </ul>
 </ul>
-
+<ul>
+  <li>Some differences with respect to MIPS are:</li>
+  <ul>
+    <li>The
+caller doesn't allocate space for the callee to spill argument
+registers. Instead the callee allocate and free that space explicitly.</li>
+    <li>Structs and unions with size &lt;= 4 are returned in register r0 by value.<br>
+    </li>
+  </ul>
+</ul>
 
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Compiler_Driver"></a>3.9 Compiler Driver<br>
 </big></big></big><br>

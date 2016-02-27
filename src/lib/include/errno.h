@@ -5,7 +5,7 @@
 #define EILSEQ  84
 #define ERANGE  34
 
-#if defined __i386__ || defined __x86_64__ || defined __mips__
+#if defined __i386__ || defined __x86_64__ || defined __mips__ || defined __arm__
 
 /* Function to get address of global `errno' variable.  */
 extern int *__errno_location (void);

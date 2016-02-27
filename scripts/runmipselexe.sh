@@ -1,4 +1,7 @@
 #!/bin/bash
 
-# assume default installation paths
-mips-linux-gnu-qemu ~/mgc/embedded/codebench/mips-linux-gnu/libc/el/lib/ld.so.1 --library-path ~/mgc/embedded/codebench/mips-linux-gnu/libc/el/lib:~/mgc/embedded/codebench/mips-linux-gnu/libc/el/usr/lib $1
+if [ -d "src/lib/mips" ] ; then
+	qemu-mipsel src/lib/mips/ld.so.1 --library-path src/lib/mips $1
+else
+	qemu-mipsel /usr/local/lib/luxcc/mips/ld.so.1 --library-path /usr/local/lib/luxcc/mips $1
+fi

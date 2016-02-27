@@ -11,7 +11,7 @@
 #include "x86_cgen/x86_cgen.h"
 #include "x64_cgen/x64_cgen.h"
 #include "mips_cgen/mips_cgen.h"
-// #include "arm_cgen/arm_cgen.h"
+#include "arm_cgen/arm_cgen.h"
 #include "util.h"
 
 unsigned warning_count, error_count;
@@ -292,7 +292,7 @@ int main(int argc, char *argv[])
             case OPT_X86_TARGET:  x86_cgen(fp); break;
             case OPT_X64_TARGET:  x64_cgen(fp); break;
             case OPT_MIPS_TARGET: mips_cgen(fp); break;
-            // case OPT_ARM_TARGET: arm_cgen(fp); break;
+            case OPT_ARM_TARGET: arm_cgen(fp); break;
             }
 
             if (ic_function_to_print != NULL) free(ic_outpath);

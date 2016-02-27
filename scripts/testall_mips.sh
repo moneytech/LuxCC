@@ -4,12 +4,11 @@ echo "============================="
 echo " START MIPS TESTS"
 echo "============================="
 
-# assume default installation paths
-if [ ! -d "$HOME/mgc/embedded/codebench/mips-linux-gnu/" ] ; then
-	echo "cross-development environment not found."
-else
+if which qemu-mipsel >/dev/null ; then
 	scripts/self_mips.sh &&
 	scripts/test_exe_mips.sh
+else
+	echo "Cannot find qemu-mipsel"
 fi
 
 echo "============================="

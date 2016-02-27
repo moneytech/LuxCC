@@ -57,13 +57,15 @@ enum {
     DVR_X86_TARGET      = 0x080,
     DVR_X64_TARGET      = 0x100,
     DVR_MIPS_TARGET     = 0x200,
+    DVR_ARM_TARGET     = 0x400,
 };
 #define DVR_TARGETS \
     (DVR_VM32_TARGET \
     +DVR_VM64_TARGET \
     +DVR_X86_TARGET \
     +DVR_X64_TARGET \
-    +DVR_MIPS_TARGET)
+    +DVR_MIPS_TARGET \
+    +DVR_ARM_TARGET)
 
 typedef struct PathList PathList;
 struct PathList {
@@ -302,7 +304,8 @@ int main(int argc, char *argv[])
                     driver_flags |= DVR_ANALYZE_ONLY;
                 } else if (strncmp(argv[i], "-alt-asm-tmp", 12) == 0) {
                     /*
-                     * This option is only used when self-compiling in x86/x64.
+                     * This option is only used when self-compiling in targets
+                     * that use ELF as the object file format.
                      * It is necessary because otherwise the temporary asm file
                      * name that will be embedded into the object files will be
                      * different from one invocation to the other and the comparison
@@ -417,6 +420,9 @@ int main(int argc, char *argv[])
                 } else if (equal(m, "mips")) {
                     driver_flags &= ~DVR_TARGETS;
                     driver_flags |= DVR_MIPS_TARGET;
+                } else if (equal(m, "arm")) {
+                    driver_flags &= ~DVR_TARGETS;
+                    driver_flags |= DVR_ARM_TARGET;
                 }
             }
                 break;
@@ -484,7 +490,8 @@ ok_1:
                    "  vm64\n"
                    "  x86\n"
                    "  x64\n"
-                   "  mips\n");
+                   "  mips\n"
+                   "  arm\n");
         else
             printf("\nFor a list of valid arguments to -m, use -h -v.\n");
         goto done;
@@ -507,13 +514,24 @@ ok_1:
         p = strdup(strbuf(ld_cmd));
         string_clear(ld_cmd);
         parse_conf_file("mips.conf");
-        string_printf(ld_cmd, "mips-linux-gnu-gcc -EL %s", p);
-        // string_printf(ld_cmd, "%s %s", search_required("luxldmips", TRUE), p);
-        // string_printf(ld_cmd, " %s", search_required("crt_mips.o", FALSE));
+        string_printf(ld_cmd, "%s -melf32ltsmip %s", search_required("mips-linux-gnu-ld", TRUE), p);
+        string_printf(ld_cmd, " %s", search_required("crt1.o", FALSE));
+        string_printf(ld_cmd, " %s", search_required("crti.o", FALSE));
+        string_printf(ld_cmd, " %s", search_required("ld.so.1", FALSE));
         string_printf(ld_cmd, " %s", search_required("mips_memcpy.o", FALSE));
         string_printf(ld_cmd, " %s", search_required("liblux_mips.o", FALSE));
-        // string_printf(ld_cmd, " %s", search_required("libc_mips.o", FALSE));
         string_printf(as_cmd, "%s", search_required("luxasmips", TRUE));
+        free(p);
+    } else if (driver_flags & DVR_ARM_TARGET) {
+        p = strdup(strbuf(ld_cmd));
+        string_clear(ld_cmd);
+        parse_conf_file("arm.conf");
+        string_printf(ld_cmd, "%s -marmelf_linux_eabi -I/usr/arm-linux-gnueabi/lib/ld-linux.so.3 %s", search_required("arm-linux-gnueabi-ld", TRUE), p);
+        string_printf(ld_cmd, " %s", search_required("crt1.o", FALSE));
+        string_printf(ld_cmd, " %s", search_required("crti.o", FALSE));
+        string_printf(ld_cmd, " %s", search_required("arm_memcpy.o", FALSE));
+        string_printf(ld_cmd, " %s", search_required("liblux_arm.o", FALSE));
+        string_printf(as_cmd, "%s", search_required("luxasarm", TRUE));
         free(p);
     } else if (driver_flags & DVR_X64_TARGET) {
         p = strdup(strbuf(ld_cmd));
@@ -694,6 +712,10 @@ ok_1:
                     string_printf(ld_cmd, " %s", search_required("libc.so.6", FALSE));
                     string_printf(ld_cmd, " %s", search_required("libc_nonshared.a", FALSE));
                 }
+            } else if (driver_flags & (DVR_MIPS_TARGET+DVR_ARM_TARGET)) {
+                string_printf(ld_cmd, " %s", search_required("libc.so.6", FALSE));
+                string_printf(ld_cmd, " %s", search_required("crtn.o", FALSE));
+                string_printf(ld_cmd, " %s", search_required("libc_nonshared.a", FALSE));
             }
             exst = !!exec_cmd(ld_cmd);
         }
