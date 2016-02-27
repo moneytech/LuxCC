@@ -12,6 +12,7 @@ Currently supported targets are:
 * x86_64
 * LuxVM (32 & 64 bits)
 * MIPS32
+* ARM
 
 Note that this is a one-man project developed mainly for educational purposes (and fun!). It is not intended to replace any existing compiler/tool.
 
@@ -32,8 +33,6 @@ Do a quick test (run execution tests for the LuxVM target only)
 Test everything (run all tests for all targets)
 
     make fulltest
-
-The MIPS tests require of [Codebench (GNU/Linux release)](https://www.mentor.com/embedded-software/sourcery-tools/sourcery-codebench/editions/lite-edition/) to run.
 
 ## Documentation
 
