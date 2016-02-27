@@ -81,7 +81,7 @@ static void emit_raw_string(String *q, char *s);
 static String *func_body, *func_prolog, *func_epilog, *asm_decls, *str_lits;
 
 /*
- * Maximun pc relative offset used to load a literal from the literal pool.
+ * Maximum pc relative offset used to load a literal from the literal pool.
  * Assume that every instruction that is emitted needs to load a literal (the worst case).
  * It is set to this value so we have 2048 bytes to reach the start of the pool
  * and 2048 bytes to address a literal within it.
