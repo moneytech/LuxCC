@@ -14,8 +14,6 @@ Currently supported targets are:
 * MIPS32
 * ARM
 
-Note that this is a one-man project developed mainly for educational purposes (and fun!). It is not intended to replace any existing compiler/tool.
-
 ## Quickstart
 
 Build everything
@@ -37,7 +35,3 @@ Test everything (run all tests for all targets)
 ## Documentation
 
 See `doc/index.html` for in-depth information on usage, internals, and more.
-
-## Contact
-
-<lugon399@gmail.com>
