@@ -28,7 +28,11 @@ install:
 	cp src/lib/*.o src/luxdvr/*.conf /usr/local/lib/luxcc/
 	cp -r src/lib/include/ /usr/local/lib/luxcc/
 uninstall:
-	rm -f /usr/local/bin/luxcc /usr/local/bin/luxdvr /usr/local/bin/luxas /usr/local/bin/luxld32 /usr/local/bin/luxld64 /usr/local/bin/luxvm /usr/local/bin/luxasvm /usr/local/bin/luxldvm /usr/local/bin/luxasmips /usr/local/bin/luxasarm
+	rm -f /usr/local/bin/luxcc /usr/local/bin/luxdvr
+	rm -f /usr/local/bin/luxvm /usr/local/bin/luxasvm /usr/local/bin/luxldvm
+	rm -f /usr/local/bin/luxas /usr/local/bin/luxld32 /usr/local/bin/luxld64   
+	rm -f /usr/local/bin/luxasmips 
+	rm -f /usr/local/bin/luxasarm
 	rm -rf /usr/local/lib/luxcc
 test:
 	/bin/bash scripts/test_exe_vm.sh

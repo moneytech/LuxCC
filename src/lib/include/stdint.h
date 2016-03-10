@@ -98,7 +98,7 @@ typedef unsigned long long int uintmax_t;
 /* Minimum of signed integral types.  */
 # define INT8_MIN       (-128)
 # define INT16_MIN      (-32768)
-# define INT32_MIN      (-2147483648)
+# define INT32_MIN      (-2147483647-1)
 #ifdef __LP64__
 # define INT64_MIN      (-9223372036854775807L-1L)
 #else
@@ -128,7 +128,7 @@ typedef unsigned long long int uintmax_t;
 /* Minimum of signed integral types having a minimum size.  */
 # define INT_LEAST8_MIN     (-128)
 # define INT_LEAST16_MIN    (-32768)
-# define INT_LEAST32_MIN    (-2147483648)
+# define INT_LEAST32_MIN    (-2147483647-1)
 #ifdef __LP64__
 # define INT_LEAST64_MIN    (-9223372036854775807L-1L)
 #else
@@ -161,8 +161,8 @@ typedef unsigned long long int uintmax_t;
 #  define INT_FAST16_MIN    (-9223372036854775807L-1L)
 #  define INT_FAST32_MIN    (-9223372036854775807L-1L)
 #else
-#  define INT_FAST16_MIN    (-2147483648)
-#  define INT_FAST32_MIN    (-2147483648)
+#  define INT_FAST16_MIN    (-2147483647-1)
+#  define INT_FAST32_MIN    (-2147483647-1)
 #endif
 #ifdef __LP64__
 # define INT_FAST64_MIN     (-9223372036854775807L-1L)
@@ -206,7 +206,7 @@ typedef unsigned long long int uintmax_t;
 #  define INTPTR_MAX        (9223372036854775807L)
 #  define UINTPTR_MAX       (18446744073709551615UL)
 #else
-#  define INTPTR_MIN        (-2147483648)
+#  define INTPTR_MIN        (-2147483647-1)
 #  define INTPTR_MAX        (2147483647)
 #  define UINTPTR_MAX       (4294967295U)
 #endif
@@ -240,7 +240,7 @@ typedef unsigned long long int uintmax_t;
 #  define PTRDIFF_MIN       (-9223372036854775807L-1L)
 #  define PTRDIFF_MAX       (9223372036854775807L)
 #else
-#  define PTRDIFF_MIN       (-2147483648)
+#  define PTRDIFF_MIN       (-2147483647-1)
 #  define PTRDIFF_MAX       (2147483647)
 #endif
 
