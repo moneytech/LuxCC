@@ -2806,22 +2806,32 @@ unsigned ic_expression(ExecNode *e, int is_addr, unsigned true_lab, unsigned fal
         }
 
         case TOK_CONDITIONAL: {
-            unsigned a;
             unsigned L1, L2, L3;
 
             L1 = new_label();
             L2 = new_label();
             L3 = new_label();
 
-            a = new_temp_addr();
             ic_controlling_expression(e->child[0], L1, L2);
             emit_label(L1);
-            emit_i(OpAsn, &e->type, a, ic_expr_convert(e->child[1], &e->type), 0);
-            emit_i(OpJmp, NULL, L3, 0, 0);
-            emit_label(L2);
-            emit_i(OpAsn, &e->type, a, ic_expr_convert(e->child[2], &e->type), 0);
-            emit_label(L3);
-            return a;
+            if (get_type_category(&e->type) != TOK_VOID) {
+                unsigned a;
+
+                a = new_temp_addr();
+                emit_i(OpAsn, &e->type, a, ic_expr_convert(e->child[1], &e->type), 0);
+                emit_i(OpJmp, NULL, L3, 0, 0);
+                emit_label(L2);
+                emit_i(OpAsn, &e->type, a, ic_expr_convert(e->child[2], &e->type), 0);
+                emit_label(L3);
+                return a;
+            } else {
+                ic_expression(e->child[1], FALSE, NOLAB, NOLAB);
+                emit_i(OpJmp, NULL, L3, 0, 0);
+                emit_label(L2);
+                ic_expression(e->child[2], FALSE, NOLAB, NOLAB);
+                emit_label(L3);
+                return 0;
+            }
         }
 
         case TOK_OR: {

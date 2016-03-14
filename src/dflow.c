@@ -94,7 +94,7 @@ void reach_init_block(unsigned b, unsigned ninstr, unsigned first)
     }
     cfg_node(b).DEDef = DEDef;
     cfg_node(b).DefKill = DefKill;
-    free(defined_names);
+    bset_free(defined_names);
 }
 
 void dflow_ReachIn(unsigned fn, int is_last)
