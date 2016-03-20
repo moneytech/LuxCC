@@ -1,7 +1,11 @@
-COMPILER="scripts/runarmelexe.sh src/tests/self/luxcc1 -q -marm"
+#COMPILER="scripts/runarmelexe.sh src/tests/self/luxcc1 -q -marm -D_GLIBC"
+COMPILER="qemu-arm src/tests/self/luxcc1 -q -marm"
 ASSEMBLER=src/luxarm/luxasarm
-LINKER="arm-linux-gnueabi-gcc -EL -march=armv6 -marm"
-RUNC="src/lib/arm_memcpy.o src/lib/liblux_arm.o"
+#LINKER="arm-linux-gnueabi-gcc -march=armv6"
+LINKER="arm-linux-gnueabi-ld -marmelf_linux_eabi -I/usr/arm-linux-gnueabi/lib/ld-linux.so.3"
+#RUNC="src/lib/obj/arm/luxmemcpy.o src/lib/obj/arm/liblux.o"
+RUNC="src/lib/obj/arm/crt0.o src/lib/obj/arm/luxmemcpy.o src/lib/obj/arm/liblux.o"
+LIBC="src/lib/obj/arm/libc.a"
 OUTPROG=luxcc2
 
 fail_counter=0
@@ -33,7 +37,8 @@ done
 
 # link
 if [ "$fail_counter" = "0" ]; then
-	$LINKER -o src/tests/self/$OUTPROG $RUNC $object_files
+	#$LINKER -o src/tests/self/$OUTPROG $RUNC $object_files
+	$LINKER -o src/tests/self/$OUTPROG $RUNC $object_files $LIBC
 	exit $?
 fi
 

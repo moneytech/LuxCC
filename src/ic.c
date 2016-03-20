@@ -926,7 +926,7 @@ void ic_function_definition(TypeExp *decl_specs, TypeExp *header)
             }
         } else if (target_arch == ARCH_X86) {
             local_offset -= 4;
-        } else if (target_arch==ARCH_MIPS || target_arch==ARCH_ARM) {
+        } else if (target_arch==ARCH_MIPS || (target_arch==ARCH_ARM && get_sizeof(&ty)>4)) {
             param_offs += 4;
         }
     }
@@ -2074,6 +2074,7 @@ void ic_zero(unsigned id, unsigned offset, unsigned nb)
     a1 = new_address(IConstKind);
     address(a1).cont.val = 3;
     emit_i(OpCall, &int_ty, new_temp_addr(), memset_addr, a1);
+    cg_node(curr_cg_node).is_leaf = FALSE;
 }
 
 void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned offset)
@@ -2147,6 +2148,7 @@ void ic_auto_init(TypeExp *ds, TypeExp *dct, ExecNode *e, unsigned id, unsigned 
             emit_i(OpCall, &int_ty, new_temp_addr(), memcpy_addr, a1);
             if (nfill > 0)
                 ic_zero(id, offset+n, nfill);
+            cg_node(curr_cg_node).is_leaf = FALSE;
         } else {
             unsigned elem_size;
             Declaration ty;

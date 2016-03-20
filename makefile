@@ -25,13 +25,16 @@ install:
 	cp src/luxmips/luxasmips /usr/local/bin
 	cp src/luxarm/luxasarm /usr/local/bin
 	mkdir -p /usr/local/lib/luxcc
-	cp src/lib/*.o src/luxdvr/*.conf /usr/local/lib/luxcc/
+	cp -r src/lib/obj/ /usr/local/lib/luxcc/
+	cp src/luxdvr/*.conf /usr/local/lib/luxcc/
 	cp -r src/lib/include/ /usr/local/lib/luxcc/
+	mkdir -p /usr/local/lib/luxcc/vm_lib
+	cp -r src/lib/vm_lib/include/ /usr/local/lib/luxcc/vm_lib/
 uninstall:
 	rm -f /usr/local/bin/luxcc /usr/local/bin/luxdvr
 	rm -f /usr/local/bin/luxvm /usr/local/bin/luxasvm /usr/local/bin/luxldvm
-	rm -f /usr/local/bin/luxas /usr/local/bin/luxld32 /usr/local/bin/luxld64   
-	rm -f /usr/local/bin/luxasmips 
+	rm -f /usr/local/bin/luxas /usr/local/bin/luxld32 /usr/local/bin/luxld64
+	rm -f /usr/local/bin/luxasmips
 	rm -f /usr/local/bin/luxasarm
 	rm -rf /usr/local/lib/luxcc
 test:
@@ -45,6 +48,7 @@ clean:
 	make -C src/luxvm  clean
 	make -C src/luxdvr clean
 	make -C src/lib	   clean
+	make -C src/lib/vm_lib clean
 	make -C src/tools  clean
 	make -C src/luxmips clean
 	make -C src/luxarm clean

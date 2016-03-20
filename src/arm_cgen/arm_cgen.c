@@ -2408,7 +2408,7 @@ void arm_function_definition(TypeExp *decl_specs, TypeExp *header)
     if (!first_func)
         emit_prolog("\n");
     else
-        emit_prolog("$$a:");
+        emit_prologln("$$a:");
     emit_prologln("; ==== start of definition of function `%s' ====", curr_func);
     SET_SEGMENT(TEXT_SEG, emit_prologln);
     if ((scs=get_sto_class_spec(decl_specs))==NULL || scs->op!=TOK_STATIC)
@@ -2515,12 +2515,12 @@ void arm_function_definition(TypeExp *decl_specs, TypeExp *header)
     /*memset(pinned, 0, sizeof(int)*ARM_NREG);*/
     memset(modified, 0, sizeof(int)*ARM_NREG);
     free_all_temps();
-#if 1
+#if 0
     memset(addr_descr_tab, -1, nid_counter*sizeof(int));
     memset(reg_descr_tab, 0, sizeof(unsigned)*ARM_NREG);
 #endif
     struct_union_return = qword_return = FALSE;
-#if 1
+#if 0
     dump_addr_descr_tab();
     dump_reg_descr_tab();
 #endif
@@ -2654,8 +2654,16 @@ void arm_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
          */
         DeclList *d;
         int full_init;
+        Declaration ty;
+        unsigned align;
 
         e = e->child[0];
+
+        /* align struct beginning */
+        ty.decl_specs = ts;
+        ty.idl = NULL;
+        if ((align=get_alignment(&ty)) > 1)
+            emit_declln(".align #%u", align);
 
         /* handle members with explicit initializer */
         d = ts->attr.dl;
@@ -2700,7 +2708,16 @@ void arm_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
         /*
          * Union.
          */
+        Declaration ty;
+        unsigned align;
+
         e = e->child[0];
+
+        /* align union beginning */
+        ty.decl_specs = ts;
+        ty.idl = NULL;
+        if ((align=get_alignment(&ty)) > 1)
+            emit_declln(".align #%u", align);
 
         /* initialize the first named member */
         arm_static_init(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e);
@@ -2823,8 +2840,10 @@ void arm_cgen(FILE *outf)
             emit_declln(".extern %s", ed->declarator->str);
     }
     /* the front-end may emit calls to memcpy/memset */
-    emit_declln(".extern memcpy");
-    emit_declln(".extern memset");
+    if (include_libc) {
+        emit_declln(".extern memcpy");
+        emit_declln(".extern memset");
+    }
     emit_declln(".extern __lux_arm_memcpy");
     /* liblux functions */
     if (include_liblux) {

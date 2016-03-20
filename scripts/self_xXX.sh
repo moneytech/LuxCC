@@ -13,7 +13,7 @@ CGENS="$TEST_PATH/vm32_cgen/*.c $TEST_PATH/vm64_cgen/*.c $TEST_PATH/x86_cgen/*.c
 echo "== Self-compilation test begins... =="
 
 # phase 1
-$DVR $CFLAGS $TEST_PATH/*.c $CGENS -o $CC1 #&>/dev/null
+$DVR $CFLAGS $TEST_PATH/*.c $CGENS -o $CC1 &>/dev/null
 if [ "$?" != "0" ] ; then
 	echo "Phase 1 failed!"
 	exit 1

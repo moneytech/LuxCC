@@ -4,11 +4,14 @@ echo "============================="
 echo " START MIPS TESTS"
 echo "============================="
 
-if which qemu-mipsel >/dev/null ; then
+# assume default installation paths
+if [ ! -d "/usr/mipsel-linux-gnu/" ] ; then
+	echo "Cannot find MIPS cross libraries"
+elif ! which qemu-mipsel >/dev/null ; then
+	echo "Cannot find qemu-mipsel"
+else
 	scripts/self_mips.sh &&
 	scripts/test_exe_mips.sh
-else
-	echo "Cannot find qemu-mipsel"
 fi
 
 echo "============================="

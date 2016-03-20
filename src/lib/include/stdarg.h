@@ -22,13 +22,6 @@ typedef char *va_list;
 #define va_end(ap)
 #endif
 
-#ifdef __LuxVM__
-#define va_start(ap, last)  (ap = (char *)&(last))
-#define va_arg(ap, type)    (ap-=_INTSIZEOF(type), *(type *)(ap))
-#define va_copy(dest, src)  (dest) = (src)
-#define va_end(ap)
-#endif
-
 #ifdef __x86_64__
 /*
  * Reference: AMD64-ABI, section 3.5.7.

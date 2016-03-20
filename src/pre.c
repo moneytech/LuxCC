@@ -1165,18 +1165,18 @@ static PreTokenNode *copy_arg(PreTokenNode **a, ParaListKind kind)
     int pn; /* parenthesis nesting level counter */
     PreTokenNode *copy, *temp;
 
-    if (equal((*a)->lexeme, ",") || equal((*a)->lexeme, ")"))
+    if ((*a)->token==PRE_TOK_PUNCTUATOR && (equal((*a)->lexeme, ",") || equal((*a)->lexeme, ")")))
         ERROR("empty macro argument");
 
     pn = 0;
-    if (equal((*a)->lexeme, "("))
+    if ((*a)->token==PRE_TOK_PUNCTUATOR && equal((*a)->lexeme, "("))
         ++pn;
     copy = temp = new_node((*a)->token, (*a)->lexeme);
     (*a) = (*a)->next;
 
     while (pn>0 || ((kind==VAR_LIST||not_equal((*a)->lexeme, ",")) && not_equal((*a)->lexeme, ")"))) {
-        if (equal((*a)->lexeme, "(")) pn++;
-        else if (equal((*a)->lexeme, ")")) pn--;
+        if ((*a)->token==PRE_TOK_PUNCTUATOR && equal((*a)->lexeme, "(")) pn++;
+        else if ((*a)->token==PRE_TOK_PUNCTUATOR && equal((*a)->lexeme, ")")) pn--;
         else if ((*a)->token == PRE_TOK_EOF) ERROR("missing `)' in macro call");
         temp->next = new_node((*a)->token, (*a)->lexeme);
         temp = temp->next;

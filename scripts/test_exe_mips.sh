@@ -1,7 +1,9 @@
 #!/bin/bash
-CC1="src/luxdvr/luxdvr -q -mmips"	# compiler being tested
-CC2="gcc -m32"      			# reference compiler
-EMU="scripts/runmipselexe.sh"
+#CC1="src/luxdvr/luxdvr -q -mmips -use-glibc" # compiler being tested
+CC1="src/luxdvr/luxdvr -q -mmips" # compiler being tested
+CC2="gcc -m32" # reference compiler
+#EMU="scripts/runmipselexe.sh"
+EMU=qemu-mipsel
 TESTS_PATH=src/tests/execute
 
 fail_counter=0

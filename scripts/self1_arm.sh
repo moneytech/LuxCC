@@ -1,7 +1,11 @@
+#COMPILER="src/luxcc -q -marm -D_GLIBC"
 COMPILER="src/luxcc -q -marm"
 ASSEMBLER=src/luxarm/luxasarm
-LINKER="arm-linux-gnueabi-gcc -EL -march=armv6 -marm"
-RUNC="src/lib/arm_memcpy.o src/lib/liblux_arm.o"
+#LINKER="arm-linux-gnueabi-gcc -march=armv6"
+LINKER="arm-linux-gnueabi-ld -marmelf_linux_eabi -I/usr/arm-linux-gnueabi/lib/ld-linux.so.3"
+#RUNC="src/lib/obj/arm/luxmemcpy.o src/lib/obj/arm/liblux.o"
+RUNC="src/lib/obj/arm/crt0.o src/lib/obj/arm/luxmemcpy.o src/lib/obj/arm/liblux.o"
+LIBC="src/lib/obj/arm/libc.a"
 OUTPROG=luxcc1
 
 fail_counter=0
@@ -20,7 +24,7 @@ for file in $(find src/tests/self/ | grep '\.c') ; do
 	fi
 
 	# assemble
-	$ASSEMBLER "${file%.*}.s" -o "${file%.*}.o" #2>/dev/null
+	$ASSEMBLER "${file%.*}.s" -o "${file%.*}.o" 2>/dev/null
 	if [ "$?" != "0" ] ; then
 		echo "Assembler failed with file $file"
 		let fail_counter=fail_counter+1
@@ -33,7 +37,8 @@ done
 
 # link
 if [ "$fail_counter" = "0" ]; then
-	$LINKER -o src/tests/self/$OUTPROG $RUNC $object_files
+	#$LINKER -o src/tests/self/$OUTPROG $RUNC $object_files
+	$LINKER -o src/tests/self/$OUTPROG $RUNC $object_files $LIBC
 	exit $?
 fi
 

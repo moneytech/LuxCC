@@ -4,71 +4,37 @@
 #include <stddef.h> /* for size_t, NULL */
 #include <stdarg.h> /* for va_list */
 
-// #define _IOFBF
-// #define _IOLBF
-// #define _IONBF
+#define _IOFBF  0x01
+#define _IOLBF  0x02
+#define _IONBF  0x04
 
-// #define BUFSIZ
+#define EOF             (-1)
+#define BUFSIZ          8192
+#define FOPEN_MAX       16
+#define FILENAME_MAX    4096
+#define L_tmpnam        32
 
-#define EOF         (-1)
+#define SEEK_SET        0
+#define SEEK_CUR        1
+#define SEEK_END        2
 
-// #define FOPEN_MAX
-// #define FILENAME_MAX
-// #define L_tmpnam
-
-#define SEEK_SET    0
-#define SEEK_CUR    1
-#define SEEK_END    2
-
-// #define TMP_MAX
+#define TMP_MAX         5000
 
 typedef struct _FILE FILE;
-typedef unsigned long fpos_t;
+typedef long fpos_t;
 
 extern FILE *stdin, *stdout, *stderr;
-#define stdin  stdin
-#define stdout stdout
-#define stderr stderr
+#define stdin   stdin
+#define stdout  stdout
+#define stderr  stderr
 
-#ifdef __LuxVM__
-
-/* File access functions */
-int fclose(FILE *stream);
-FILE *fopen(const char *filename, const char *mode);
-
-/* Formatted input/output functions */
-int fprintf(FILE *stream, const char *format, ...);
-int printf(const char *format, ...);
-int snprintf(char *str, size_t size, const char *format, ...);
-int sprintf(char *s, const char *format, ...);
-int sscanf(const char *s, const char *format, ...);
-int vfprintf(FILE *stream, const char *format, va_list ap);
-int vsnprintf(char *str, size_t size, const char *format, va_list ap);
-int vsprintf(char *s, const char *format, va_list ap);
-int vsscanf(const char *str, const char *format, va_list ap);
-
-/* Character input/output functions */
-int fgetc(FILE *stream);
-char *fgets(char *s, int n, FILE *stream);
-int fputc(int c, FILE *stream);
-
-/* Direct input/output functions */
-size_t fread(void *ptr, size_t size, size_t nelem, FILE *stream);
-size_t fwrite(const void *ptr, size_t size, size_t nelem, FILE *stream);
-
-/* File positioning functions */
-int fseek(FILE *stream, long offset, int mode);
-long ftell(FILE *stream);
-void rewind(FILE *stream);
-
-/* Error-handling functions */
-int ferror(FILE *stream);
-
-#else
+// ===========
+// Standard C
+// ===========
 
 /* Operations on files */
 int remove(const char *filename);
-int rename(const char *old, const char *new);
+int rename(const char *oldpath, const char *newpath);
 FILE *tmpfile(void);
 char *tmpnam(char *s);
 
@@ -98,16 +64,16 @@ int vsscanf(const char *str, const char *format, va_list ap);
 
 /* Character input/output functions */
 int fgetc(FILE *stream);
-char *fgets(char *s, int n, FILE *stream);
 int fputc(int c, FILE *stream);
+char *fgets(char *s, int n, FILE *stream);
 int fputs(const char *s, FILE *stream);
-int getc(FILE *stream);
-int getchar(void);
 char *gets(char *s);
-int putc(int c, FILE *stream);
-int putchar(int c);
 int puts(const char *s);
 int ungetc(int c, FILE *stream);
+int getc(FILE *stream);
+int getchar(void);
+int putc(int c, FILE *stream);
+int putchar(int c);
 
 /* Direct input/output functions */
 size_t fread(void *ptr, size_t size, size_t nelem, FILE *stream);
@@ -115,7 +81,7 @@ size_t fwrite(const void *ptr, size_t size, size_t nelem, FILE *stream);
 
 /* File positioning functions */
 int fgetpos(FILE *stream, fpos_t *pos);
-int fseek(FILE *stream, long offset, int mode);
+int fseek(FILE *stream, long offset, int whence);
 int fsetpos(FILE *stream, const fpos_t *pos);
 long ftell(FILE *stream);
 void rewind(FILE *stream);
@@ -126,9 +92,11 @@ int feof(FILE *stream);
 int ferror(FILE *stream);
 void perror(const char *s);
 
-#endif
+// ===========
+// POSIX
+// ===========
 
-/* POSIX */
+/*FILE *fdopen(int fd, const char *mode);*/
 int fileno(FILE *stream);
 
 #endif

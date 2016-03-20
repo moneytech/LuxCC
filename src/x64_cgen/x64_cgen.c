@@ -2422,8 +2422,16 @@ void x64_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
          */
         DeclList *d;
         int full_init;
+        Declaration ty;
+        unsigned align;
 
         e = e->child[0];
+
+        /* align struct beginning */
+        ty.decl_specs = ts;
+        ty.idl = NULL;
+        if ((align=get_alignment(&ty)) > 1)
+            emit_declln("align %u", align);
 
         /* handle members with explicit initializer */
         d = ts->attr.dl;
@@ -2468,7 +2476,16 @@ void x64_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
         /*
          * Union.
          */
+        Declaration ty;
+        unsigned align;
+
         e = e->child[0];
+
+        /* align union beginning */
+        ty.decl_specs = ts;
+        ty.idl = NULL;
+        if ((align=get_alignment(&ty)) > 1)
+            emit_declln("align %u", align);
 
         /* initialize the first named member */
         x64_static_init(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e);
@@ -2585,11 +2602,13 @@ void x64_cgen(FILE *outf)
         tmp = nid_counter;
         get_var_nid(ed->declarator->str, 0);
         if (tmp == nid_counter)
-            emit_declln("extern %s", ed->declarator->str);
+            emit_declln("extern $%s", ed->declarator->str);
     }
     /* the front-end may emit calls to memcpy/memset */
-    emit_declln("extern memcpy");
-    emit_declln("extern memset");
+    if (include_libc) {
+        emit_declln("extern $memcpy");
+        emit_declln("extern $memset");
+    }
 
     string_write(asm_decls, x64_output_file);
     string_free(asm_decls);

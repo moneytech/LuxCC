@@ -1,5 +1,7 @@
 /*
-    LuxVM 64-bit.
+  LuxVM 64-bit.
+
+[!] Note that this is meant to be run on a 64-bit host system where pointers are 64-bit long.
 */
 #include "vm.h"
 #include <stdio.h>

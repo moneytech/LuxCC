@@ -1660,8 +1660,16 @@ static void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
          */
         DeclList *d;
         int full_init;
+        Declaration ty;
+        unsigned align;
 
         e = e->child[0];
+
+        /* align struct beginning */
+        ty.decl_specs = ts;
+        ty.idl = NULL;
+        if ((align=get_alignment(&ty)) > 1)
+            emitln(".align %u", align);
 
         /*
          * Handle members with explicit initializer.
@@ -1710,7 +1718,16 @@ static void do_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
         /*
          * Union.
          */
+        Declaration ty;
+        unsigned align;
+
         e = e->child[0];
+
+        /* align union beginning */
+        ty.decl_specs = ts;
+        ty.idl = NULL;
+        if ((align=get_alignment(&ty)) > 1)
+            emitln(".align %u", align);
 
         /* initialize the first named member */
         do_static_init(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e);

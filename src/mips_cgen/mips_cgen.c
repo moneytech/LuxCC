@@ -249,7 +249,49 @@ MIPS_Reg get_reg(int i)
         return addr_reg1(arg1);
     return get_reg0();
 }
-
+/*
+$get_reg2:
+stmdb r13!, {r0, r1, r2, r3}
+stmdb r13!, {r11, r14}
+mov r11, r13
+sub r13, r13, #32
+; save registers
+sub r12, r11, #32
+stmia r12, {r4, r5, r6}
+get_reg2@L0:
+; arg1=ic_instructions[i].arg1;
+ldr r4, [r11, #12]
+ldr r5, =#20
+mul r4, r4, r5
+ldr r5, =ic_instructions
+ldr r5, [r5]
+add r5, r5, r4
+add r5, r5, #12
+ldr r5, [r5]
+; if(!ic_addresses[arg1].kind==0||ic_addresses[arg1].kind==1&&!liveness_and_next_use[i]&2)
+mov r4, r5
+ldr r6, =#24
+mul r4, r4, r6
+str r5, [r11, -#8]
+ldr r5, =ic_addresses
+ldr r5, [r5]
+add r5, r5, r4
+ldr r5, [r5]
+cmp r5, #0
+beq get_reg2@L6
+get_reg2@L7:
+ldr r4, [r11, -#8]
+ldr r5, =#24
+mul r4, r4, r5
+ldr r5, =ic_addresses
+ldr r5, [r5]
+add r5, r5, r4
+ldr r5, [r5]
+cmp r5, #1
+bne get_reg2@L8
+get_reg2@L6:
+ldr r4, =#1
+*/
 MIPS_Reg2 get_reg2(int i)
 {
     MIPS_Reg2 r;
@@ -2275,8 +2317,16 @@ void mips_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
          */
         DeclList *d;
         int full_init;
+        Declaration ty;
+        unsigned align;
 
         e = e->child[0];
+
+        /* align struct beginning */
+        ty.decl_specs = ts;
+        ty.idl = NULL;
+        if ((align=get_alignment(&ty)) > 1)
+            emit_declln("%%align %u", align);
 
         /* handle members with explicit initializer */
         d = ts->attr.dl;
@@ -2321,7 +2371,16 @@ void mips_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
         /*
          * Union.
          */
+        Declaration ty;
+        unsigned align;
+
         e = e->child[0];
+
+        /* align union beginning */
+        ty.decl_specs = ts;
+        ty.idl = NULL;
+        if ((align=get_alignment(&ty)) > 1)
+            emit_declln("%%align %u", align);
 
         /* initialize the first named member */
         mips_static_init(ts->attr.dl->decl->decl_specs, ts->attr.dl->decl->idl->child, e);
@@ -2444,8 +2503,10 @@ void mips_cgen(FILE *outf)
             emit_declln("%%extern %s", ed->declarator->str);
     }
     /* the front-end may emit calls to memcpy/memset */
-    emit_declln("%%extern memcpy");
-    emit_declln("%%extern memset");
+    if (include_libc) {
+        emit_declln("%%extern memcpy");
+        emit_declln("%%extern memset");
+    }
     emit_declln("%%extern __lux_mips_memcpy");
     /* liblux functions */
     if (include_liblux) {

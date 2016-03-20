@@ -534,7 +534,7 @@ typedef enum {
     op_setb,    op_setbe,   op_sete,    op_setg,
     op_setge,   op_setl,    op_setle,   op_setne,
     op_shl,     op_shr,     op_sub,     op_test,
-    op_xchg,    op_xor,
+    op_xchg,    op_xor,     op_int,     op_syscall,
 } InstrClass;
 
 /*
@@ -627,6 +627,8 @@ struct {
     /*{ op_inc,  0,  0x40,   -1,      Reg_mode|Word|Dword,        None_mode,                  I_R },*/
     { op_inc,   0,  0xFE,   0x00,   rm|Byte,                    None_mode,                  I_M },
     { op_inc,   0,  0xFF,   0x00,   rm|Word|Dword|Qword,        None_mode,                  I_M },
+    /* INT */
+    { op_int,   0,  0xCD,   -1,     Imm_mode|Byte,              None_mode,                  I_I },
     /* Jcc */
     { op_ja,    0,  0x77,   -1,     Imm_mode|Byte,              None_mode,                  I_REL8 },
     { op_ja,    1,  0x87,   -1,     Imm_mode|Dword,             None_mode,                  I_REL32 },
@@ -777,6 +779,8 @@ struct {
     { op_sub,   0,  0x29,   -1,     rm|Word|Dword|Qword,        Reg_mode|Word|Dword|Qword,  I_MR },
     { op_sub,   0,  0x2A,   -1,     Reg_mode|Byte,              rm|Byte,                    I_RM },
     { op_sub,   0,  0x2B,   -1,     Reg_mode|Word|Dword|Qword,  rm|Word|Dword|Qword,        I_RM },
+    /* SYSCALL */
+    { op_syscall,1, 0x05,   -1,     None_mode,                  None_mode,                  -1 },
     /* TEST */
     { op_test,  0,  0xA8,   -1,     Acc_mode|Byte,              Imm_mode|Byte,              I_AI },
     { op_test,  0,  0xA9,   -1,     Acc_mode|Word,              Imm_mode|Word,              I_AI },
@@ -826,6 +830,7 @@ struct {
     { "idiv" },
     { "imul" },
     { "inc" },
+    { "int" },
     { "ja" },
     { "jae" },
     { "jb" },
@@ -868,6 +873,7 @@ struct {
     { "shl" },
     { "shr" },
     { "sub" },
+    { "syscall" },
     { "test" },
     { "xchg" },
     { "xor" },
@@ -1934,6 +1940,8 @@ void emit_i(int ote, Operand *op1, Operand *op2)
             write_byte(0x66);
         else if (iclass==op_movsq || iclass==op_cqo)
             write_byte(0x48);
+        else if (opcode_table[ote].esc_opc)
+            write_byte(0x0F);
         write_byte(opcode_table[ote].opcode);
     }
 

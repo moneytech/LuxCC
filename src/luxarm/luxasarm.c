@@ -139,6 +139,7 @@ enum {
     TY_LD_ST_3, /* op Rn[!], reg_list */
     TY_SWP,     /* op Rd, Rm, [Rn] */
     TY_SZX,     /* op Rd, Rm */
+    TY_SWI,     /* op imm24 */
 };
 
 #define COND(x)     (((x)&0xF) << 28)
@@ -156,6 +157,7 @@ enum {
 #define Mul_Rn(x)   (((x)&0xF) << 12)
 #define RdHi(x)     (((x)&0xF) << 16)
 #define RdLo(x)     (((x)&0xF) << 12)
+#define IMM24(x)    ((x) & 0xFFFFFF)
 /* Data-processing operands */
 #define I        (1 << 25)   /* if set shifter_operand is an immediate */
 #define S        (1 << 20)   /* if set update flags */
@@ -187,6 +189,7 @@ enum {
 #define I_BIC   (OPC(0xE))
 #define I_MVN   (OPC(0xF))
 #define I_SWP   ((1<<24) | (9<<4))
+#define I_SWI   (15 << 24)
 
 #define CC_EQ   0   /* equal */
 #define CC_NE   1   /* not equal */
@@ -1099,10 +1102,18 @@ int encode_mnemonic(char *mne, int *iword)
             mne += 3;
             break;
         case 'w':
-            if (mne[2] != 'p')
+            switch (mne[2]) {
+            case 'p':
+                *iword = I_SWP;
+                ty = TY_SWP;
+                break;
+            case 'i':
+                *iword = I_SWI;
+                ty = TY_SWI;
+                break;
+            default:
                 return -1;
-            *iword = I_SWP;
-            ty = TY_SWP;
+            }
             mne += 3;
             break;
         case 'x':
@@ -1831,6 +1842,12 @@ void source_line(char *instr)
         if (no!=2 || op1.kind!=RegKind || op2.kind!=RegKind)
             ierr(instr);
         iword |= Rd(op1.attr.reg)|Rm(op2.attr.reg);
+        break;
+
+    case TY_SWI:    /* op imm24 */
+        if (no!=1 || op1.kind!=NumKind)
+            ierr(instr);
+        iword |= IMM24(op1.attr.num);
         break;
     }
     /*printf("iword = %x\n", iword);*/

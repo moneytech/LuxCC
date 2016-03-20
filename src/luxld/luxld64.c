@@ -1474,7 +1474,7 @@ void process_file(char *path, char *needed_path)
 
         eh = (Elf64_Ehdr *)fbuf[nfbuf];
         if (eh->e_ident[EI_CLASS]!=ELFCLASS64 || eh->e_machine!=EM_X86_64)
-            err("file `%s': relocatable/shared object for unknown architecture");
+            err("file `%s': relocatable/shared object for unknown architecture", path);
         if (eh->e_type == ET_REL)
             process_object_file(fbuf[nfbuf]);
         else if (eh->e_type == ET_DYN)

@@ -17,6 +17,7 @@ extern int colored_diagnostics;
 extern int targeting_arch64;
 extern int target_arch;
 extern int include_liblux;
+extern int include_libc;
 extern char *cg_outpath;
 extern char *cfg_outpath;
 extern char *cfg_function_to_print;

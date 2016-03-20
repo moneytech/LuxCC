@@ -1,0 +1,17 @@
+This directory contains a restricted version of the C standard library
+that is used by the VM targets.
+
+This version of the library contains mainly functions that are required
+for self-compilation and to run the tests.
+
+It is implemented upon the facilities reachable through the VM's `LibCall'
+instruction.
+
+The sources come mainly from:
+  * The Sanos kernel: http://www.jbox.dk/sanos/source/lib/
+  * The Linux kernel: https://www.kernel.org/pub/linux/kernel/
+
+Note: when invoking the compiler (`luxcc') directly (instead of through
+the driver) one needs to pass a `-I' option pointing to this directory
+so the compiler fetchs the correct headers for this version of the library.
+The driver does this automatically.

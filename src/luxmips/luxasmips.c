@@ -141,9 +141,9 @@ Symbol *define_symbol(SymKind kind, SymBind bind, char *name, uint32_t val, Sect
                 np->val = val;
                 np->sec = sec;
             }
-        } /*else if (bind != GlobalBind) {
+        } else if (bind != GlobalBind) {
             goto redef;
-        }*/
+        }
     } else {
         goto redef;
     }

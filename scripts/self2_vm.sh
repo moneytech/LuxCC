@@ -1,18 +1,18 @@
 COMPILER="src/luxvm/luxvm src/tests/self/luxcc1.vme"
 ASSEMBLER=src/luxvm/luxasvm
 LINKER=src/luxvm/luxldvm
-LIBC=src/lib/libc.o
+LIBC=src/lib/vm_lib/libc.o
 OUTPROG=luxcc2.vme
 if uname -i | grep -q "i386"; then
-	COMPILER="$COMPILER -mvm32"
+	COMPILER="$COMPILER -q -mvm32 -Isrc/lib/vm_lib/include"
 	ASSEMBLER="$ASSEMBLER -vm32"
 	LINKER="$LINKER -vm32"
-	RUNC=src/lib/crt32.o
+	RUNC=src/lib/vm_lib/crt32.o
 else
-	COMPILER="$COMPILER -mvm64"
+	COMPILER="$COMPILER -q -mvm64 -Isrc/lib/vm_lib/include"
 	ASSEMBLER="$ASSEMBLER -vm64"
 	LINKER="$LINKER -vm64"
-	RUNC=src/lib/crt64.o
+	RUNC=src/lib/vm_lib/crt64.o
 fi
 
 fail_counter=0

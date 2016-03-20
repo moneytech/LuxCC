@@ -1,7 +1,6 @@
 #include "luxcc.h"
 #include <stdio.h>
 #include <string.h>
-#include <getopt.h>
 #include <stdlib.h>
 #include <assert.h>
 #include "parser.h"
@@ -23,6 +22,7 @@ char *cg_outpath;
 char *cfg_outpath, *cfg_function_to_print;
 char *ic_outpath, *ic_function_to_print;
 int include_liblux = TRUE;
+int include_libc = TRUE;
 int verbose_asm;
 
 unsigned stat_number_of_pre_tokens;
@@ -192,6 +192,9 @@ int main(int argc, char *argv[])
             break;
         case 'z': /* only used when compiling liblux */
             include_liblux = FALSE;
+            break;
+        case 'Z': /* only used when compiling libc */
+            include_libc = FALSE;
             break;
         case '\0': /* stray '-' */
             break;
