@@ -1,6 +1,6 @@
 CC=../luxcc
-X86_AS=../luxas/luxas -m32
-X64_AS=../luxas/luxas -m64
+X86_AS=../luxx86/luxasx86 -m32
+X64_AS=../luxx86/luxasx86 -m64
 MIPS_AS=../luxmips/luxasmips
 ARM_AS=../luxarm/luxasarm
 CFLAGS=-q

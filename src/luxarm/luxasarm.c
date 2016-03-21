@@ -55,7 +55,7 @@
 #include <stdint.h>
 #include <elf.h>
 #include "../util.h"
-#include "../luxas/ELF_util.h"
+#include "../ELF/ELF_util.h"
 
 #define MAX_LEXEME  512
 #define HASH_SIZE   1009

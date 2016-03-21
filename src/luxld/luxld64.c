@@ -17,7 +17,7 @@
 #include <stdarg.h>
 #include "../util.h"
 #include "../arena.h"
-#include "../luxas/ELF_util.h"
+#include "../ELF/ELF_util.h"
 
 #define MAX_INPUT_FILES     64
 #define PLT_ENTRY_NB        16
