@@ -1,5 +1,5 @@
 #!/bin/bash
-CC1="src/luxdvr/luxdvr -q -marm" # compiler being tested
+CC1="src/luxdvr/luxdvr -q -static -marm" # compiler being tested
 CC2="gcc -m32" # reference compiler
 #EMU="scripts/runarmelexe.sh"
 EMU=qemu-arm

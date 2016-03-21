@@ -1,6 +1,6 @@
 #!/bin/bash
 CC=src/luxdvr/luxdvr
-CFLAGS="-m$1 -q"
+CFLAGS="-m$1 -q -static"
 TESTDIR=`dirname $0`
 
 rm -f $TESTDIR/aes.output

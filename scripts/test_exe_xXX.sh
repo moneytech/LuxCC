@@ -1,7 +1,7 @@
 #!/bin/bash
 CC1=src/luxdvr/luxdvr 	# compiler being tested
 CC2=gcc       		# reference compiler
-CFLAGS="-q -m$1"
+CFLAGS="-q -static -m$1"
 TESTS_PATH=src/tests/execute
 
 fail_counter=0

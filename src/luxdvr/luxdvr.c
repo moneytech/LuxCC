@@ -24,6 +24,7 @@ char helpstr[] =
     "  -c               Compile and assemble but do not link\n"
     "  -use-musl        Link against musl standard library\n"
     "  -use-glibc       Link against glibc standard library\n"
+    "  -static          Link against a static version of libc\n"
     "  -v               Show invoked commands\n"
     "  -h               Print this help\n"
     "\nCompiler options:\n"
@@ -58,6 +59,7 @@ enum {
     DVR_ANALYZE_ONLY    = 0x00010,
     DVR_GLIBC           = 0x00020,
     DVR_MUSL            = 0x00040,
+    DVR_STATIC          = 0x00080,
     DVR_VM32_TARGET     = 0x01000,
     DVR_VM64_TARGET     = 0x02000,
     DVR_X86_TARGET      = 0x04000,
@@ -490,6 +492,8 @@ int main(int argc, char *argv[])
             case 's':
                 if (equal(argv[i], "-show-stats"))
                     string_printf(cc_cmd, " -s");
+                else if (equal(argv[i], "-static"))
+                    driver_flags |= DVR_STATIC;
                 else
                     unknown_opt(argv[i]);
                 break;
@@ -575,20 +579,28 @@ ok_1:
         string_clear(ld_cmd);
         if (driver_flags & DVR_GLIBC) {
             parse_conf_file("glibc_mips.conf");
-            string_printf(ld_cmd, "%s -melf32ltsmip %s", search_required("mipsel-linux-gnu-ld", TRUE), chp);
-            infiles = insert_front(infiles, new_file(strdup(search_required("crti.o", FALSE)), OTHER_Kind));
-            infiles = insert_front(infiles, new_file(strdup(search_required("crt1.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc.so.6", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("ld.so.1", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("crtn.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc_nonshared.a", FALSE)), OTHER_Kind));
+            if (driver_flags & DVR_STATIC) {
+                string_printf(ld_cmd, "%s -static", search_required("mipsel-linux-gnu-gcc", TRUE));
+            } else {
+                string_printf(ld_cmd, "%s -melf32ltsmip %s", search_required("mipsel-linux-gnu-ld", TRUE), chp);
+                infiles = insert_front(infiles, new_file(strdup(search_required("crti.o", FALSE)), OTHER_Kind));
+                infiles = insert_front(infiles, new_file(strdup(search_required("crt1.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc.so.6", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("ld.so.1", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("crtn.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc_nonshared.a", FALSE)), OTHER_Kind));
+            }
         } else if (driver_flags & DVR_MUSL) {
             assert(!"TODO");
         } else {
             parse_conf_file("mips.conf");
-            string_printf(ld_cmd, "%s -melf32ltsmip %s", search_required("mipsel-linux-gnu-ld", TRUE), chp);
-            infiles = insert_front(infiles, new_file(strdup(search_required("crt0.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc.a", FALSE)), OTHER_Kind));
+            if (driver_flags & DVR_STATIC) {
+                string_printf(ld_cmd, "%s -melf32ltsmip %s", search_required("mipsel-linux-gnu-ld", TRUE), chp);
+                infiles = insert_front(infiles, new_file(strdup(search_required("crt0.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc.a", FALSE)), OTHER_Kind));
+            } else {
+                assert(!"TODO");
+            }
         }
         infiles = insert_front(infiles, new_file(strdup(search_required("luxmemcpy.o", FALSE)), OTHER_Kind));
         infiles = insert_front(infiles, new_file(strdup(search_required("liblux.o", FALSE)), OTHER_Kind));
@@ -599,20 +611,28 @@ ok_1:
         string_clear(ld_cmd);
         if (driver_flags & DVR_GLIBC) {
             parse_conf_file("glibc_arm.conf");
-            string_printf(ld_cmd, "%s -marmelf_linux_eabi -I/usr/arm-linux-gnueabi/lib/ld-linux.so.3 %s",
-            search_required("arm-linux-gnueabi-ld", TRUE), chp);
-            infiles = insert_front(infiles, new_file(strdup(search_required("crti.o", FALSE)), OTHER_Kind));
-            infiles = insert_front(infiles, new_file(strdup(search_required("crt1.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc.so.6", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("crtn.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc_nonshared.a", FALSE)), OTHER_Kind));
+            if (driver_flags & DVR_STATIC) {
+                string_printf(ld_cmd, "%s -static", search_required("arm-linux-gnueabi-gcc", TRUE));
+            } else {
+                string_printf(ld_cmd, "%s -marmelf_linux_eabi -I/usr/arm-linux-gnueabi/lib/ld-linux.so.3 %s",
+                search_required("arm-linux-gnueabi-ld", TRUE), chp);
+                infiles = insert_front(infiles, new_file(strdup(search_required("crti.o", FALSE)), OTHER_Kind));
+                infiles = insert_front(infiles, new_file(strdup(search_required("crt1.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc.so.6", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("crtn.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc_nonshared.a", FALSE)), OTHER_Kind));
+            }
         } else if (driver_flags & DVR_MUSL) {
             assert(!"TODO");
         } else {
             parse_conf_file("arm.conf");
-            string_printf(ld_cmd, "%s -marmelf_linux_eabi %s", search_required("arm-linux-gnueabi-ld", TRUE), chp);
-            infiles = insert_front(infiles, new_file(strdup(search_required("crt0.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc.a", FALSE)), OTHER_Kind));
+            if (driver_flags & DVR_STATIC) {
+                string_printf(ld_cmd, "%s -marmelf_linux_eabi %s", search_required("arm-linux-gnueabi-ld", TRUE), chp);
+                infiles = insert_front(infiles, new_file(strdup(search_required("crt0.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc.a", FALSE)), OTHER_Kind));
+            } else {
+                assert(!"TODO");
+            }
         }
         infiles = insert_front(infiles, new_file(strdup(search_required("luxmemcpy.o", FALSE)), OTHER_Kind));
         infiles = insert_front(infiles, new_file(strdup(search_required("liblux.o", FALSE)), OTHER_Kind));
@@ -623,51 +643,75 @@ ok_1:
         string_clear(ld_cmd);
         if (driver_flags & DVR_GLIBC) {
             parse_conf_file("glibc_x64.conf");
-            string_printf(ld_cmd, "%s -melf_x86_64 -I/lib64/ld-linux-x86-64.so.2 %s", search_required("ld", TRUE), chp);
-            infiles = insert_front(infiles, new_file(strdup(search_required("crt1.o", FALSE)), OTHER_Kind));
-            infiles = insert_front(infiles, new_file(strdup(search_required("crti.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("crtn.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc.so.6", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc_nonshared.a", FALSE)), OTHER_Kind));
+            if (driver_flags & DVR_STATIC) {
+                string_printf(ld_cmd, "%s -m64 -static", search_required("gcc", TRUE));
+            } else {
+                string_printf(ld_cmd, "%s -melf_x86_64 -I/lib64/ld-linux-x86-64.so.2 %s", search_required("ld", TRUE), chp);
+                infiles = insert_front(infiles, new_file(strdup(search_required("crt1.o", FALSE)), OTHER_Kind));
+                infiles = insert_front(infiles, new_file(strdup(search_required("crti.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("crtn.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc.so.6", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc_nonshared.a", FALSE)), OTHER_Kind));
+            }
         } else if (driver_flags & DVR_MUSL) {
             parse_conf_file("musl_x64.conf");
-            string_printf(ld_cmd, "%s %s", search_required("luxld64", TRUE), chp);
-            infiles = insert_front(infiles, new_file(strdup(search_required("crt1.o", FALSE)), OTHER_Kind));
-            infiles = insert_front(infiles, new_file(strdup(search_required("crti.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc.so", FALSE)), OTHER_Kind));
+            if (driver_flags & DVR_STATIC) {
+                assert(!"TODO");
+            } else {
+                string_printf(ld_cmd, "%s %s", search_required("luxld64", TRUE), chp);
+                infiles = insert_front(infiles, new_file(strdup(search_required("crt1.o", FALSE)), OTHER_Kind));
+                infiles = insert_front(infiles, new_file(strdup(search_required("crti.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc.so", FALSE)), OTHER_Kind));
+            }
         } else {
             parse_conf_file("x64.conf");
-            string_printf(ld_cmd, "%s -melf_x86_64 %s", search_required("ld", TRUE), chp);
-            infiles = insert_front(infiles, new_file(strdup(search_required("crt0.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc.a", FALSE)), OTHER_Kind));
+            if (driver_flags & DVR_STATIC) {
+                string_printf(ld_cmd, "%s -melf_x86_64 %s", search_required("ld", TRUE), chp);
+                infiles = insert_front(infiles, new_file(strdup(search_required("crt0.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc.a", FALSE)), OTHER_Kind));
+            } else {
+                assert(!"TODO");
+            }
         }
-        string_printf(as_cmd, "%s -m64", search_required("luxas", TRUE));
+        string_printf(as_cmd, "%s -m64", search_required("luxasx86", TRUE));
         free(chp);
     } else {
         chp = strdup(strbuf(ld_cmd));
         string_clear(ld_cmd);
         if (driver_flags & DVR_GLIBC) {
             parse_conf_file("glibc_x86.conf");
-            string_printf(ld_cmd, "%s -melf_i386 -I/lib/ld-linux.so.2 %s", search_required("ld", TRUE), chp);
-            infiles = insert_front(infiles, new_file(strdup(search_required("crt1.o", FALSE)), OTHER_Kind));
-            infiles = insert_front(infiles, new_file(strdup(search_required("crti.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("crtn.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc.so.6", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc_nonshared.a", FALSE)), OTHER_Kind));
+            if (driver_flags & DVR_STATIC) {
+                string_printf(ld_cmd, "%s -m32 -static", search_required("gcc", TRUE));
+            } else {
+                string_printf(ld_cmd, "%s -melf_i386 -I/lib/ld-linux.so.2 %s", search_required("ld", TRUE), chp);
+                infiles = insert_front(infiles, new_file(strdup(search_required("crt1.o", FALSE)), OTHER_Kind));
+                infiles = insert_front(infiles, new_file(strdup(search_required("crti.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("crtn.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc.so.6", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc_nonshared.a", FALSE)), OTHER_Kind));
+            }
         } else if (driver_flags & DVR_MUSL) {
             parse_conf_file("musl_x86.conf");
-            string_printf(ld_cmd, "%s %s", search_required("luxld32", TRUE), chp);
-            infiles = insert_front(infiles, new_file(strdup(search_required("crt1.o", FALSE)), OTHER_Kind));
-            infiles = insert_front(infiles, new_file(strdup(search_required("crti.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc.so", FALSE)), OTHER_Kind));
+            if (driver_flags & DVR_STATIC) {
+                assert(!"TODO");
+            } else {
+                string_printf(ld_cmd, "%s %s", search_required("luxld32", TRUE), chp);
+                infiles = insert_front(infiles, new_file(strdup(search_required("crt1.o", FALSE)), OTHER_Kind));
+                infiles = insert_front(infiles, new_file(strdup(search_required("crti.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc.so", FALSE)), OTHER_Kind));
+            }
         } else {
             parse_conf_file("x86.conf");
-            string_printf(ld_cmd, "%s -melf_i386 %s", search_required("ld", TRUE), chp);
-            infiles = insert_front(infiles, new_file(strdup(search_required("crt0.o", FALSE)), OTHER_Kind));
-            infiles = insert_end(infiles, new_file(strdup(search_required("libc.a", FALSE)), OTHER_Kind));
+            if (driver_flags & DVR_STATIC) {
+                string_printf(ld_cmd, "%s -melf_i386 %s", search_required("ld", TRUE), chp);
+                infiles = insert_front(infiles, new_file(strdup(search_required("crt0.o", FALSE)), OTHER_Kind));
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc.a", FALSE)), OTHER_Kind));
+            } else {
+                assert(!"TODO");
+            }
         }
         infiles = insert_front(infiles, new_file(strdup(search_required("liblux.o", FALSE)), OTHER_Kind));
-        string_printf(as_cmd, "%s -m32", search_required("luxas", TRUE));
+        string_printf(as_cmd, "%s -m32", search_required("luxasx86", TRUE));
         free(chp);
     }
     chp = strdup(strbuf(cc_cmd));
@@ -844,42 +888,6 @@ ok_1:
         }
     }
 done:
-    /*if (c_files != NULL) {
-        File *tmp;
-        do {
-            tmp = c_files;
-            c_files = c_files->next;
-            free(tmp);
-        } while (c_files != NULL);
-    }
-    if (asm_files != NULL) {
-        File *tmp;
-        do {
-            tmp = asm_files;
-            asm_files = asm_files->next;
-            free(tmp);
-        } while (asm_files != NULL);
-    }
-    if (other_files != NULL) {
-        File *tmp;
-        do {
-            tmp = other_files;
-            other_files = other_files->next;
-            free(tmp);
-        } while (other_files != NULL);
-    }
-    for (i = 0; i < nreq; i++) {
-        File *tmp1, *tmp2;
-
-        free(required_files[i].name);
-        tmp1 = required_files[i].dirs;
-        do {
-            tmp2 = tmp1;
-            tmp1 = tmp1->next;
-            free(tmp2->path);
-            free(tmp2);
-        } while (tmp1 != NULL);
-    }*/
     string_free(cc_cmd);
     string_free(as_cmd);
     string_free(ld_cmd);
