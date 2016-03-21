@@ -665,12 +665,13 @@ ok_1:
             }
         } else {
             parse_conf_file("x64.conf");
+            infiles = insert_front(infiles, new_file(strdup(search_required("crt0.o", FALSE)), OTHER_Kind));
             if (driver_flags & DVR_STATIC) {
                 string_printf(ld_cmd, "%s -melf_x86_64 %s", search_required("ld", TRUE), chp);
-                infiles = insert_front(infiles, new_file(strdup(search_required("crt0.o", FALSE)), OTHER_Kind));
                 infiles = insert_end(infiles, new_file(strdup(search_required("libc.a", FALSE)), OTHER_Kind));
             } else {
-                assert(!"TODO");
+                string_printf(ld_cmd, "%s -melf_x86_64 -I/lib64/ld-linux-x86-64.so.2 %s", search_required("ld", TRUE), chp);
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc.so", FALSE)), OTHER_Kind));
             }
         }
         string_printf(as_cmd, "%s -m64", search_required("luxasx86", TRUE));
@@ -702,12 +703,13 @@ ok_1:
             }
         } else {
             parse_conf_file("x86.conf");
+            infiles = insert_front(infiles, new_file(strdup(search_required("crt0.o", FALSE)), OTHER_Kind));
             if (driver_flags & DVR_STATIC) {
                 string_printf(ld_cmd, "%s -melf_i386 %s", search_required("ld", TRUE), chp);
-                infiles = insert_front(infiles, new_file(strdup(search_required("crt0.o", FALSE)), OTHER_Kind));
                 infiles = insert_end(infiles, new_file(strdup(search_required("libc.a", FALSE)), OTHER_Kind));
             } else {
-                assert(!"TODO");
+                string_printf(ld_cmd, "%s -melf_i386 -I/lib/ld-linux.so.2 %s", search_required("ld", TRUE), chp);
+                infiles = insert_end(infiles, new_file(strdup(search_required("libc.so", FALSE)), OTHER_Kind));
             }
         }
         infiles = insert_front(infiles, new_file(strdup(search_required("liblux.o", FALSE)), OTHER_Kind));

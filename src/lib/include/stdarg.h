@@ -60,4 +60,28 @@ static void *__va_arg(va_list ap, unsigned long siz)
 
 #endif
 
+
+#ifdef __GNUC__
+
+/*
+ * gcc is compiling this, but we are including our own headers.
+ * This happens when using gcc to generate pic code for shared libraries.
+ * Use gcc's intrinsics instead of our own definitions.
+ */
+
+#define va_list __builtin_va_list
+
+#undef va_start
+#undef va_arg
+#undef va_end
+#undef va_copy
+
+#define va_start(v,l)   __builtin_va_start(v,l)
+#define va_end(v)       __builtin_va_end(v)
+#define va_arg(v,l)     __builtin_va_arg(v,l)
+#define va_copy(d,s)    __builtin_va_copy(d,s)
+
+#endif
+
+
 #endif
