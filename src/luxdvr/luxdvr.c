@@ -586,7 +586,7 @@ ok_1:
                 infiles = insert_front(infiles, new_file(strdup(search_required("crti.o", FALSE)), OTHER_Kind));
                 infiles = insert_front(infiles, new_file(strdup(search_required("crt1.o", FALSE)), OTHER_Kind));
                 infiles = insert_end(infiles, new_file(strdup(search_required("libc.so.6", FALSE)), OTHER_Kind));
-                infiles = insert_end(infiles, new_file(strdup(search_required("ld.so.1", FALSE)), OTHER_Kind));
+                /*infiles = insert_end(infiles, new_file(strdup(search_required("ld.so.1", FALSE)), OTHER_Kind));*/
                 infiles = insert_end(infiles, new_file(strdup(search_required("crtn.o", FALSE)), OTHER_Kind));
                 infiles = insert_end(infiles, new_file(strdup(search_required("libc_nonshared.a", FALSE)), OTHER_Kind));
             }

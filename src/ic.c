@@ -3551,7 +3551,7 @@ void ic_main(ExternId ***func_def_list, ExternId ***ext_sym_list)
             print_CFG(i);
             fclose(cfg_dotfile);
         }
-        dflow_Dom(i);
+        /*dflow_Dom(i);*/
         dflow_LiveOut(i);
         // dflow_ReachIn(i, i == cg_nodes_counter-1);
     }
