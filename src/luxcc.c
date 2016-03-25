@@ -240,6 +240,7 @@ int main(int argc, char *argv[])
         install_macro(SIMPLE_MACRO, "__i386__", &one_node, NULL);
         break;
     }
+    install_macro(SIMPLE_MACRO, "__unix__", &one_node, NULL);
     install_macro(SIMPLE_MACRO, "__linux__", &one_node, NULL);
     install_macro(SIMPLE_MACRO, "__gnu_linux__", &one_node, NULL);
 
