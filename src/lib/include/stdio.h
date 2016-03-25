@@ -14,9 +14,11 @@
 #define FILENAME_MAX    4096
 #define L_tmpnam        32
 
+#ifndef SEEK_SET
 #define SEEK_SET        0
 #define SEEK_CUR        1
 #define SEEK_END        2
+#endif
 
 #define TMP_MAX         5000
 
