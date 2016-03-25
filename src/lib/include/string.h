@@ -45,5 +45,7 @@ size_t strlen(const char *s);
 
 char *strdup(const char *s);
 size_t strnlen(const char *s, size_t maxlen);
+int strcasecmp(const char *s1, const char *s2);
+int strncasecmp(const char *s1, const char *s2, size_t n);
 
 #endif

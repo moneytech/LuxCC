@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 static char *sys_errlist[] = {
     "No error",                                       // ENOERROR          0
@@ -260,6 +261,30 @@ int strncmp(const char *s1, const char *s2, size_t n)
 
     while (n--) {
         if ((res=*s1-*s2)!=0 || *s1=='\0')
+            break;
+        s1++, s2++;
+    }
+    return res;
+}
+
+int strcasecmp(const char *s1, const char *s2)
+{
+    int res;
+
+    while (1) {
+        if ((res=tolower(*s1)-tolower(*s2))!=0 || *s1=='\0')
+            break;
+        s1++, s2++;
+    }
+    return res;
+}
+
+int strncasecmp(const char *s1, const char *s2, size_t n)
+{
+    int res;
+
+    while (n--) {
+        if ((res=tolower(*s1)-tolower(*s2))!=0 || *s1=='\0')
             break;
         s1++, s2++;
     }
