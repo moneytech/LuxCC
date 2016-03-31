@@ -1,9 +1,9 @@
 CC=gcc
 CFLAGS=-c -g -Wall -Wno-switch -Wno-sign-conversion
 
-all: luxas
+all: luxasx86
 
-luxas: luxasx86.o ../util.o ../arena.o ../ELF/ELF_util.o
+luxasx86: luxasx86.o ../util.o ../arena.o ../ELF/ELF_util.o
 	$(CC) -o luxasx86 luxasx86.o ../util.o ../arena.o ../ELF/ELF_util.o
 ../util.o:
 	make -C .. util.o
@@ -16,6 +16,6 @@ luxas: luxasx86.o ../util.o ../arena.o ../ELF/ELF_util.o
 clean:
 	rm -f *.o luxasx86
 
-luxasx86.o: luxas.h ../ELF/ELF_util.h ../util.h ../arena.h
+luxasx86.o: ../ELF/ELF_util.h ../util.h ../arena.h
 
 .PHONY: all clean
