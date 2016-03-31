@@ -16,6 +16,6 @@ luxas: luxasx86.o ../util.o ../arena.o ../ELF/ELF_util.o
 clean:
 	rm -f *.o luxasx86
 
-luxas.o: luxas.h ../ELF/ELF_util.h ../util.h ../arena.h
+luxasx86.o: luxas.h ../ELF/ELF_util.h ../util.h ../arena.h
 
 .PHONY: all clean
