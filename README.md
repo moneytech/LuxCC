@@ -28,9 +28,15 @@ Do a quick test (run execution tests for the LuxVM target only)
 
     make test
 
-Test everything (run all tests for all targets)
+Do all tests for the host architecture (assumed to be i386 or x86_64)
 
-    make fulltest
+    make fulltest1
+
+Test everything (run all tests for all supported architectures)
+
+    make fulltest2
+
+Note that in order to run tests for an architecture different than the host one, you will need to install QEMU user mode and also get a dynamic linker (aka loader) for the corresponding architecture (see the documentation for details).
 
 ## Documentation
 

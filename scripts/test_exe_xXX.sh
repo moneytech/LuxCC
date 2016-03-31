@@ -20,6 +20,11 @@ for file in $(find $TESTS_PATH/ | grep '\.c') ; do
 		continue;
 	fi
 
+	# avoid llvm benchmarks
+	if echo $file | grep -q "llvm"; then
+		continue
+	fi
+
 	echo $file
 
 	# out1

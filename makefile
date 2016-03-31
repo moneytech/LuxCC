@@ -1,3 +1,5 @@
+GETARCH=$(shell uname -i)
+
 all: luxcc luxas luxld luxvm luxdvr lib tools luxmips luxarm ELF
 
 luxcc:
@@ -41,7 +43,13 @@ uninstall:
 	rm -rf /usr/local/lib/luxcc
 test:
 	/bin/bash scripts/test_exe_vm.sh
-fulltest:
+fulltest1:
+    ifeq ($(GETARCH), i386)
+	/bin/bash scripts/testall_x86.sh
+    else
+	/bin/bash scripts/testall_x64.sh
+    endif
+fulltest2:
 	/bin/bash scripts/testall.sh
 clean:
 	make -C src        clean
