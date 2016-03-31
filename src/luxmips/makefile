@@ -1,14 +1,12 @@
 CC=gcc
 CFLAGS=-c -g -Wall -Wno-switch -Wno-sign-conversion
 
-all: luxmipsemu luxasmips luxldmips
+all: luxmipsemu luxasmips
 
 luxmipsemu: luxmipsemu.o
 	$(CC) -m32 -o luxmipsemu luxmipsemu.o
 luxasmips: luxasmips.o ../util.o
 	$(CC) -o luxasmips luxasmips.o ../util.o ../ELF/ELF_util.o
-luxldmips: luxldmips.o ../util.o
-	$(CC) -o luxldmips luxldmips.o ../util.o ../ELF/ELF_util.o
 ../util.o:
 	make -C .. util.o
 ../ELF/ELF_util.o:
@@ -20,6 +18,5 @@ clean:
 luxmipsemu.o: luxmipsemu.c
 	$(CC) -m32 $(CFLAGS) luxmipsemu.c
 luxasmips.o: ../util.h ../ELF/ELF_util.h
-luxldmips.o: ../util.h ../ELF/ELF_util.h
 
 .PHONY: all clean
