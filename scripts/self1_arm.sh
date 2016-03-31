@@ -1,11 +1,8 @@
-#COMPILER="src/luxcc -q -marm -D_GLIBC"
 COMPILER="src/luxcc -q -marm"
 ASSEMBLER=src/luxarm/luxasarm
-#LINKER="arm-linux-gnueabi-gcc -march=armv6"
-LINKER="arm-linux-gnueabi-ld -marmelf_linux_eabi -I/usr/arm-linux-gnueabi/lib/ld-linux.so.3"
-#RUNC="src/lib/obj/arm/luxmemcpy.o src/lib/obj/arm/liblux.o"
+LINKER="src/luxld/luxld -melf_armel -I/usr/arm-linux-gnueabi/lib/ld-linux.so.3"
 RUNC="src/lib/obj/arm/crt0.o src/lib/obj/arm/luxmemcpy.o src/lib/obj/arm/liblux.o"
-LIBC="src/lib/obj/arm/libc.a"
+LIBC="src/lib/obj/arm/libc.so"
 OUTPROG=luxcc1
 
 fail_counter=0
@@ -37,7 +34,6 @@ done
 
 # link
 if [ "$fail_counter" = "0" ]; then
-	#$LINKER -o src/tests/self/$OUTPROG $RUNC $object_files
 	$LINKER -o src/tests/self/$OUTPROG $RUNC $object_files $LIBC
 	exit $?
 fi

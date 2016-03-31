@@ -1,6 +1,10 @@
 #!/bin/bash
-CC1=src/luxdvr/luxdvr 	# compiler being tested
-CC2=gcc      		# reference compiler
+
+# compiler being tested
+CC1=src/luxdvr/luxdvr
+# reference compiler
+CC2=gcc
+
 VM=src/luxvm/luxvm
 TESTS_PATH=src/tests/execute
 if uname -i | grep -q "i386"; then

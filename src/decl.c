@@ -976,6 +976,8 @@ static void replace_typedef_name(Declaration *decl)
             /* empty abstract declarator */
             decl->idl = declarator = dup_declarator(s->declarator->child);
         }
+    } else if (declarator) {
+        declarator = NULL; /* to trigger the 'goto nothing' that follows */
     }
 
     /*

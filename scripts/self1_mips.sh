@@ -1,8 +1,9 @@
 COMPILER="src/luxcc -q -mmips"
 ASSEMBLER=src/luxmips/luxasmips
-LINKER="mipsel-linux-gnu-ld -melf32ltsmip"
+LINKER="src/luxld/luxld -melf_mipsel -I/usr/mipsel-linux-gnu/lib/ld.so.1"
 RUNC="src/lib/obj/mips/crt0.o src/lib/obj/mips/luxmemcpy.o src/lib/obj/mips/liblux.o"
-LIBC="src/lib/obj/mips/libc.a"
+#LIBC="src/lib/obj/mips/libc.a"
+LIBC="src/lib/obj/mips/libc.so"
 OUTPROG=luxcc1
 
 fail_counter=0

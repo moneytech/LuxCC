@@ -1,12 +1,11 @@
 #!/bin/bash
-CC=src/luxdvr/luxdvr
-CFLAGS="-m$1 -q -static"
+CC="src/luxdvr/luxdvr -q $1"
 TESTDIR=`dirname $0`
 
 fail_counter=0
 
 for file in $TESTDIR/c/*.c ; do
-	if ! $CC $CFLAGS $file -o $TESTDIR/out1 &>/dev/null ; then
+	if ! $CC $file -o $TESTDIR/out1 &>/dev/null ; then
 		echo "Failed to compile $file"
 		let fail_counter=fail_counter+1
 		continue

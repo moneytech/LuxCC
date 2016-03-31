@@ -1,2 +1,2 @@
 #!/bin/bash
-/bin/bash scripts/self_xXX.sh x64
+/bin/bash scripts/self_xXX.sh -mx64

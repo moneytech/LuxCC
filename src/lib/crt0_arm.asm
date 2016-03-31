@@ -10,6 +10,7 @@ __env:
     .res #4
 
 .text
+$a:
 .global _start
 _start:
     ; get argc

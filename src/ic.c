@@ -755,14 +755,16 @@ static void ic_simplify(void)
             }
             break;
         case OpEQ:
-            if (is_iconst(arg1))
-                if (is_iconst(arg2))
-                    fold(i, ==);
+            if (is_iconst(arg1) && is_iconst(arg2)) {
+                fold(i, ==);
+                instruction(i).type = &int_ty;
+            }
             break;
         case OpNEQ:
-            if (is_iconst(arg1))
-                if (is_iconst(arg2))
-                    fold(i, !=);
+            if (is_iconst(arg1) && is_iconst(arg2)) {
+                fold(i, !=);
+                instruction(i).type = &int_ty;
+            }
             break;
         case OpLT:
             if (is_iconst(arg1) && is_iconst(arg2)) {

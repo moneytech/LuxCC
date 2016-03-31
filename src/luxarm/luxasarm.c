@@ -30,7 +30,7 @@
                "[" REG "]" "," [ "-" ] REG [ "," imm_shift_spec ]
     directive = "." ( "text" | "data" | "rodata" | "bss" ) |
                 "." "extern" id { "," id } |
-                "." "global" id { "," id } |
+                "." "global" id [ ":" id ] { "," id [ ":" id ] } |
                 "." "align"  NUM |
                 "." "alignb" NUM |
                 "." "res" NUM |
@@ -41,7 +41,7 @@
                 "." "ltorg"
 
         Tokens
-    ID = ( '_' | '@' | [A-Za-z] ) ( '_' | '@' | [0-9A-Za-z] )*
+    ID = ( '_' | '@' | [A-Za-z] ) ( '_' | '@' | '.' | [0-9A-Za-z] )*
     NUM = '#' ( [0-9]+ | "0x" [A-F0-9]+ )
     REG = 'r' [0-9]+
     Comments start with ";" and extend until the end of the line.
@@ -98,6 +98,7 @@ char *curr, *buf;
 char lexeme[MAX_LEXEME];
 Token curr_tok;
 FILE *output_file;
+int d_mapsym_counter;
 #define ERR(...)     fprintf(stderr, "%s: %s: line %d: ", prog_name, inpath, line_number), TERMINATE(__VA_ARGS__)
 #define ERR2(e, ...) fprintf(stderr, "%s: %s: line %d: ", prog_name, inpath, (e)->lineno), TERMINATE(__VA_ARGS__)
 
@@ -253,6 +254,7 @@ struct Symbol {
     uint32_t val;
     Section *sec;   /* symbol's associated section (NULL for 'extern' symbols) */
     uint16_t ndx;   /* index into ELF file's symbol table */
+    bool is_func;
     Symbol *next;
 } *symbols[HASH_SIZE];
 
@@ -272,6 +274,7 @@ Symbol *define_symbol(SymKind kind, SymBind bind, char *name, uint32_t val, Sect
         np->name = strdup(name);
         np->val = val;
         np->sec = sec;
+        np->is_func = FALSE;
         np->next = symbols[h];
         symbols[h] = np;
     } else if (np->bind == ExternBind) {
@@ -537,6 +540,14 @@ void lit_pool_dump(void)
 
     if (curr_section == NULL)
         return;
+    if (lit_pool.siz) {
+        /* Assume the compiler emits the corresponding
+           '$a' symbols at the start of code. */
+        static char mapsym[128];
+
+        sprintf(mapsym, "$d.luxas@%d", d_mapsym_counter++);
+        define_symbol(OtherKind, LocalBind, mapsym, LC(), curr_section);
+    }
 
     i = 0;
     lp_start = LC();
@@ -566,7 +577,7 @@ void lit_pool_dump(void)
 /*
  * directive = "." ( "text" | "data" | "rodata" | "bss" ) |
  *             "." "extern" id { "," id } |
- *             "." "global" id { "," id } |
+ *             "." "global" id [ ":" id ] { "," id [ ":" id ] } |
  *             "." "align"  NUM |
  *             "." "alignb" NUM |
  *             "." "res" NUM |
@@ -603,15 +614,26 @@ void directive(void)
             match(TOK_ID);
         }
     } else if (equal(lexeme, "global")) {
+        Symbol *sym;
+
         match(TOK_ID);
-        if (curr_tok == TOK_ID)
-            define_symbol(OtherKind, GlobalBind, lexeme, 0, NULL);
-        match(TOK_ID);
+        goto global_first;
         while (curr_tok == TOK_COMMA) {
             match(TOK_COMMA);
+        global_first:
             if (curr_tok == TOK_ID);
-                define_symbol(OtherKind, GlobalBind, lexeme, 0, NULL);
+                sym = define_symbol(OtherKind, GlobalBind, lexeme, 0, NULL);
             match(TOK_ID);
+            if (curr_tok == TOK_COLON) {
+                match(TOK_COLON);
+                if (curr_tok == TOK_ID) {
+                    if (equal(lexeme, "function"))
+                        sym->is_func = TRUE;
+                    else
+                        ERR("unknown extension to global directive: `%s'", lexeme);
+                }
+                match(TOK_ID);
+            }
         }
     } else if (equal(lexeme, "ltorg")) {
         lit_pool_dump();
@@ -682,10 +704,10 @@ void directive(void)
         match(TOK_ID);
         if (curr_section == NULL)
             set_curr_section(DEF_SEC);
-        goto first;
+        goto dword_first;
         while (curr_tok == TOK_COMMA) {
             match(TOK_COMMA);
-        first:
+        dword_first:
             if (curr_tok == TOK_NUM)  {
                 write_dword(str2int(lexeme));
                 match(TOK_NUM);
@@ -2008,7 +2030,10 @@ void write_ELF_file(void)
                 memset(&sym, 0, sizeof(Elf32_Sym));
                 sym.st_name = strtab_append(strtab, np->name);
                 sym.st_value = np->val;
-                sym.st_info = ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE);
+                if (np->is_func)
+                    sym.st_info = ELF32_ST_INFO(STB_GLOBAL, STT_FUNC);
+                else
+                    sym.st_info = ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE);
                 if (np->bind == ExternBind) {
                     sym.st_shndx = SHN_UNDEF;
                 } else {
@@ -2390,7 +2415,7 @@ Token get_token(void)
     } while (0)
 
         case INID:
-            if (!isalnum(c) && c!='_' && c!='@' && c!='$')
+            if (!isalnum(c) && c!='_' && c!='@' && c!='.' && c!='$')
                 FINISH(TOK_ID);
             break;
 

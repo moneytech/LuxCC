@@ -1,10 +1,9 @@
 #!/bin/bash
-CC=src/luxdvr/luxdvr
-CFLAGS="-m$1 -q -static"
+CC="src/luxdvr/luxdvr -q $1"
 TESTDIR=`dirname $0`
 
 rm -f $TESTDIR/aes.output
-if ! $CC $CFLAGS $TESTDIR/test.c $TESTDIR/aes.c -o $TESTDIR/out1 &>/dev/null ; then
+if ! $CC $TESTDIR/test.c $TESTDIR/aes.c -o $TESTDIR/out1 &>/dev/null ; then
 	echo "Failed to compile Tiny AES128"
 	exit 1
 fi

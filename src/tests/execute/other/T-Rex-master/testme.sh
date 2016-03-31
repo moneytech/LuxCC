@@ -1,6 +1,5 @@
 #!/bin/bash
-CC=src/luxdvr/luxdvr
-CFLAGS="-m$1 -q -static"
+CC="src/luxdvr/luxdvr -q $1"
 TESTDIR=`dirname $0`
 
 rm -f $TESTDIR/trex.output

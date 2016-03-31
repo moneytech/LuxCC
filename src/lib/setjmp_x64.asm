@@ -14,7 +14,7 @@ section .text
 ; } jmp_buf[1];
 
 ; int setjmp(jmp_buf env);
-global setjmp
+global setjmp:function
 setjmp:
     mov rdx, rdi        ; rdx = &env
     mov rax, [rsp]      ; rax = return address
@@ -32,7 +32,7 @@ setjmp:
     ret
 
 ; void longjmp(jmp_buf env, int val);
-global longjmp
+global longjmp:function
 longjmp:
     mov rdx, rdi        ; rdx = &env
     mov rax, rsi        ; rax = val

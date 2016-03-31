@@ -1,6 +1,6 @@
 #!/bin/bash
 CC1=src/luxcc
-CFLAGS="-q -m$1"
+CFLAGS="-q $1"
 TESTS_PATH=src/tests/compile
 
 fail_counter=0

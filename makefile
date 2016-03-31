@@ -23,7 +23,7 @@ ELF:
 install:
 	cp src/luxcc src/luxdvr/luxdvr /usr/local/bin/
 	cp src/luxvm/luxvm src/luxvm/luxasvm src/luxvm/luxldvm /usr/local/bin/
-	cp src/luxx86/luxasx86 src/luxld/luxld32 src/luxld/luxld64 /usr/local/bin/
+	cp src/luxx86/luxasx86 src/luxld/luxld /usr/local/bin/
 	cp src/luxmips/luxasmips /usr/local/bin
 	cp src/luxarm/luxasarm /usr/local/bin
 	mkdir -p /usr/local/lib/luxcc
@@ -35,7 +35,7 @@ install:
 uninstall:
 	rm -f /usr/local/bin/luxcc /usr/local/bin/luxdvr
 	rm -f /usr/local/bin/luxvm /usr/local/bin/luxasvm /usr/local/bin/luxldvm
-	rm -f /usr/local/bin/luxasx86 /usr/local/bin/luxld32 /usr/local/bin/luxld64
+	rm -f /usr/local/bin/luxasx86 /usr/local/bin/luxld
 	rm -f /usr/local/bin/luxasmips
 	rm -f /usr/local/bin/luxasarm
 	rm -rf /usr/local/lib/luxcc

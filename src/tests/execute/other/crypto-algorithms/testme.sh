@@ -1,11 +1,10 @@
 #!/bin/bash
-CC=src/luxdvr/luxdvr
-CFLAGS="-m$1 -q -static"
+CC="src/luxdvr/luxdvr -q $1"
 TESTDIR=`dirname $0`
 OBJS=""
 
 for file in $TESTDIR/src/*.c ; do
-	if ! $CC $CFLAGS -c $file -o "${file%.*}.o" &>/dev/null ; then
+	if ! $CC -c $file -o "${file%.*}.o" &>/dev/null ; then
 		echo "Crypto: failed to compile $file"
 		exit 1
 	else
@@ -17,7 +16,7 @@ ar rcs $TESTDIR/libcrypto.a $OBJS
 
 rm -f $TESTDIR/crypto.output
 for file in $TESTDIR/test/*.c ; do
-	if ! $CC $CFLAGS -i $TESTDIR/src $file $TESTDIR/libcrypto.a -o $TESTDIR/out1 &>/dev/null ; then
+	if ! $CC -i $TESTDIR/src $file $TESTDIR/libcrypto.a -o $TESTDIR/out1 &>/dev/null ; then
 		echo "Crypto: failed to compile $file"
 		continue
 	fi

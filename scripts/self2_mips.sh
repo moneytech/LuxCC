@@ -1,9 +1,9 @@
-#COMPILER="scripts/runmipselexe.sh src/tests/self/luxcc1 -q -mmips"
-COMPILER="qemu-mipsel src/tests/self/luxcc1 -q -mmips"
+COMPILER="qemu-mipsel -L /usr/mipsel-linux-gnu/ src/tests/self/luxcc1 -q -mmips"
 ASSEMBLER=src/luxmips/luxasmips
-LINKER="mipsel-linux-gnu-ld -melf32ltsmip"
+LINKER="src/luxld/luxld -melf_mipsel -I/usr/mipsel-linux-gnu/lib/ld.so.1"
 RUNC="src/lib/obj/mips/crt0.o src/lib/obj/mips/luxmemcpy.o src/lib/obj/mips/liblux.o"
-LIBC="src/lib/obj/mips/libc.a"
+#LIBC="src/lib/obj/mips/libc.a"
+LIBC="src/lib/obj/mips/libc.so"
 OUTPROG=luxcc2
 
 fail_counter=0

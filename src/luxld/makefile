@@ -1,24 +1,30 @@
 CC=gcc
-CFLAGS=-c -g -Wall
-OBJS = luxld32.o luxld64.o
+CFLAGS=-c -g -Wall -Wno-switch
+OBJS=luxld.o x86.o x64.o arm.o mips.o out.o copy.o
 
-all: luxld32 luxld64
+all: luxld
 
-luxld32: luxld32.o ../util.o ../arena.o ../ELF/ELF_util.o
-	$(CC) -o luxld32 luxld32.o ../util.o ../arena.o ../ELF/ELF_util.o
-luxld64: luxld64.o  ../util.o ../arena.o ../ELF/ELF_util.o
-	$(CC) -o luxld64 luxld64.o ../util.o ../arena.o ../ELF/ELF_util.o
+luxld: $(OBJS)
+	$(CC) -o luxld $(OBJS) ../util.o ../ELF/ELF_util.o
+
 ../util.o:
 	make -C .. util.o
-../arena.o:
-	make -C .. arena.o
+
 ../ELF/ELF_util.o:
 	make -C ../ELF ELF_util.o
+
 .c.o:
 	$(CC) $(CFLAGS) $*.c
-clean:
-	rm -f $(OBJS) luxld32 luxld64
 
-luxld.o: luxld.h ../util.h ../arena.h ../ELF/ELF_util.h
+clean:
+	rm -f $(OBJS) luxld
+
+luxld.o: luxld.h x86.h x64.h mips.h arm.h ../util.h ../ELF/ELF_util.h
+x86.o: x86.h luxld.h copy.h ../util.h
+x64.o: x64.h luxld.h copy.h ../util.h
+mips.o: mips.h luxld.h copy.h ../util.h
+arm.o: arm.h luxld.h copy.h ../util.h
+out.o: out.h luxld.h ../util.h ../ELF/ELF_util.h
+copy.o: copy.h luxld.h ../util.h
 
 .PHONY: all clean

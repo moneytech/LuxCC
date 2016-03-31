@@ -52,6 +52,7 @@ static int string_literals_counter;
 static FILE *arm_output_file;
 static int func_last_quad;
 static int arg_offs, max_arg_offs;
+static int a_mapsym_counter, d_mapsym_counter;
 
 #define JMP_TAB_MIN_SIZ   3
 #define JMP_TAB_MAX_HOLES 10
@@ -85,7 +86,7 @@ static String *func_body, *func_prolog, *func_epilog, *asm_decls, *str_lits;
  * Assume that every instruction that is emitted needs to load a literal (the worst case).
  * It is set to this value so we have 2048 bytes to reach the start of the pool
  * and 2048 bytes to address a literal within it.
- * XXX: doesn't have into account that pc is actually pc+8 when referenced.
+ * XXX: doesn't have into account that pc is actually (&curr_instr)+8 when referenced.
  */
 #define MAX_OFFS_TO_LT 2048
 static int offs_to_lit_tab, code_cont_counter;
@@ -94,6 +95,7 @@ static void dump_and_link(void)
 {
     string_printf(func_body, "b __code_cont@%d\n", code_cont_counter);
     string_printf(func_body, ".ltorg\n");
+    string_printf(func_body, "$$a.%d:", a_mapsym_counter++);
     string_printf(func_body, "__code_cont@%d:\n", code_cont_counter);
     offs_to_lit_tab = 0;
     ++code_cont_counter;
@@ -2293,10 +2295,12 @@ jump_table:
     emitln(".ltorg");
     offs_to_lit_tab = 0;
     SET_SEGMENT(ROD_SEG, emitln);
+    emitln("$$d.%d:", d_mapsym_counter++);
     emitln("@jt%d:", jump_tables_counter++);
     for (i = 0; i < interval_size; i++)
         emitln(".dword %s", jmp_tab[i]);
     SET_SEGMENT(TEXT_SEG, emitln);
+    emitln("$$a.%d:", a_mapsym_counter++);
 
     free(jmp_tab);
     arena_destroy(lab_arena);
@@ -2407,10 +2411,9 @@ void arm_function_definition(TypeExp *decl_specs, TypeExp *header)
 
     if (!first_func)
         emit_prolog("\n");
-    else
-        emit_prologln("$$a:");
     emit_prologln("; ==== start of definition of function `%s' ====", curr_func);
     SET_SEGMENT(TEXT_SEG, emit_prologln);
+    emit_prologln("$$a.%d:", a_mapsym_counter++);
     if ((scs=get_sto_class_spec(decl_specs))==NULL || scs->op!=TOK_STATIC)
         emit_prologln(".global $%s", curr_func);
     emit_prologln("$%s:", curr_func);
@@ -2779,21 +2782,23 @@ void arm_allocate_static_objects(void)
         al = get_alignment(&ty);
         if (initzr != NULL) {
             SET_SEGMENT(DATA_SEG, emit_declln);
+            emit_declln("$$d.%d:", d_mapsym_counter++);
             if (al > 1)
                 emit_declln(".align #%u", al);
         } else {
             SET_SEGMENT(BSS_SEG, emit_declln);
+            emit_declln("$$d.%d:", d_mapsym_counter++);
             if (al > 1)
                 emit_declln(".alignb #%u", al);
         }
         if ((enclosing_function=np->enclosing_function) != NULL) { /* static local */
-            emit_declln("%s@%s:", np->enclosing_function, np->declarator->str);
+            emit_declln("$%s@%s:", np->enclosing_function, np->declarator->str);
         } else {
             TypeExp *scs;
 
             if ((scs=get_sto_class_spec(np->decl_specs))==NULL || scs->op!=TOK_STATIC)
                 emit_declln(".global %s", np->declarator->str);
-            emit_declln("%s:", np->declarator->str);
+            emit_declln("$%s:", np->declarator->str);
         }
         if (initzr != NULL)
             arm_static_init(ty.decl_specs, ty.idl, initzr);
@@ -2837,30 +2842,30 @@ void arm_cgen(FILE *outf)
         tmp = nid_counter;
         get_var_nid(ed->declarator->str, 0);
         if (tmp == nid_counter)
-            emit_declln(".extern %s", ed->declarator->str);
+            emit_declln(".extern $%s", ed->declarator->str);
     }
     /* the front-end may emit calls to memcpy/memset */
     if (include_libc) {
-        emit_declln(".extern memcpy");
-        emit_declln(".extern memset");
+        emit_declln(".extern $memcpy");
+        emit_declln(".extern $memset");
     }
-    emit_declln(".extern __lux_arm_memcpy");
+    emit_declln(".extern $__lux_arm_memcpy");
     /* liblux functions */
     if (include_liblux) {
-        emit_declln(".extern __lux_mul64");
-        emit_declln(".extern __lux_sdiv64");
-        emit_declln(".extern __lux_udiv64");
-        emit_declln(".extern __lux_smod64");
-        emit_declln(".extern __lux_umod64");
-        emit_declln(".extern __lux_shl64");
-        emit_declln(".extern __lux_sshr64");
-        emit_declln(".extern __lux_ushr64");
-        emit_declln(".extern __lux_ucmp64");
-        emit_declln(".extern __lux_scmp64");
-        emit_declln(".extern __lux_udiv32");
-        emit_declln(".extern __lux_sdiv32");
-        emit_declln(".extern __lux_umod32");
-        emit_declln(".extern __lux_smod32");
+        emit_declln(".extern $__lux_mul64");
+        emit_declln(".extern $__lux_sdiv64");
+        emit_declln(".extern $__lux_udiv64");
+        emit_declln(".extern $__lux_smod64");
+        emit_declln(".extern $__lux_umod64");
+        emit_declln(".extern $__lux_shl64");
+        emit_declln(".extern $__lux_sshr64");
+        emit_declln(".extern $__lux_ushr64");
+        emit_declln(".extern $__lux_ucmp64");
+        emit_declln(".extern $__lux_scmp64");
+        emit_declln(".extern $__lux_udiv32");
+        emit_declln(".extern $__lux_sdiv32");
+        emit_declln(".extern $__lux_umod32");
+        emit_declln(".extern $__lux_smod32");
     }
 
     string_write(asm_decls, arm_output_file);
@@ -2869,6 +2874,7 @@ void arm_cgen(FILE *outf)
     if (string_literals_counter) {
         fprintf(arm_output_file, "\n; == string literals\n");
         fprintf(arm_output_file, ".rodata\n");
+        fprintf(arm_output_file, "$$d.%d:\n", d_mapsym_counter);
         string_write(str_lits, arm_output_file);
     }
     string_free(str_lits);

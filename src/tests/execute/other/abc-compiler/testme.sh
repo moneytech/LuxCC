@@ -1,9 +1,8 @@
 #!/bin/bash
-CC=src/luxdvr/luxdvr
-CFLAGS="-m$1 -q -static"
+CC="src/luxdvr/luxdvr -q $1"
 TESTDIR=`dirname $0`
 
-$CC $CFLAGS $TESTDIR/b0.c $TESTDIR/b1.c -o $TESTDIR/b &>/dev/null
+$CC $TESTDIR/b0.c $TESTDIR/b1.c -o $TESTDIR/b &>/dev/null
 $TESTDIR/abc -c $TESTDIR/brt.s $TESTDIR/lib.b &>/dev/null
 
 rm -f $TESTDIR/abc.output

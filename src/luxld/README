@@ -1,0 +1,12 @@
+Linker with support for i386, x86_64, MIPS, and ARM.
+
+Static and shared libraries are supported.
+
+Just a minimal set of input relocations are supported, mostly the ones that are emitted
+by the corresponding assemblers. The only output relocations are of type R_*_JUMP_SLOT
+and R_*_COPY.
+
+This linker is primarily used to link against our own libc. It can be used to link against
+musl too (at least in i386).
+
+glibc almost sure is not going to work because of the input relocations of the crt*.o files.

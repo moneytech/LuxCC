@@ -1,21 +1,21 @@
-X86_CC=gcc
+X86_CC=gcc -m32
 X86_AS=../luxx86/luxasx86 -m32
-X86_LD=gcc
+X86_LD=gcc -m32
 
 X64_CC=gcc -m64
 X64_AS=../luxx86/luxasx86 -m64
 X64_LD=gcc -m64
 
-# MIPS_CC=mipsel-linux-gnu-gcc
-# MIPS_AS=../luxmips/luxasmips
-# MIPS_LD=mipsel-linux-gnu-gcc
+MIPS_CC=mipsel-linux-gnu-gcc
+MIPS_AS=../luxmips/luxasmips
+MIPS_LD=mipsel-linux-gnu-gcc
 
-# ARM_CC=arm-linux-gnueabi-gcc -marm -march=armv6
-# ARM_AS=../luxarm/luxasarm
-# ARM_LD=arm-linux-gnueabi-gcc -marm -march=armv6
+ARM_CC=arm-linux-gnueabi-gcc -marm -march=armv6
+ARM_AS=../luxarm/luxasarm
+ARM_LD=arm-linux-gnueabi-gcc -marm -march=armv6
 
 CFLAGS=-c -fPIC -nostdlib -nostdinc -Iinclude/
-LFLAGS=-shared -nostdlib
+LFLAGS=-shared -nostdlib -Xlinker --hash-style=sysv
 
 LIBC_X86_FILES=obj/x86/pic/raw_syscall.o obj/x86/pic/init.o obj/x86/pic/stdio.o \
 		obj/x86/pic/unistd.o obj/x86/pic/stdlib.o obj/x86/pic/string.o \
@@ -33,21 +33,21 @@ LIBC_X64_FILES=obj/x64/pic/raw_syscall.o obj/x64/pic/init.o obj/x64/pic/stdio.o 
 		obj/x64/pic/setjmp.o obj/x64/pic/time.o obj/x64/pic/times.o \
 		obj/x64/pic/wait.o
 
-# LIBC_MIPS_FILES=obj/mips/pic/raw_syscall.o obj/mips/pic/init.o obj/mips/pic/stdio.o \
-		# obj/mips/pic/unistd.o obj/mips/pic/stdlib.o obj/mips/pic/string.o \
-		# obj/mips/pic/ctype.o  obj/mips/pic/errno.o obj/mips/pic/termios.o \
-		# obj/mips/pic/syscall.o obj/mips/pic/ioctl.o obj/mips/pic/fcntl.o \
-		# obj/mips/pic/stat.o obj/mips/pic/signal.o obj/mips/pic/assert.o \
-		# obj/mips/pic/setjmp.o obj/mips/pic/time.o obj/mips/pic/times.o \
-		# obj/mips/pic/wait.o
+LIBC_MIPS_FILES=obj/mips/pic/raw_syscall.o obj/mips/pic/init.o obj/mips/pic/stdio.o \
+		obj/mips/pic/unistd.o obj/mips/pic/stdlib.o obj/mips/pic/string.o \
+		obj/mips/pic/ctype.o  obj/mips/pic/errno.o obj/mips/pic/termios.o \
+		obj/mips/pic/syscall.o obj/mips/pic/ioctl.o obj/mips/pic/fcntl.o \
+		obj/mips/pic/stat.o obj/mips/pic/signal.o obj/mips/pic/assert.o \
+		obj/mips/pic/setjmp.o obj/mips/pic/time.o obj/mips/pic/times.o \
+		obj/mips/pic/wait.o
 
-# LIBC_ARM_FILES=obj/arm/pic/raw_syscall.o obj/arm/pic/init.o obj/arm/pic/stdio.o \
-		# obj/arm/pic/unistd.o obj/arm/pic/stdlib.o obj/arm/pic/string.o \
-		# obj/arm/pic/ctype.o  obj/arm/pic/errno.o obj/arm/pic/termios.o \
-		# obj/arm/pic/syscall.o obj/arm/pic/ioctl.o obj/arm/pic/fcntl.o \
-		# obj/arm/pic/stat.o obj/arm/pic/signal.o obj/arm/pic/assert.o \
-		# obj/arm/pic/setjmp.o obj/arm/pic/time.o obj/arm/pic/times.o \
-		# obj/arm/pic/wait.o
+LIBC_ARM_FILES=obj/arm/pic/raw_syscall.o obj/arm/pic/init.o obj/arm/pic/stdio.o \
+		obj/arm/pic/unistd.o obj/arm/pic/stdlib.o obj/arm/pic/string.o \
+		obj/arm/pic/ctype.o  obj/arm/pic/errno.o obj/arm/pic/termios.o \
+		obj/arm/pic/syscall.o obj/arm/pic/ioctl.o obj/arm/pic/fcntl.o \
+		obj/arm/pic/stat.o obj/arm/pic/signal.o obj/arm/pic/assert.o \
+		obj/arm/pic/setjmp.o obj/arm/pic/time.o obj/arm/pic/times.o \
+		obj/arm/pic/wait.o
 
 all: libc
 
@@ -55,7 +55,7 @@ all: libc
 # libc.so
 #
 
-libc: obj/x86/libc.so obj/x64/libc.so # obj/mips/libc.so obj/arm/libc.so
+libc: obj/x86/libc.so obj/x64/libc.so obj/mips/libc.so obj/arm/libc.so
 
 obj/x86/libc.so: $(LIBC_X86_FILES)
 	$(X86_LD) $(LFLAGS) -o obj/x86/libc.so $(LIBC_X86_FILES) -lgcc
@@ -63,11 +63,11 @@ obj/x86/libc.so: $(LIBC_X86_FILES)
 obj/x64/libc.so: $(LIBC_X64_FILES)
 	$(X64_LD) $(LFLAGS) -o obj/x64/libc.so $(LIBC_X64_FILES) -lgcc
 
-# obj/mips/libc.so: $(LIBC_MIPS_FILES)
-	# $(MIPS_LD) $(LFLAGS) -o obj/mips/libc.so $(LIBC_MIPS_FILES) -lgcc
+obj/mips/libc.so: $(LIBC_MIPS_FILES)
+	$(MIPS_LD) $(LFLAGS) -o obj/mips/libc.so $(LIBC_MIPS_FILES) -lgcc
 
-# obj/arm/libc.so: $(LIBC_ARM_FILES)
-	# $(ARM_LD) $(LFLAGS) -o obj/arm/libc.so $(LIBC_ARM_FILES) -lgcc -lgcc_eh
+obj/arm/libc.so: $(LIBC_ARM_FILES)
+	$(ARM_LD) $(LFLAGS) -o obj/arm/libc.so $(LIBC_ARM_FILES) -lgcc -lgcc_eh
 
 #
 # libc .o files
@@ -79,11 +79,11 @@ obj/x86/pic/%.o: %.c
 obj/x64/pic/%.o: %.c
 	$(X64_CC) $(CFLAGS) $*.c -o obj/x64/pic/$*.o
 
-# obj/mips/pic/%.o: %.c
-	# $(MIPS_CC) $(CFLAGS) $*.c -o obj/mips/pic/$*.o
+obj/mips/pic/%.o: %.c
+	$(MIPS_CC) $(CFLAGS) $*.c -o obj/mips/pic/$*.o
 
-# obj/arm/pic/%.o: %.c
-	# $(ARM_CC) $(CFLAGS) $*.c -o obj/arm/pic/$*.o
+obj/arm/pic/%.o: %.c
+	$(ARM_CC) $(CFLAGS) $*.c -o obj/arm/pic/$*.o
 
 obj/x86/pic/raw_syscall.o: raw_syscall_x86.asm
 	$(X86_AS) raw_syscall_x86.asm -o obj/x86/pic/raw_syscall.o
@@ -91,11 +91,11 @@ obj/x86/pic/raw_syscall.o: raw_syscall_x86.asm
 obj/x64/pic/raw_syscall.o: raw_syscall_x64.asm
 	$(X64_AS) raw_syscall_x64.asm -o obj/x64/pic/raw_syscall.o
 
-# obj/mips/pic/raw_syscall.o: raw_syscall_mips.asm
-	# $(MIPS_AS) raw_syscall_mips.asm -o obj/mips/pic/raw_syscall.o
+obj/mips/pic/raw_syscall.o: raw_syscall_mips.asm
+	$(MIPS_AS) raw_syscall_mips.asm -o obj/mips/pic/raw_syscall.o
 
-# obj/arm/pic/raw_syscall.o: raw_syscall_arm.asm
-	# $(ARM_AS) raw_syscall_arm.asm -o obj/arm/pic/raw_syscall.o
+obj/arm/pic/raw_syscall.o: raw_syscall_arm.asm
+	$(ARM_AS) raw_syscall_arm.asm -o obj/arm/pic/raw_syscall.o
 
 obj/x86/pic/setjmp.o: setjmp_x86.asm
 	$(X86_AS) setjmp_x86.asm -o obj/x86/pic/setjmp.o
@@ -103,10 +103,10 @@ obj/x86/pic/setjmp.o: setjmp_x86.asm
 obj/x64/pic/setjmp.o: setjmp_x64.asm
 	$(X64_AS) setjmp_x64.asm -o obj/x64/pic/setjmp.o
 
-# obj/mips/pic/setjmp.o: setjmp_mips.asm
-	# $(MIPS_AS) setjmp_mips.asm -o obj/mips/pic/setjmp.o
+obj/mips/pic/setjmp.o: setjmp_mips.asm
+	$(MIPS_AS) setjmp_mips.asm -o obj/mips/pic/setjmp.o
 
-# obj/arm/pic/setjmp.o: setjmp_arm.asm
-	# $(ARM_AS) setjmp_arm.asm -o obj/arm/pic/setjmp.o
+obj/arm/pic/setjmp.o: setjmp_arm.asm
+	$(ARM_AS) setjmp_arm.asm -o obj/arm/pic/setjmp.o
 
 .PHONY: all libc

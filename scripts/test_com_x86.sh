@@ -1,2 +1,2 @@
 #!/bin/bash
-/bin/bash scripts/test_com_xXX.sh x86
+/bin/bash scripts/test_com_xXX.sh -mx86

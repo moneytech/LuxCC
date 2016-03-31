@@ -10,7 +10,7 @@
     asm_expr = [ "-" ] NUM | ID [ ( "+" | "-" ) NUM ]
     directive = "%" ( "segment" | "section" ) id |
                 "%" "extern" id { "," id } |
-                "%" "global" id { "," id } |
+                "%" "global" id [ ":" id ] { "," id [ ":" id ] } |
                 "%" "align"  NUM |
                 "%" "alignb" NUM |
                 "%" "res" NUM |
@@ -109,6 +109,7 @@ struct Symbol {
     uint32_t val;
     Section *sec;   /* symbol's associated section (NULL for 'extern' symbols) */
     uint16_t ndx;   /* index into ELF file's symbol table */
+    bool is_func;
     Symbol *next;
 } *symbols[HASH_SIZE];
 
@@ -128,6 +129,7 @@ Symbol *define_symbol(SymKind kind, SymBind bind, char *name, uint32_t val, Sect
         np->name = strdup(name);
         np->val = val;
         np->sec = sec;
+        np->is_func = FALSE;
         np->next = symbols[h];
         symbols[h] = np;
     } else if (np->bind == ExternBind) {
@@ -697,7 +699,7 @@ Operand operand(void)
 /*
  * directive = "%" ( "segment" | "section" ) id |
  *             "%" "extern" id { "," id } |
- *             "%" "global" id { "," id } |
+ *             "%" "global" id [ ":" id ] { "," id [ ":" id ] } |
  *             "%" "align"  NUM |
  *             "%" "alignb" NUM |
  *             "%" "res" NUM |
@@ -726,15 +728,26 @@ void directive(void)
             match(TOK_ID);
         }
     } else if (equal(lexeme, "global")) {
+        Symbol *sym;
+
         match(TOK_ID);
-        if (curr_tok == TOK_ID)
-            define_symbol(OtherKind, GlobalBind, lexeme, 0, NULL);
-        match(TOK_ID);
+        goto first;
         while (curr_tok == TOK_COMMA) {
             match(TOK_COMMA);
-            if (curr_tok == TOK_ID);
-                define_symbol(OtherKind, GlobalBind, lexeme, 0, NULL);
+        first:
+            if (curr_tok == TOK_ID)
+                sym = define_symbol(OtherKind, GlobalBind, lexeme, 0, NULL);
             match(TOK_ID);
+            if (curr_tok == TOK_COLON) {
+                match(TOK_COLON);
+                if (curr_tok == TOK_ID) {
+                    if (equal(lexeme, "function"))
+                        sym->is_func = TRUE;
+                    else
+                        ERR("unknown extension to global directive: `%s'", lexeme);
+                }
+                match(TOK_ID);
+            }
         }
     } else if (equal(lexeme, "align")) {
         match(TOK_ID);
@@ -1432,7 +1445,10 @@ void write_ELF_file(void)
                 memset(&sym, 0, sizeof(Elf32_Sym));
                 sym.st_name = strtab_append(strtab, np->name);
                 sym.st_value = np->val;
-                sym.st_info = ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE);
+                if (np->is_func)
+                    sym.st_info = ELF32_ST_INFO(STB_GLOBAL, STT_FUNC);
+                else
+                    sym.st_info = ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE);
                 if (np->bind == ExternBind) {
                     sym.st_shndx = SHN_UNDEF;
                 } else {

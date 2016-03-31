@@ -41,7 +41,7 @@ static void *__va_arg(va_list ap, unsigned long siz)
     void *p;
     int num_gp;
 
-    num_gp = _LONGSIZE(siz)/8;
+    num_gp = (int)(_LONGSIZE(siz)/8);
 
     if (siz>16 || ap->gp_offset>48-num_gp*8) {
         p = ap->overflow_arg_area;

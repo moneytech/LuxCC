@@ -17,7 +17,7 @@
 ; } jmp_buf[1];
 
 ; int setjmp(jmp_buf env);
-%global setjmp
+%global setjmp:function
 setjmp:
     ; fill buf
     sw $29, 0($4)
@@ -37,7 +37,7 @@ setjmp:
     nop
 
 ; void longjmp(jmp_buf env, int val);
-%global longjmp
+%global longjmp:function
 longjmp:
     ; restore registers
     lw $29, 0($4)
