@@ -92,7 +92,8 @@ obj/arm/libc.a: $(LIBC_ARM_FILES)
 	ar rcs obj/arm/libc.a $(LIBC_ARM_FILES)
 
 dyn_libc:
-	make -f makefile.shared
+	@true
+	#make -f makefile.shared
 
 #
 # raw_syscall.o
@@ -161,10 +162,10 @@ obj/arm/%.o: %.c
 	$(CC) $(CFLAGS) -marm -Z $*.c -o $*.asm && $(ARM_AS) $*.asm -o obj/arm/$*.o && rm $*.asm
 
 clean:
-	rm -f obj/x86/*.o  obj/x86/*.a  obj/x86/*.so
-	rm -f obj/x64/*.o  obj/x64/*.a  obj/x64/*.so
-	rm -f obj/mips/*.o obj/mips/*.a obj/mips/*.so
-	rm -f obj/arm/*.o  obj/arm/*.a  obj/arm/*.so
+	rm -f obj/x86/*.o  obj/x86/*.a  #obj/x86/*.so
+	rm -f obj/x64/*.o  obj/x64/*.a  #obj/x64/*.so
+	rm -f obj/mips/*.o obj/mips/*.a #obj/mips/*.so
+	rm -f obj/arm/*.o  obj/arm/*.a  #obj/arm/*.so
 	rm -f obj/x86/pic/*.o
 	rm -f obj/x64/pic/*.o
 	rm -f obj/mips/pic/*.o
