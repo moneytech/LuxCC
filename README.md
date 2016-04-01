@@ -38,6 +38,23 @@ Test everything (run all tests for all supported architectures)
 
 Note that in order to run tests for an architecture different than the host one, you will need to install QEMU user mode and also get a dynamic linker (aka loader) for the corresponding architecture (see the documentation for details).
 
+## Source roadmap
+
+| Directory/File | Contents |
+| --- | --- |
+| `src/*.(c/h)` | Core compiler |
+| `src/luxld` | x86-(32/64), MIPS, and ARM linker |
+| `src/luxx86` | x86-(32/64) assembler |
+| `src/luxmips` | MIPS assembler |
+| `src/luxarm` | ARM assembler |
+| `src/luxvm` | Lux VM and assembler and linker for it |
+| `src/luxdvr` | Compiler driver and .conf files |
+| `src/*_cgen` | Code generators |
+| `src/tools` | Testing tool |
+| `src/lib` | The standard C library |
+| `src/tests` | Test programs |
+
+
 ## Documentation
 
 See `doc/index.html` for in-depth information on usage, internals, and more.
