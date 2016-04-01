@@ -1,1 +1,12 @@
+I have included a precompiled shared libc at obj/<arch>/libc.so so you don't have
+to install any cross-compiler to get one.
 
+I currently cannot use luxcc to compile the libraries because it does not generate
+position-independent code (PIC) as required for shared libraries.
+
+If you want to compile the libraries from source you can install the required
+cross-compiler and do
+
+    make -f makefile.shared
+
+Check makefile.shared's variables to see what cross-compiler is required for each arch.
