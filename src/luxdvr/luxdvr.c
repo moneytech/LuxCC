@@ -46,6 +46,7 @@ char helpstr[] =
     "  -Xl<name>        Link against object file/library <name>\n"
     "  -XL<dir>         Add <dir> to the list of directories searched for the -l options\n"
     "  -XI<interp>      Set <interp> as the name of the dynamic linker\n"
+    "  -Xr<path>        Add <path> to the DT_RUNPATH dynamic array tag\n"
 ;
 
 int verbose;
@@ -424,6 +425,7 @@ int main(int argc, char *argv[])
                 case 'L':
                 case 'l':
                 case 'I':
+                case 'r':
                     string_printf(ld_cmd, " -%s", argv[i]+2);
                     if (argv[i][3] == '\0') {
                         if (argv[i+1] == NULL)

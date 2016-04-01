@@ -190,6 +190,7 @@ extern int nrelaplt;
 extern CmpndSec *reladyn_sec;
 extern int nreladyn;
 extern CmpndSec *got_sec;
+extern Elf32_Word runpath_val;
 
 void err(char *fmt, ...);
 void err_undef(char *sym);

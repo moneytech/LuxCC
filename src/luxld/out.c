@@ -106,6 +106,11 @@ void write_ELF_file_32(FILE *outf)
             dp->d_tag = DT_NEEDED;
             dp->d_un.d_val = strtab_get_offset(dynstr, so->name);
         }
+        if (runpath_val != (Elf32_Word)-1) {
+            dp->d_tag = DT_RUNPATH;
+            dp->d_un.d_val = runpath_val;
+            ++dp;
+        }
         dp->d_tag = DT_HASH;
         dp->d_un.d_ptr = CS32_SHDR(hash_sec).sh_addr;
         ++dp;
@@ -506,6 +511,11 @@ void write_ELF_file_64(FILE *outf)
         for (so = shared_object_files; so != NULL; so = so->next, dp++) {
             dp->d_tag = DT_NEEDED;
             dp->d_un.d_val = strtab_get_offset(dynstr, so->name);
+        }
+        if (runpath_val != (Elf32_Word)-1) {
+            dp->d_tag = DT_RUNPATH;
+            dp->d_un.d_val = runpath_val;
+            ++dp;
         }
         dp->d_tag = DT_HASH;
         dp->d_un.d_ptr = CS64_SHDR(hash_sec).sh_addr;

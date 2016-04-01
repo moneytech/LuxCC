@@ -19,6 +19,7 @@
 #define PAGE_MASK           (PAGE_SIZE-1)
 #define HASH(s)             (hash(s)%HASH_SIZE)
 #define DEF_EMU_MOD         EMU_X86
+#define MAX_RUNPATH_LEN     2048
 
 size_t PLT_ENTRY_NB;
 static char *prog_name;
@@ -37,6 +38,9 @@ static char *interp;
 char *entry_symbol;
 CmpndSec *interp_sec;
 static int nreserved; /* # of reserved entries in .got.plt (or .got for ARM) */
+static char *runpaths[64];
+static int nrunpath;
+Elf32_Word runpath_val = (Elf32_Word)-1;
 
 ObjFile *object_files;
 ShrdObjFile *shared_object_files;
@@ -307,6 +311,22 @@ static void init_dynlink_sections_32(void)
     sec->name = ".dynstr";
     CS32_SHDR(sec).sh_type = SHT_STRTAB;
     CS32_SHDR(sec).sh_flags = SHF_ALLOC;
+    if (nrunpath) {
+        int i;
+        char rbuf[MAX_RUNPATH_LEN], *rp;
+
+        rp = rbuf;
+        rp[0] = '\0';
+        for (i = 0; i < nrunpath; i++) {
+            strcat(rp, runpaths[i]);
+            rp += strlen(runpaths[i]);
+            if (i+1 < nrunpath) {
+                strcat(rp, ":");
+                ++rp;
+            }
+        }
+        runpath_val = strtab_append(dynstr, rbuf);
+    }
     size = round_up(strtab_get_size(dynstr), 4);
     CS32_SHDR(sec).sh_size = size;
     CS32_SHDR(sec).sh_addralign = 1;
@@ -359,13 +379,14 @@ static void init_dynlink_sections_32(void)
     sec->name = ".dynamic";
     CS32_SHDR(sec).sh_type = SHT_DYNAMIC;
     CS32_SHDR(sec).sh_flags = SHF_ALLOC|SHF_WRITE;
-    size = sizeof(Elf32_Dyn)*(nshaobj /* DT_NEEDED */
-                            + 1       /* DT_HASH */
-                            + 1       /* DT_STRTAB */
-                            + 1       /* DT_SYMTAB */
-                            + 1       /* DT_STRSZ */
-                            + 1       /* DT_SYMENT */
-                            + 1       /* DT_NULL */
+    size = sizeof(Elf32_Dyn)*(nshaobj  /* DT_NEEDED */
+                            + nrunpath /* DT_RUNPATH */
+                            + 1        /* DT_HASH */
+                            + 1        /* DT_STRTAB */
+                            + 1        /* DT_SYMTAB */
+                            + 1        /* DT_STRSZ */
+                            + 1        /* DT_SYMENT */
+                            + 1        /* DT_NULL */
                              );
     if (nreloc > 0)
         size += sizeof(Elf32_Dyn)*(1      /* DT_PLTGOT */
@@ -515,6 +536,22 @@ static void init_dynlink_sections_64(void)
     sec->name = ".dynstr";
     CS64_SHDR(sec).sh_type = SHT_STRTAB;
     CS64_SHDR(sec).sh_flags = SHF_ALLOC;
+    if (nrunpath) {
+        int i;
+        char rbuf[MAX_RUNPATH_LEN], *rp;
+
+        rp = rbuf;
+        rp[0] = '\0';
+        for (i = 0; i < nrunpath; i++) {
+            strcat(rp, runpaths[i]);
+            rp += strlen(runpaths[i]);
+            if (i+1 < nrunpath) {
+                strcat(rp, ":");
+                ++rp;
+            }
+        }
+        runpath_val = strtab_append(dynstr, rbuf);
+    }
     size = round_up(strtab_get_size(dynstr), 4);
     CS64_SHDR(sec).sh_size = size;
     CS64_SHDR(sec).sh_addralign = 1;
@@ -1504,6 +1541,18 @@ search:
                 emu_mode = EMU_ARM;
         }
             break;
+        case 'r': {
+            char *a;
+
+            a = NULL;
+            if (argv[i][2] != '\0')
+                a = argv[i]+2;
+            else if (argv[i+1] != NULL)
+                a = argv[++i];
+            if (a != NULL)
+                runpaths[nrunpath++] = a;
+        }
+            break;
         case 'h':
             /* we only interpret this option if we haven't read any file yet */
             if (nfbuf == 0) {
@@ -1515,6 +1564,7 @@ search:
                        "    -L<dir>     add <dir> to the list of directories searched for the -l options\n"
                        "    -I<interp>  set <interp> as the name of the dynamic linker\n"
                        "    -m<mode>    emulate a linker for <mode>\n"
+                       "    -r<path>    add <path> to the DT_RUNPATH dynamic array tag\n"
                        "    -h          print this help\n\n"
                        "  Currently valid arguments for -m:\n"
                        "    elf_i386\n"
