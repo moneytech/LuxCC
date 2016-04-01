@@ -82,6 +82,7 @@
 
 
 
+
 <meta http-equiv="content-type" content="text/html; charset=utf-8"><meta http-equiv="content-type" content="text/html; charset=utf-8"></head><body><span style="font-family: monospace;"></span><span style="font-family: monospace;">Luxcc usage and internals documentation. I will try to maintain this document updated as things evolve.</span><br>
 <br>
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big>Index<br></big></big></big><span style="font-family: Times New Roman;">
@@ -156,46 +157,57 @@ This is a one-man project developed mainly for educational purposes
 First of all go to the base working directory. Once there, you can run <span style="font-family: monospace;">make</span> (or <span style="font-family: monospace;">make all</span>) to build the core compiler and all of the tools. <br>
 After that you can run <span style="font-family: monospace;">make install</span> or, alternatively, you can execute the compiler and everything else from within the base working directory.<br>
 <br>
-<span style="font-weight: bold;">System's libc and .conf files</span><br>
+<span style="font-weight: bold;">libc</span><br>
 <br>
-The x86 and x64 targets use the system's implementation of the C standard library.<br>
+By default, the driver will use the provided standard C library (at <span style="font-family: monospace;">src/lib</span>). This will work well for the most of the purposes.<br>
+<br>
+Additionally it accepts command line switches to link against other implementations of libc:<br>
+<ul>
+  <li><span style="font-family: monospace;">-use-glibc</span> instruct the driver to link against the GNU C standard library.<br>
+    <span style="font-family: monospace;"></span></li>
+  <li><span style="font-family: monospace;">-use-musl</span> instruct the driver to link against the <a href="http://www.musl-libc.org/">musl</a> C standard library.<br>
+  </li>
+</ul>
+Of course, to use them you will need to install the corresponding libraries (and maybe edit a .conf file, see below).<br>
+<br>
+Also (because of limitations in the linker) the driver will invoke the
+GNU linker (for the corresponding arch) when linking with a libc other
+than the default.<br>
+<br>
+<span style="font-weight: bold;">Solving driver's "cannot find &lt;file&gt;" kind of errors</span><br>
+<br>
+Assuming you have the corresponding library files, go to <span style="font-family: monospace;">src/luxdvr</span> and search for the corresponding .conf file (<span style="font-family: monospace;">x86.conf</span> if you are compiling for x86 32-bits, <span style="font-family: monospace;">glibc_mips.conf</span> if you are compiling for MIPS using the <span style="font-family: monospace;">-use-glibc</span>
+switch, etc). Once found, edit the file with the correct paths. For
+example, if you are compiling something for ARM with the -use-musl
+switch and the driver complains with "cannot find `libc.so'", then go
+and edit the file <span style="font-family: monospace;">src/luxdrv/musl_arm.conf</span> as follows:<br>
+<br>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">libc.so: path/where/libc.so/can/be/found, /another/path/where/it/can/be/found</span><span style="font-family: monospace;"></span></div>
+<br>
+<span style="font-weight: bold;">Running executables for another architecture</span><br>
+<br>
+Say, for example, your host computer is x86 32-bit (i386) and you want
+to run a program compiled for MIPS. In order to do that, you will need
+to install the following:<br>
+<ul>
+  <li>QEMU user mode, which can be found in the package <span style="font-family: monospace;">qemu-user</span>.</li>
+  <li>A dynamic linker/loader, which in the case of MIPS can be found in the <span style="font-family: monospace;">libc6-mipsel-cross</span> package (for ARM it is in <span style="font-family: monospace;">libc6-armel-cross</span>).&nbsp; <meta http-equiv="content-type" content="text/html; charset=utf-8"></li>
+</ul>
 
+Once you have these you can run the program with<br>
 <br>
-Before do anything, check out the <span style="font-family: monospace;">.conf</span> file for your platform (<span style="font-family: monospace;">x86.conf</span> or <span style="font-family: monospace;">x64.conf</span>) located at <span style="font-family: monospace;">src/luxdvr/</span> and make sure that the files exist in the indicated paths. For example, in <span style="font-family: monospace;">x86.conf</span> you will see<br>
-<br>
-<div style="margin-left: 40px;"><span style="font-family: monospace;">libc.so.6: /lib/i386-linux-gnu</span><br>
+<span style="font-family: monospace;"></span>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">qemu-mipsel -L /usr/mipsel-linux-gnu/ ./program</span><br>
 </div>
+<span style="font-weight: bold;"><br>
+</span>or for ARM<br>
 <br>
-meaning that the compiler driver will look for the file <span style="font-family: monospace;">libc.so.6</span> (the C standard library) at the directory <span style="font-family: monospace;">/lib/i386-linux-gnu</span>. If said file is not located there, modify the line to the correct location (you can compile a dummy program with <span style="font-family: monospace;">gcc</span> and the <span style="font-family: monospace;">-v</span> option to see where gcc is pulling a specific file from). The directories listed in <span style="font-family: monospace;">x86.conf</span> and <span style="font-family: monospace;">x64.conf</span>
-are the directories where the files were installed by default in my Linux
-distribution (Ubuntu 12.04 32-bits and Ubuntu 14.04 64-bits
-respectively).<br>
-<br>
-<span style="font-weight: bold;">musl libc</span><br>
-<br>
-Alternatively, you can use the lightweight <a href="http://www.musl-libc.org/">musl</a> standard library that is compatible with my linker (<span style="font-family: monospace;">luxld</span>) and works very well. If you have installed musl, you can indicate the driver to use it with the command-line switch <span style="font-family: monospace;">-use-musl</span>.<br>
-<br>
-<span style="font-weight: bold;">MIPS/ARM dependencies</span><br>
-<br>
-QEMU user mode and ARM/MIPS libraries must be installed to compile and
-run programs for these platforms (currently I also depend on external
-linkers here).<br>
-For distros based on apt, everything required can be installed with a single command:<br>
-<br>
-<div style="margin-left: 40px;"><span style="font-family: monospace;">sudo apt-get install qemu-user binutils-mipsel-linux-gnu binutils-arm-linux-gnueabi libc6-armel-cross libc6-dev-armel-cross</span><br>
+<div style="margin-left: 40px;"><span style="font-family: monospace;">qemu-arm -L /usr/arm-linux-gnueabi/ ./program</span><br>
 </div>
-<br>
-If binutils-mips-linux-gnu is not in your repos, try adding the following two lines to <span style="font-family: monospace;">/etc/apt/sources.list</span><br>
-<br>
-<div style="margin-left: 40px;"><span style="font-family: monospace;">deb http://ftp.de.debian.org/debian squeeze main</span><br style="font-family: monospace;">
-<span style="font-family: monospace;">deb http://www.emdebian.org/debian/ squeeze main</span><br>
-</div>
-<br>
-and doing a <span style="font-family: monospace;">sudo apt-get update</span>.<br>
 <br>
 <big style="font-family: Times New Roman;"><big style="font-weight: bold; text-decoration: underline;"><big><a name="Basic_usage"></a>2.2 Basic usage<br>
 </big></big></big><br>
-In the following examples I will assume that you have run make install (replace <span style="font-family: monospace;">luxdvr</span> for <span style="font-family: monospace;">src/luxdvr/luxdvr</span> otherwise). I will also assume that the target is x86 (the default).<br>
+In the following examples I will assume that you have run make install (replace <span style="font-family: monospace;">luxdvr</span> for <span style="font-family: monospace;">src/luxdvr/luxdvr</span> otherwise). I will also assume that the target is x86 (the default on 32-bit systems).<br>
 <br>
 <span style="text-decoration: underline;">Note</span>: command-line
 arguments must be passed individually, that is, if you want to pass the
@@ -1752,9 +1764,14 @@ should be equal to cc3 (in a byte-to-byte basis).<br>
   <li><a href="http://collaboration.cmc.ec.gc.ca/science/rpn/biblio/ddj/Website/articles/CUJ/tree.htm">C/C++ Users Journal</a></li>
   <li><a href="http://www.open-std.org/jtc1/sc22/wg14/www/docs/dr.htm">WG14 Defect Report Summary</a></li>
   <li><a href="http://www.agner.org/optimize/calling_conventions.pdf">Calling conventions</a></li>
+  <li><a href="http://www.sco.com/developers/gabi/latest/contents.html">System V ABI (general)</a><br>
+  </li>
 
-  <li><a href="http://www.sco.com/developers/devspecs/abi386-4.pdf">System V ABI-i386</a></li>
-  <li><a href="http://www.x86-64.org/documentation/abi.pdf">System V ABI-AMD64</a></li><li><a href="http://math-atlas.sourceforge.net/devel/assembly/mipsabi32.pdf">MIPS o32 ABI (the old ABI)<br>
+
+  <li><a href="http://www.sco.com/developers/devspecs/abi386-4.pdf">System V i386 psABI<br>
+</a></li>
+  <li><a href="http://www.x86-64.org/documentation/abi.pdf">System V AMD64 psABI<br>
+</a></li><li><a href="http://math-atlas.sourceforge.net/devel/assembly/mipsabi32.pdf">System V MIPS psABI (o32, the old ABI)<br>
     </a></li>
   <li><a href="http://www.linux-mips.org/pub/linux/mips/doc/NUBI/MD00438-2C-NUBIDESC-SPC-00.16.pdf">MIPS NUBI ABI (the new ABI)</a></li>
   <li><a href="http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ihi0037c/index.html">Base Platform ABI for the ARM Architecture (BPABI)</a></li>
