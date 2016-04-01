@@ -12,8 +12,10 @@
 #define SYS_unlink  10
 #define SYS_execve  11
 #define SYS_time    13
+#define SYS_chmod   15
 #define SYS_lseek   19
 #define SYS_getpid  20
+#define SYS_utime   30
 #define SYS_kill    37
 #define SYS_rename  38
 #define SYS_times   43
@@ -21,6 +23,7 @@
 #define SYS_ioctl   54
 #define SYS_stat64  195
 #define SYS_stat    SYS_stat64
+#define SYS_utimes  271
 #elif defined __x86_64__
 #define SYS_exit    60
 #define SYS_fork    57
@@ -33,14 +36,17 @@
 #define SYS_unlink  87
 #define SYS_execve  59
 #define SYS_time    201
+#define SYS_chmod   90
 #define SYS_lseek   8
 #define SYS_getpid  39
+#define SYS_utime   132
 #define SYS_kill    62
 #define SYS_rename  82
 #define SYS_times   100
 #define SYS_brk     12
 #define SYS_ioctl   16
 #define SYS_stat    4
+#define SYS_utimes  235
 #elif defined __mips__
 /* o32 style syscalls (range [4000, 4999]) */
 #define SYS_exit    4001
@@ -53,8 +59,10 @@
 #define SYS_unlink  4010
 #define SYS_execve  4011
 #define SYS_time    4013
+#define SYS_chmod   4015
 #define SYS_lseek   4019
 #define SYS_getpid  4020
+#define SYS_utime   4030
 #define SYS_kill    4037
 #define SYS_rename  4038
 #define SYS_times   4043
@@ -62,6 +70,7 @@
 #define SYS_ioctl   4054
 #define SYS_stat64  4213
 #define SYS_stat    SYS_stat64
+#define SYS_utimes  4267
 #elif defined __arm__
 /* ARM EABI style syscalls (syscall base == 0) */
 #define SYS_exit    1
@@ -75,8 +84,10 @@
 #define SYS_unlink  10
 #define SYS_execve  11
 #define SYS_time    13
+#define SYS_chmod   15
 #define SYS_lseek   19
 #define SYS_getpid  20
+// #define SYS_utime
 #define SYS_kill    37
 #define SYS_rename  38
 #define SYS_times   43
@@ -84,6 +95,7 @@
 #define SYS_ioctl   54
 #define SYS_stat64  195
 #define SYS_stat    SYS_stat64
+#define SYS_utimes  269
 #endif
 
 long syscall(long number, ...);

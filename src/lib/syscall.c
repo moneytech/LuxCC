@@ -96,6 +96,11 @@ long syscall(long number, ...)
     case SYS_rename:    /* int rename(const char *oldpath, const char *newpath); */
     case SYS_stat:      /* int stat(const char *path, struct stat *buf); */
     case SYS_kill:      /* int kill(pid_t pid, int sig); */
+    case SYS_chmod:     /* int chmod(const char *path, mode_t mode); */
+    case SYS_utimes:    /* int utimes(const char *filename, const struct timeval times[2]); */
+#ifndef __arm__
+    case SYS_utime:     /* int utime(const char *filename, const struct utimbuf *times); */
+#endif
         a1 = va_arg(ap, long);
         a2 = va_arg(ap, long);
         res = __raw_syscall_2(number, a1, a2);

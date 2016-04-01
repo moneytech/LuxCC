@@ -31,6 +31,6 @@ struct stat {
 };
 
 int stat(const char *path, struct stat *buf);
-/*int chmod(const char *path, mode_t mode);*/
+int chmod(const char *path, mode_t mode);
 
 #endif

@@ -23,7 +23,7 @@ LIBC_X86_FILES=obj/x86/pic/raw_syscall.o obj/x86/pic/init.o obj/x86/pic/stdio.o 
 		obj/x86/pic/syscall.o obj/x86/pic/ioctl.o obj/x86/pic/fcntl.o \
 		obj/x86/pic/stat.o obj/x86/pic/signal.o obj/x86/pic/assert.o \
 		obj/x86/pic/setjmp.o obj/x86/pic/time.o obj/x86/pic/times.o \
-		obj/x86/pic/wait.o
+		obj/x86/pic/wait.o obj/x86/pic/utime.o obj/x86/pic/stime.o
 
 LIBC_X64_FILES=obj/x64/pic/raw_syscall.o obj/x64/pic/init.o obj/x64/pic/stdio.o \
 		obj/x64/pic/unistd.o obj/x64/pic/stdlib.o obj/x64/pic/string.o \
@@ -31,7 +31,7 @@ LIBC_X64_FILES=obj/x64/pic/raw_syscall.o obj/x64/pic/init.o obj/x64/pic/stdio.o 
 		obj/x64/pic/syscall.o obj/x64/pic/ioctl.o obj/x64/pic/fcntl.o \
 		obj/x64/pic/stat.o obj/x64/pic/signal.o obj/x64/pic/assert.o \
 		obj/x64/pic/setjmp.o obj/x64/pic/time.o obj/x64/pic/times.o \
-		obj/x64/pic/wait.o
+		obj/x64/pic/wait.o obj/x64/pic/utime.o obj/x64/pic/stime.o
 
 LIBC_MIPS_FILES=obj/mips/pic/raw_syscall.o obj/mips/pic/init.o obj/mips/pic/stdio.o \
 		obj/mips/pic/unistd.o obj/mips/pic/stdlib.o obj/mips/pic/string.o \
@@ -39,7 +39,7 @@ LIBC_MIPS_FILES=obj/mips/pic/raw_syscall.o obj/mips/pic/init.o obj/mips/pic/stdi
 		obj/mips/pic/syscall.o obj/mips/pic/ioctl.o obj/mips/pic/fcntl.o \
 		obj/mips/pic/stat.o obj/mips/pic/signal.o obj/mips/pic/assert.o \
 		obj/mips/pic/setjmp.o obj/mips/pic/time.o obj/mips/pic/times.o \
-		obj/mips/pic/wait.o
+		obj/mips/pic/wait.o obj/mips/pic/utime.o obj/mips/pic/stime.o
 
 LIBC_ARM_FILES=obj/arm/pic/raw_syscall.o obj/arm/pic/init.o obj/arm/pic/stdio.o \
 		obj/arm/pic/unistd.o obj/arm/pic/stdlib.o obj/arm/pic/string.o \
@@ -47,7 +47,7 @@ LIBC_ARM_FILES=obj/arm/pic/raw_syscall.o obj/arm/pic/init.o obj/arm/pic/stdio.o 
 		obj/arm/pic/syscall.o obj/arm/pic/ioctl.o obj/arm/pic/fcntl.o \
 		obj/arm/pic/stat.o obj/arm/pic/signal.o obj/arm/pic/assert.o \
 		obj/arm/pic/setjmp.o obj/arm/pic/time.o obj/arm/pic/times.o \
-		obj/arm/pic/wait.o
+		obj/arm/pic/wait.o obj/arm/pic/utime.o obj/arm/pic/stime.o
 
 all: libc
 
