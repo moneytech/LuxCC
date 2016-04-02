@@ -10,7 +10,8 @@ LIBC_X86_FILES=obj/x86/raw_syscall.o obj/x86/init.o obj/x86/stdio.o \
 		obj/x86/syscall.o obj/x86/ioctl.o obj/x86/fcntl.o \
 		obj/x86/stat.o obj/x86/signal.o obj/x86/assert.o \
 		obj/x86/setjmp.o obj/x86/time.o obj/x86/times.o \
-		obj/x86/wait.o obj/x86/utime.o obj/x86/stime.o
+		obj/x86/wait.o obj/x86/utime.o obj/x86/stime.o \
+		obj/x86/getopt.o
 
 LIBC_X64_FILES=obj/x64/raw_syscall.o obj/x64/init.o obj/x64/stdio.o \
 		obj/x64/unistd.o obj/x64/stdlib.o obj/x64/string.o \
@@ -18,7 +19,8 @@ LIBC_X64_FILES=obj/x64/raw_syscall.o obj/x64/init.o obj/x64/stdio.o \
 		obj/x64/syscall.o obj/x64/ioctl.o obj/x64/fcntl.o \
 		obj/x64/stat.o obj/x64/signal.o obj/x64/assert.o \
 		obj/x64/setjmp.o obj/x64/time.o obj/x64/times.o \
-		obj/x64/wait.o obj/x64/utime.o obj/x64/stime.o
+		obj/x64/wait.o obj/x64/utime.o obj/x64/stime.o \
+		obj/x64/getopt.o
 
 LIBC_MIPS_FILES=obj/mips/raw_syscall.o obj/mips/init.o obj/mips/stdio.o \
 		obj/mips/unistd.o obj/mips/stdlib.o obj/mips/string.o \
@@ -26,7 +28,8 @@ LIBC_MIPS_FILES=obj/mips/raw_syscall.o obj/mips/init.o obj/mips/stdio.o \
 		obj/mips/syscall.o obj/mips/ioctl.o obj/mips/fcntl.o \
 		obj/mips/stat.o obj/mips/signal.o obj/mips/assert.o \
 		obj/mips/setjmp.o obj/mips/time.o obj/mips/times.o \
-		obj/mips/wait.o obj/mips/utime.o obj/mips/stime.o
+		obj/mips/wait.o obj/mips/utime.o obj/mips/stime.o \
+		obj/mips/getopt.o
 
 LIBC_ARM_FILES=obj/arm/raw_syscall.o obj/arm/init.o obj/arm/stdio.o \
 		obj/arm/unistd.o obj/arm/stdlib.o obj/arm/string.o \
@@ -34,7 +37,8 @@ LIBC_ARM_FILES=obj/arm/raw_syscall.o obj/arm/init.o obj/arm/stdio.o \
 		obj/arm/syscall.o obj/arm/ioctl.o obj/arm/fcntl.o \
 		obj/arm/stat.o obj/arm/signal.o obj/arm/assert.o \
 		obj/arm/setjmp.o obj/arm/time.o obj/arm/times.o \
-		obj/arm/wait.o obj/arm/utime.o obj/arm/stime.o
+		obj/arm/wait.o obj/arm/utime.o obj/arm/stime.o \
+		obj/arm/getopt.o
 
 all: crt0 liblux libc luxmemcpy vm_lib
 
