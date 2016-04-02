@@ -16,6 +16,7 @@
 #define ERROR(...)          emit_error(TRUE, SRC_FILE, SRC_LINE, SRC_COLUMN, __VA_ARGS__)
 #define MACRO_TABLE_SIZE    4093
 #define HASH_VAL(s)         (hash(s)%MACRO_TABLE_SIZE)
+#define ERR_BUF_SIZ         2048
 
 /* get_token()'s possible states */
 typedef enum {
@@ -975,6 +976,23 @@ void control_line(int skip)
             uninstall_macro(get_lexeme(1));
         else
             ERROR("undef: name expected");
+    } else if (equal(get_lexeme(1), "error")) {
+        char buf[ERR_BUF_SIZ], *cp;
+
+        buf[0] = '\0';
+        match(PRE_TOK_ID);
+        if (lookahead(1) != PRE_TOK_NL) {
+            strcpy(buf, get_lexeme(1));
+            cp = buf+strlen(get_lexeme(1));
+            match(lookahead(1));
+            while (lookahead(1) != PRE_TOK_NL) {
+                strcat(cp++, " ");
+                strcat(cp, get_lexeme(1));
+                cp += strlen(get_lexeme(1));
+                match(lookahead(1));
+            }
+        }
+        ERROR("%s", buf);
     } else if (equal(get_lexeme(1), "\n")) {
         ; /* NULL directive */
     /* --> add the remaining directives here <-- */

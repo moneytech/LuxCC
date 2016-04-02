@@ -149,7 +149,7 @@
 #define GET_st_atime(x) (*(time_t *)((char *)x+72))
 #define GET_st_mtime(x) (*(time_t *)((char *)x+88))
 #else
-, /* add GET_* macros for this arch and recompile */
+#error insert here GET_* macros for this arch and recompile
 #endif
 #define S_ISREG(m) 1
 int lstat(const char *pathname, struct stat *buf)
