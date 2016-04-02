@@ -56,6 +56,8 @@ done
 for file in $(find $TESTS_PATH/other | grep 'testme\.sh') ; do
 	if ! /bin/bash $file $1 ; then
 		let fail_counter=fail_counter+1
+	else
+		let pass_counter=pass_counter+1
 	fi
 done
 
