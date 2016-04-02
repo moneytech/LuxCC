@@ -7,6 +7,10 @@ typedef int int2;
 struct A { int a; long b; };
 union B { int a; long b; };
 enum C { ONE, TWO };
+struct A {
+    char a;
+    int b;
+} const s;
 
 int main(int argc, char *argv[])
 {
@@ -14,6 +18,7 @@ int main(int argc, char *argv[])
     struct A const *x1;
     union B const x2;
     enum C const x3;
+    struct A x;
 
     return 0;
 }

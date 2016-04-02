@@ -500,6 +500,7 @@ void analyze_decl_specs(TypeExp *d)
     TypeExp *tyspe_node;
 
     assert(d != NULL);
+    tyspe_node = NULL;
     for (p = d; p != NULL; p = p->child) {
         switch (p->op) {
         case TOK_CHAR:
@@ -576,25 +577,47 @@ void analyze_decl_specs(TypeExp *d)
 
     p = d;
     if ((tymsk&STOC_MASK) != 0) {
-        p->op = get_sto_class_spec(p)->op;
-        p = p->child;
+        if (p == tyspe_node)
+            p = p->child;
+        p->op = get_sto_class_spec(d)->op;
+        if (p->child != NULL)
+            p = p->child;
     }
     switch (tymsk & QUAL_MASK) {
     case VOLATILE:
-        p->op = TOK_VOLATILE;
-        p = p->child;
+        if (p == tyspe_node) {
+            p = p->child;
+            p->op = TOK_VOLATILE;
+        } else {
+            p->op = TOK_VOLATILE;
+            if (p->child != NULL)
+                p = p->child;
+        }
         break;
     case CONST:
-        p->op = TOK_CONST;
-        p = p->child;
+        if (p == tyspe_node) {
+            p = p->child;
+            p->op = TOK_CONST;
+        } else {
+            p->op = TOK_CONST;
+            if (p->child != NULL)
+                p = p->child;
+        }
         break;
     case CONST+VOLATILE:
-        p->op = TOK_CONST_VOLATILE;
-        p = p->child;
+        if (p == tyspe_node) {
+            p = p->child;
+            p->op = TOK_CONST_VOLATILE;
+        } else {
+            p->op = TOK_CONST_VOLATILE;
+            if (p->child != NULL)
+                p = p->child;
+        }
         break;
     default:
         break;
     }
+    assert(p != NULL);
     switch (tymsk & TYPE_MASK+SIGN_MASK+SIZE_MASK+INT+CHAR) {
     case CHAR:
     case CHAR+SIGNED:
@@ -645,20 +668,9 @@ void analyze_decl_specs(TypeExp *d)
         p->op = TOK_VOID;
         break;
     case STRUCT:
-        *p = *tyspe_node;
-        p->op = TOK_STRUCT;
-        break;
     case UNION:
-        *p = *tyspe_node;
-        p->op = TOK_UNION;
-        break;
     case ENUM:
-        *p = *tyspe_node;
-        p->op = TOK_ENUM;
-        break;
     case TYPEDEFNAME:
-        *p = *tyspe_node;
-        p->op = TOK_TYPEDEFNAME;
         break;
     case 0:
         ERROR(d, "missing type specifier");
