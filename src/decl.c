@@ -497,6 +497,7 @@ void analyze_decl_specs(TypeExp *d)
 
     TypeExp *p;
     unsigned tymsk = 0;
+    TypeExp *tyspe_node;
 
     assert(d != NULL);
     for (p = d; p != NULL; p = p->child) {
@@ -522,6 +523,7 @@ void analyze_decl_specs(TypeExp *d)
             case TOK_ENUM:          tymsk |= ENUM;          break;
             case TOK_TYPEDEFNAME:   tymsk |= TYPEDEFNAME;   break;
             }
+            tyspe_node = p;
             break;
 
         case TOK_SHORT:
@@ -643,15 +645,19 @@ void analyze_decl_specs(TypeExp *d)
         p->op = TOK_VOID;
         break;
     case STRUCT:
+        *p = *tyspe_node;
         p->op = TOK_STRUCT;
         break;
     case UNION:
+        *p = *tyspe_node;
         p->op = TOK_UNION;
         break;
     case ENUM:
+        *p = *tyspe_node;
         p->op = TOK_ENUM;
         break;
     case TYPEDEFNAME:
+        *p = *tyspe_node;
         p->op = TOK_TYPEDEFNAME;
         break;
     case 0:
