@@ -163,7 +163,7 @@ FILE *fopen(const char *filename, const char *mode)
     if ((fp->_fd=open(filename, open_flags, open_mode)) < 0)
         return NULL;
     fp->_oflags = open_flags;
-    fp->_flags |= _IOOPEN;
+    fp->_flags = _IOOPEN|_IOFBF;
     fp->_putback = EOF;
     strcpy(fp->_filename, filename);
     return fp;
@@ -300,7 +300,6 @@ size_t fread(void *ptr, size_t size, size_t nelem, FILE *stream)
         }
         if ((rn=_do_read(stream, ptr, nb)) == EOF)
             rn = 0;
-        stream->_cnt = rn;
         nb -= rn;
     } else { /* the request can be satisfied with at most one call to _fillbuf() */
         if (stream->_cnt != 0) {
