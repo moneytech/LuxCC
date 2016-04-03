@@ -14,6 +14,10 @@ pass_counter=0
 
 echo "== Execution tests begin... =="
 
+if [ "$LUX_QUIET" = "1" ] ; then
+	echo "Running tests..."
+fi
+
 for file in $(find $TESTS_PATH/ | grep '\.c') ; do
 	# skip 'other' tests
 	if echo $file | grep -q "$TESTS_PATH/other" ; then		
@@ -25,7 +29,9 @@ for file in $(find $TESTS_PATH/ | grep '\.c') ; do
 		continue
 	fi
 	
-	echo $file
+	if [ ! "$LUX_QUIET" = "1" ] ; then
+		echo $file
+	fi
 
 	# out1	
 	$CC1 $file -o $TESTS_PATH/test1 &>/dev/null &&

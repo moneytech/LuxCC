@@ -15,7 +15,7 @@ rm -f $TESTDIR/out1
 if ! cmp -s $TESTDIR/abc.output $TESTDIR/abc.expect ; then
 	echo "B compiler failed!"
 	exit 1
-else
+elif [ ! "$LUX_QUIET" = "1" ] ; then
 	echo "B compiler succeeded!"
-	exit 0
 fi
+exit 0

@@ -27,7 +27,7 @@ rm -f $TESTDIR/out1
 if ! cmp -s $TESTDIR/crypto.output $TESTDIR/crypto.expect ; then
 	echo "Crypto failed!"
 	exit 1
-else
+elif [ ! "$LUX_QUIET" = "1" ] ; then
 	echo "Crypto succeeded!"
-	exit 0
 fi
+exit 0

@@ -21,7 +21,9 @@ pass_counter=0
 object_files=""
 
 for file in $(find src/tests/self/ | grep '\.c') ; do
-	echo $file
+	if [ ! "$LUX_QUIET" = "1" ] ; then
+		echo $file
+	fi
 
 	# compile
 	$COMPILER $file -o "${file%.*}.s2" 2>/dev/null

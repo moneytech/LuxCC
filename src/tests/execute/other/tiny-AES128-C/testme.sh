@@ -13,7 +13,7 @@ rm -f $TESTDIR/out1
 if ! cmp -s $TESTDIR/aes.output $TESTDIR/aes.expect ; then
 	echo "Tiny AES128 failed!"
 	exit 1
-else
+elif [ ! "$LUX_QUIET" = "1" ] ; then
 	echo "Tiny AES128 succeeded!"
-	exit 0
 fi
+exit 0

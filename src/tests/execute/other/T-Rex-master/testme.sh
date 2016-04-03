@@ -13,7 +13,7 @@ rm -f $TESTDIR/out1
 if ! cmp -s $TESTDIR/trex.output $TESTDIR/trex.expect ; then
 	echo "T-Rex failed!"
 	exit 1
-else
+elif [ ! "$LUX_QUIET" = "1" ] ; then
 	echo "T-Rex succeeded!"
-	exit 0
 fi
+exit 0

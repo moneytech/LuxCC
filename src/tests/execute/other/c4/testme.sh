@@ -10,7 +10,7 @@ rm -f $TESTDIR/c4
 if ! cmp -s $TESTDIR/c4.output $TESTDIR/c4.expect ; then
 	echo "C4 compiler failed!"
 	exit 1
-else
+elif [ ! "$LUX_QUIET" = "1" ] ; then
 	echo "C4 compiler succeeded!"
-	exit 0
 fi
+exit 0

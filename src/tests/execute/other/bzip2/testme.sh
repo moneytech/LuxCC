@@ -17,10 +17,10 @@ RES=$?
 rm -f $TESTDIR/out.bz2 $TESTDIR/_bzip2.c $TESTDIR/bzip2
 
 # compare
-if [ "$RES" = "0" ] ; then
-	echo "bzip2 succeeded!"
-	exit 0
-else
+if [ "$RES" != "0" ] ; then
 	echo "bzip2 failed!"
 	exit 1
+elif [ ! "$LUX_QUIET" = "1" ] ; then
+	echo "bzip2 succeeded!"
 fi
+exit 0

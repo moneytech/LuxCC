@@ -10,7 +10,9 @@ pass_counter=0
 echo "== Compilation tests begin... =="
 
 for file in $(find $TESTS_PATH/ | grep '\.c') ; do
-	echo $file
+	if [ ! "$LUX_QUIET" = "1" ] ; then
+		echo $file
+	fi
 	
 	$CC1 $CFLAGS $file &>/dev/null
 

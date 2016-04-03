@@ -20,10 +20,10 @@ for file in $TESTDIR/c/*.c ; do
 done
 rm -f $TESTDIR/out1
 
-if [ "$fail_counter" = "0" ] ; then
-	echo "Simple crypto succeeded!"
-	exit 0
-else
+if [ "$fail_counter" != "0" ] ; then
 	echo "Simple crypto failed!"
 	exit 1
+elif [ ! "$LUX_QUIET" = "1" ] ; then
+	echo "Simple crypto succeeded!"
 fi
+exit 0
