@@ -1503,6 +1503,9 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
             /* update previous declaration */
             if (is_initialized || is_func_def)
                 prev->declarator = declarator;
+            if (is_initialized)
+                /* analyze_initializer() sets attr.dl (the declaration list) for struct and unions */
+                prev->decl_specs = decl_specs;
         }
     } else {
         /*

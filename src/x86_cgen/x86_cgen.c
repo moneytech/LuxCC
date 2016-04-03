@@ -2692,6 +2692,7 @@ void x86_static_init(TypeExp *ds, TypeExp *dct, ExecNode *e)
 
         /* handle members with explicit initializer */
         d = ts->attr.dl;
+        assert(d != NULL);
         full_init = FALSE;
         for (; d != NULL; d = d->next) {
             dct = d->decl->idl;
