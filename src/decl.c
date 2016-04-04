@@ -1503,9 +1503,15 @@ void analyze_init_declarator(TypeExp *decl_specs, TypeExp *declarator, int is_fu
             /* update previous declaration */
             if (is_initialized || is_func_def)
                 prev->declarator = declarator;
-            if (is_initialized)
+            if (is_initialized) {
+                TypeExp *pts;
+
                 /* analyze_initializer() sets attr.dl (the declaration list) for struct and unions */
-                prev->decl_specs = decl_specs;
+                if (declarator->child == NULL
+                && ((pts=get_type_spec(prev->decl_specs))->op==TOK_STRUCT || pts->op==TOK_UNION)
+                && pts->attr.dl == NULL)
+                    pts->attr.dl = get_type_spec(decl_specs)->attr.dl;
+            }
         }
     } else {
         /*
