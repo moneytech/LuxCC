@@ -1,6 +1,11 @@
 /*
-    LuxVM 32-bit.
-*/
+ * LuxVM 32-bit version.
+ *
+ * This is intended to be run on 32-bit host systems, where pointers are 32-bit long.
+ *
+ * If your system arch is x86_64, you can still run this by compiling with gcc's `-m32'
+ * switch (or luxdvr's `-mx86' switch).
+ */
 #include "vm.h"
 #include <stdio.h>
 #include <stdlib.h>

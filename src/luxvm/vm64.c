@@ -1,8 +1,12 @@
 /*
-  LuxVM 64-bit.
-
-[!] Note that this is meant to be run on a 64-bit host system where pointers are 64-bit long.
-*/
+ * LuxVM 64-bit version.
+ *
+ * This is intended to be run on 64-bit host systems, where pointers are 64-bit long.
+ *
+ * Nevertheless, you should still be able to run this with the help of QEMU.
+ * For example, you can compile with gcc's `-m64' switch (or luxdvr's `-mx64' switch)
+ * and run the program with `qemu-x86_64' user mode command.
+ */
 #include "vm.h"
 #include <stdio.h>
 #include <stdlib.h>
