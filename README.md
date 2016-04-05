@@ -53,6 +53,7 @@ Note that in order to run tests for an architecture different than the host one,
 | `src/tools` | Testing tool |
 | `src/lib` | The standard C library |
 | `src/tests` | Test programs |
+| `src/util` | Utility functions |
 
 
 ## Documentation
