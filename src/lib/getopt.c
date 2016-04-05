@@ -46,7 +46,8 @@ int getopt_long(int argc, char *const *argv, const char *shortopts, const struct
             ++optind;
             return '?';
         }
-        *indexptr = i;
+        if (indexptr != NULL)
+            *indexptr = i;
         if (longopts[i].has_arg) {
             if (argv[optind][namlen+2] == '=') { /* "--<opt-nam>=<arg>" */
                 optarg = argv[optind++]+2+namlen+1;
