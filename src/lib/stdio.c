@@ -302,9 +302,9 @@ size_t fread(void *ptr, size_t size, size_t nelem, FILE *stream)
             rn = 0;
         nb -= rn;
     } else { /* the request can be satisfied with at most one call to _fillbuf() */
-        if (stream->_cnt != 0) {
-            size_t t;
+        size_t t;
 
+        if (stream->_cnt != 0) {
             t = (nb<stream->_cnt)?nb:stream->_cnt;
             memcpy(ptr, stream->_buf+stream->_pos, t);
             ptr = (char *)ptr+t;
@@ -314,14 +314,15 @@ size_t fread(void *ptr, size_t size, size_t nelem, FILE *stream)
         }
         if (nb != 0) {
             if (_fillbuf(stream) == EOF)
-                return 0;
-            memcpy(ptr, stream->_buf, nb);
-            stream->_pos += nb;
-            stream->_cnt -= nb;
-            nb = 0;
+                goto done;
+            t = (nb<stream->_cnt)?nb:stream->_cnt;
+            memcpy(ptr, stream->_buf, t);
+            stream->_pos += t;
+            stream->_cnt -= t;
+            nb -= t;
         }
     }
-
+done:
     return ((size*nelem)-nb)/size;
 }
 
