@@ -5,11 +5,11 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <assert.h>
-#include "util.h"
+#include "util/util.h"
 #include "decl.h"
 #include "expr.h"
 #include "error.h"
-#include "arena.h"
+#include "util/arena.h"
 #include "imp_lim.h"
 
 #define ERROR(tok, ...) emit_error(FALSE, (tok)->info->src_file, (tok)->info->src_line, (tok)->info->src_column, __VA_ARGS__)

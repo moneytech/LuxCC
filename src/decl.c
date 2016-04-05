@@ -4,10 +4,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
-#include "util.h"
+#include "util/util.h"
 #include "expr.h"
 #include "stmt.h"
-#include "arena.h"
+#include "util/arena.h"
 #include "imp_lim.h"
 #include "error.h"
 #include "luxcc.h"

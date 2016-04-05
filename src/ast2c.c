@@ -2,8 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "decl.h"
-#include "util.h"
-#include "str.h"
+#include "util/util.h"
+#include "util/str.h"
 
 static String *c_src;
 

@@ -34,8 +34,8 @@
 #include <assert.h>
 #include <stdint.h>
 #include <elf.h>
-#include "../util.h"
-#include "../ELF/ELF_util.h"
+#include "../util/util.h"
+#include "../util/ELF_util.h"
 
 #define MAX_LEXEME  512
 #define HASH_SIZE   1009

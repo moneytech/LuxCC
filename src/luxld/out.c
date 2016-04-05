@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
-#include "../util.h"
+#include "../util/util.h"
 #include "luxld.h"
 
 void write_ELF_file_32(FILE *outf)

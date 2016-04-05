@@ -4,12 +4,12 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
-#include "util.h"
+#include "util/util.h"
 #include "decl.h"
 #include "expr.h"
 #include "stmt.h"
 #include "error.h"
-#include "arena.h"
+#include "util/arena.h"
 #include "sassert.h"
 #include "luxcc.h"
 

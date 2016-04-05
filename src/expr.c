@@ -6,7 +6,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <assert.h>
-#include "util.h"
+#include "util/util.h"
 #include "decl.h"
 #include "error.h"
 #include "luxcc.h"

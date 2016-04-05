@@ -11,7 +11,7 @@
 #include "x64_cgen/x64_cgen.h"
 #include "mips_cgen/mips_cgen.h"
 #include "arm_cgen/arm_cgen.h"
-#include "util.h"
+#include "util/util.h"
 
 unsigned warning_count, error_count;
 int disable_warnings;

@@ -7,11 +7,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
-#include "util.h"
+#include "util/util.h"
 #include "ic.h"
 #include "expr.h"
-#include "bset.h"
-#include "arena.h"
+#include "util/bset.h"
+#include "util/arena.h"
 
 static
 void print_id_set(BSet *s)

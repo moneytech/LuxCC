@@ -4,9 +4,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
-#include "util.h"
+#include "util/util.h"
 #include "error.h"
-#include "arena.h"
+#include "util/arena.h"
 #include "luxcc.h"
 
 extern Arena *pre_node_arena;

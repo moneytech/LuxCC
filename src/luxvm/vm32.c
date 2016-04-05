@@ -17,7 +17,7 @@
 #include <errno.h>
 #include "as.h"
 #include "operations.h"
-#include "../util.h"
+#include "../util/util.h"
 
 #define DEFAULT_STACK_SIZE  32768
 

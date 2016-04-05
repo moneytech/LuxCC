@@ -3,9 +3,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
-#include "util.h"
+#include "util/util.h"
 #include "imp_lim.h"
-#include "arena.h"
+#include "util/arena.h"
 
 #define HASH_SIZE   1009
 #define HASH_VAL(s) (hash(s)%HASH_SIZE)

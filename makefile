@@ -1,12 +1,12 @@
 GETARCH=$(shell uname -i)
 
-all: luxcc luxas luxld luxvm luxdvr lib tools luxmips luxarm ELF
+all: luxcc luxas luxld luxvm luxdvr lib tools luxmips luxarm util
 
 luxcc:
 	make -C src
-luxx86: ELF
+luxx86:
 	make -C src/luxx86
-luxld: ELF
+luxld:
 	make -C src/luxld
 luxvm:
 	make -C src/luxvm
@@ -16,12 +16,12 @@ lib: luxcc luxvm luxmips luxarm luxx86
 	make -C src/lib
 tools:
 	make -C src/tools
-luxmips: ELF
+luxmips:
 	make -C src/luxmips
-luxarm: ELF
+luxarm:
 	make -C src/luxarm
-ELF:
-	make -C src/ELF
+util:
+	make -C src/util
 install:
 	cp src/luxcc src/luxdvr/luxdvr /usr/local/bin/
 	cp src/luxvm/luxvm src/luxvm/luxasvm src/luxvm/luxldvm /usr/local/bin/
@@ -62,7 +62,7 @@ clean:
 	make -C src/tools  clean
 	make -C src/luxmips clean
 	make -C src/luxarm clean
-	make -C src/ELF    clean
+	make -C src/util   clean
 	rm -rf src/tests/self
 
-.PHONY: all luxcc luxas luxld luxvm luxdvr lib install uninstall test clean luxmips luxarm ELF
+.PHONY: all luxcc luxas luxld luxvm luxdvr lib install uninstall test clean luxmips luxarm util

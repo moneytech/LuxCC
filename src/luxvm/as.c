@@ -30,7 +30,7 @@
 #include <ctype.h>
 #include <string.h>
 #include "vm.h"
-#include "../util.h"
+#include "../util/util.h"
 #include "operations.h"
 
 #define MAX_LINE_BUF        4096

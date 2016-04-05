@@ -2,7 +2,7 @@
 #define IC_H_
 
 #include "parser.h"
-#include "bset.h"
+#include "util/bset.h"
 #include "decl.h" /* for ExternId */
 
 enum {

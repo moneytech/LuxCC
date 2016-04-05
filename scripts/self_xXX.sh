@@ -13,7 +13,7 @@ CGENS="$TEST_PATH/vm32_cgen/*.c $TEST_PATH/vm64_cgen/*.c $TEST_PATH/x86_cgen/*.c
 echo "== Self-compilation test begins... =="
 
 # phase 1
-$DVR $CFLAGS $TEST_PATH/*.c $CGENS -o $CC1 &>/dev/null
+$DVR $CFLAGS $TEST_PATH/*.c $TEST_PATH/util/*.c $CGENS -o $CC1 &>/dev/null
 if [ "$?" != "0" ] ; then
 	echo "Phase 1 failed!"
 	exit 1
@@ -24,7 +24,7 @@ fi
 # phase 2
 mv src/luxcc src/luxcc_tmp
 cp $CC1 src/luxcc
-$DVR $CFLAGS $TEST_PATH/*.c $CGENS -o $CC2 &>/dev/null
+$DVR $CFLAGS $TEST_PATH/*.c $TEST_PATH/util/*.c $CGENS -o $CC2 &>/dev/null
 if [ "$?" != "0" ] ; then
 	echo "Phase 2 failed!"
 	mv src/luxcc_tmp src/luxcc

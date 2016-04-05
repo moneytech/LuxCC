@@ -16,15 +16,15 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <stdarg.h>
-#include "../util.h"
+#include "../util/util.h"
 #include "../decl.h"
 #include "../expr.h"
-#include "../arena.h"
+#include "../util/arena.h"
 #include "../imp_lim.h"
 #include "../error.h"
 #include "../ic.h"
 #include "../dflow.h"
-#include "../str.h"
+#include "../util/str.h"
 #include "../luxcc.h"
 
 typedef enum {

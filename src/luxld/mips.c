@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include "../util.h"
+#include "../util/util.h"
 #include "luxld.h"
 #include "copy.h"
 

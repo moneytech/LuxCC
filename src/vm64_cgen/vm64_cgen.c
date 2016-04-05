@@ -5,12 +5,12 @@
 #include <string.h>
 #include <assert.h>
 #include "../luxvm/vm.h"
-#include "../util.h"
+#include "../util/util.h"
 #include "../decl.h"
 #include "../expr.h"
 #include "../imp_lim.h"
 #include "../loc.h"
-#include "../str.h"
+#include "../util/str.h"
 #include "../error.h"
 #include "../luxcc.h"
 

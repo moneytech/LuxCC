@@ -1,53 +1,54 @@
 CC=gcc
 CFLAGS=-c -g -fwrapv -Wall -Wconversion -Wno-switch -Wno-parentheses -Wno-sign-conversion
-PROG = luxcc
-OBJS = luxcc.o pre.o lexer.o parser.o util.o decl.o expr.o stmt.o ic.o arena.o error.o loc.o bset.o str.o dflow.o opt.o ast2c.o
-SRCS = luxcc.c pre.c lexer.c parser.c util.c decl.c expr.c stmt.c ic.c arena.c error.c loc.c bset.c str.c dflow.c opt.c ast2c.c
+PROG=luxcc
+OBJS=luxcc.o pre.o lexer.o parser.o decl.o expr.o stmt.o ic.o error.o loc.o dflow.o opt.o ast2c.o
+SRCS=luxcc.c pre.c lexer.c parser.c decl.c expr.c stmt.c ic.c error.c loc.c dflow.c opt.c ast2c.c
+CGOBJS=vm32_cgen/vm32_cgen.o vm64_cgen/vm64_cgen.o x86_cgen/x86_cgen.o x64_cgen/x64_cgen.o \
+mips_cgen/mips_cgen.o arm_cgen/arm_cgen.o
+UTILOBJS=util/arena.o util/bset.o util/str.o util/util.o
 
 all: $(PROG)
 
-$(PROG): $(OBJS) vm32_cgen.o vm64_cgen.o x86_cgen.o x64_cgen.o mips_cgen.o arm_cgen.o
-	$(CC) -o $(PROG) $(OBJS) vm32_cgen.o vm64_cgen.o x86_cgen.o x64_cgen.o mips_cgen.o arm_cgen.o
+$(PROG): $(OBJS) $(UTILOBJS) $(CGOBJS)
+	$(CC) -o $(PROG) $(OBJS) $(UTILOBJS) $(CGOBJS)
+
 .c.o:
 	$(CC) $(CFLAGS) $*.c
+
 clean:
 	rm -f *.o $(PROG)
-depend:
-	makedepend -- $(CFLAGS) -- $(SRCS) -Y
-# DO NOT DELETE
+	make -C vm32_cgen clean
+	make -C vm64_cgen clean
+	make -C x86_cgen  clean
+	make -C x64_cgen  clean
+	make -C mips_cgen clean
+	make -C arm_cgen  clean
 
-luxcc.o: parser.h lexer.h pre.h ic.h bset.h vm32_cgen/vm32_cgen.h vm64_cgen/vm64_cgen.h x86_cgen/x86_cgen.h x64_cgen/x64_cgen.h mips_cgen/mips_cgen.h #arm_cgen/arm_cgen.h
-pre.o: pre.h util.h imp_lim.h error.h
-lexer.o: lexer.h pre.h util.h error.h
-parser.o: parser.h lexer.h pre.h util.h decl.h expr.h stmt.h error.h
-util.o: util.h
-decl.o: decl.h parser.h lexer.h pre.h util.h expr.h stmt.h arena.h imp_lim.h error.h
-expr.o: expr.h parser.h lexer.h pre.h util.h decl.h error.h
-stmt.o: stmt.h parser.h lexer.h pre.h util.h decl.h expr.h error.h
-ic.o: ic.h parser.h lexer.h pre.h bset.h util.h decl.h expr.h arena.h imp_lim.h loc.h dflow.h
-arena.o: arena.h util.h
+$(UTILOBJS):
+	make -C util
+
+$(CGOBJS):
+	make -C vm32_cgen
+	make -C vm64_cgen
+	make -C x86_cgen
+	make -C x64_cgen
+	make -C mips_cgen
+	make -C arm_cgen
+
+luxcc.o: parser.h lexer.h pre.h ic.h util/util.h vm32_cgen/vm32_cgen.h \
+		 vm64_cgen/vm64_cgen.h x86_cgen/x86_cgen.h x64_cgen/x64_cgen.h \
+		 mips_cgen/mips_cgen.h arm_cgen/arm_cgen.h
+pre.o: pre.h imp_lim.h error.h util/util.h
+lexer.o: lexer.h pre.h error.h util/util.h
+parser.o: parser.h lexer.h pre.h decl.h expr.h stmt.h error.h util/util.h
+decl.o: decl.h parser.h lexer.h pre.h expr.h stmt.h imp_lim.h error.h util/util.h util/arena.h
+expr.o: expr.h parser.h lexer.h pre.h decl.h error.h util/util.h
+stmt.o: stmt.h parser.h lexer.h pre.h decl.h expr.h error.h util/util.h
+ic.o: ic.h parser.h lexer.h pre.h decl.h expr.h imp_lim.h loc.h dflow.h util/bset.h util/util.h util/arena.h
 error.o: error.h
-loc.o: loc.h util.h imp_lim.h arena.h
-bset.o: bset.h
-str.o: str.h
-dflow.o: dflow.h bset.h util.h ic.h parser.h lexer.h pre.h expr.h
-opt.o: opt.h bset.h util.h ic.h expr.h
-ast2c.o: ast2c.h str.h
-vm32_cgen.o: vm32_cgen/vm32_cgen.h vm32_cgen/vm32_cgen.c decl.h parser.h lexer.h pre.h util.h expr.h stmt.h arena.h imp_lim.h error.h loc.h
-	$(CC) $(CFLAGS) vm32_cgen/vm32_cgen.c
-vm64_cgen.o: vm64_cgen/vm64_cgen.h vm64_cgen/vm64_cgen.c decl.h parser.h lexer.h pre.h util.h expr.h stmt.h arena.h imp_lim.h error.h loc.h
-	$(CC) $(CFLAGS) vm64_cgen/vm64_cgen.c
-x86_cgen.o: x86_cgen/x86_cgen.c x86_cgen/x86_cgen.h decl.h parser.h lexer.h pre.h util.h expr.h ic.h arena.h imp_lim.h \
-error.h bset.h str.h dflow.h
-	$(CC) $(CFLAGS) x86_cgen/x86_cgen.c
-x64_cgen.o: x64_cgen/x64_cgen.c x64_cgen/x64_cgen.h decl.h parser.h lexer.h pre.h util.h expr.h ic.h arena.h imp_lim.h \
-error.h bset.h str.h dflow.h
-	$(CC) $(CFLAGS) x64_cgen/x64_cgen.c
-mips_cgen.o: mips_cgen/mips_cgen.c mips_cgen/mips_cgen.h decl.h parser.h lexer.h pre.h util.h expr.h ic.h arena.h imp_lim.h \
-error.h bset.h str.h dflow.h
-	$(CC) $(CFLAGS) mips_cgen/mips_cgen.c
-arm_cgen.o: arm_cgen/arm_cgen.c arm_cgen/arm_cgen.h decl.h parser.h lexer.h pre.h util.h expr.h ic.h arena.h imp_lim.h \
-error.h bset.h str.h dflow.h
-	$(CC) $(CFLAGS) arm_cgen/arm_cgen.c
+loc.o: loc.h imp_lim.h util/util.h util/arena.h
+dflow.o: dflow.h ic.h parser.h lexer.h pre.h expr.h util/util.h util/bset.h
+opt.o: opt.h ic.h expr.h util/util.h util/bset.h
+ast2c.o: ast2c.h util/str.h
 
-.PHONY: all clean depend
+.PHONY: all clean

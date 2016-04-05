@@ -10,8 +10,8 @@
 #include <assert.h>
 #include <unistd.h>
 #include <ctype.h>
-#include "../util.h"
-#include "../str.h"
+#include "../util/util.h"
+#include "../util/str.h"
 
 typedef struct File File;
 

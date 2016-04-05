@@ -8,14 +8,14 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
-#include "util.h"
+#include "util/util.h"
 #include "decl.h"
 #include "expr.h"
-#include "arena.h"
+#include "util/arena.h"
 #include "imp_lim.h"
 #include "loc.h"
 #include "dflow.h"
-#include "bset.h"
+#include "util/bset.h"
 #include "ast2c.h"
 #include "luxcc.h"
 

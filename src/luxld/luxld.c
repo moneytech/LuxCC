@@ -6,8 +6,8 @@
 #include <ar.h>
 #include <assert.h>
 #include <stdarg.h>
-#include "../util.h"
-#include "../ELF/ELF_util.h"
+#include "../util/util.h"
+#include "../util/ELF_util.h"
 #include "x86.h"
 #include "x64.h"
 #include "mips.h"

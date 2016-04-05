@@ -9,24 +9,30 @@ endif
 
 all: luxvm luxasvm luxldvm
 
-luxvm: $(VMOBJ) ../util.o operations.o
-	$(CC) -o luxvm $(VMOBJ) ../util.o operations.o
-luxasvm: as.o ../util.o operations.o
-	$(CC) -o luxasvm as.o ../util.o operations.o
-luxldvm: ld.o ../arena.o ../util.o
-	$(CC) -o luxldvm ld.o ../arena.o ../util.o
+luxvm: $(VMOBJ) ../util/util.o operations.o
+	$(CC) -o luxvm $(VMOBJ) ../util/util.o operations.o
+
+luxasvm: as.o ../util/util.o operations.o
+	$(CC) -o luxasvm as.o ../util/util.o operations.o
+
+luxldvm: ld.o ../util/arena.o ../util/util.o
+	$(CC) -o luxldvm ld.o ../util/arena.o ../util/util.o
+
+../util/arena.o:
+	make -C ../util arena.o
+
+../util/util.o:
+	make -C ../util util.o
+
 .c.o:
 	$(CC) $(CFLAGS) $*.c
+
 clean:
 	rm -f *.o luxvm luxasvm luxldvm
 
 $(VMOBJ): vm.h as.h operations.h
-as.o: as.h vm.h ../util.h operations.h
-ld.o: as.h ../arena.h ../util.h
-operations.o: operations.h ../util.h vm.h
-../arena.o: ../arena.h
-	make -C .. arena.o
-../util.o: ../util.h
-	make -C .. util.o
+as.o: as.h vm.h ../util/util.h operations.h
+ld.o: as.h ../util/arena.h ../util/util.h
+operations.o: operations.h ../util/util.h vm.h
 
 .PHONY: all clean

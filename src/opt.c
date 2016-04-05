@@ -4,10 +4,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
-#include "util.h"
+#include "util/util.h"
 #include "ic.h"
 #include "expr.h"
-#include "bset.h"
+#include "util/bset.h"
 
 void opt_main(void)
 {

@@ -4,17 +4,21 @@ OBJS = luxdvr.o
 
 all: luxdvr
 
-luxdvr: luxdvr.o ../util.o ../str.o
-	$(CC) -o luxdvr luxdvr.o ../util.o ../str.o
-../util.o:
-	make -C .. util.o
-../str.o:
-	make -C .. str.o
+luxdvr: luxdvr.o ../util/util.o ../util/str.o
+	$(CC) -o luxdvr luxdvr.o ../util/util.o ../util/str.o
+
+../util/util.o:
+	make -C ../util util.o
+
+../util/str.o:
+	make -C ../util str.o
+
 .c.o:
 	$(CC) $(CFLAGS) $*.c
+
 clean:
 	rm -f $(OBJS) luxdvr
 
-luxdvr.o: ../util.h ../str.h
+luxdvr.o: ../util/util.h ../util/str.h
 
 .PHONY: all clean

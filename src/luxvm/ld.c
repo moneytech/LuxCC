@@ -7,8 +7,8 @@
 #include <string.h>
 #include <assert.h>
 #include "as.h"
-#include "../arena.h"
-#include "../util.h"
+#include "../util/arena.h"
+#include "../util/util.h"
 
 char *prog_name;
 int targeting_vm64;

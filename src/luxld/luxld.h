@@ -3,7 +3,7 @@
 
 #include <elf.h>
 #include <stdint.h>
-#include "../ELF/ELF_util.h"
+#include "../util/ELF_util.h"
 
 #define MAX_SEC_PER_SEG 32
 #define HASH_SIZE       1009

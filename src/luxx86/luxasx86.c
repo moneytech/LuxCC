@@ -61,9 +61,9 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <elf.h>
-#include "../ELF/ELF_util.h"
-#include "../util.h"
-#include "../arena.h"
+#include "../util/ELF_util.h"
+#include "../util/util.h"
+#include "../util/arena.h"
 
 #define bool int
 

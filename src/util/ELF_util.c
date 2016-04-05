@@ -1,7 +1,7 @@
 #include "ELF_util.h"
 #include <stdlib.h>
 #include <string.h>
-#include "../util.h"
+#include "util.h"
 
 struct StrTab {
     int siz, max;

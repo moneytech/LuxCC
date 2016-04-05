@@ -4,10 +4,10 @@
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
-#include "util.h"
+#include "util/util.h"
 #include "imp_lim.h"
 #include "error.h"
-#include "arena.h"
+#include "util/arena.h"
 #include "luxcc.h"
 
 #define SRC_FILE            curr_source_file

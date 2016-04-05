@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
-#include "../util.h"
+#include "../util/util.h"
 #include "vm.h"
 
 static Operation operations[] = {
