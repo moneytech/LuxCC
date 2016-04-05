@@ -90,7 +90,7 @@ int install_switch_label(long long val, int is_default)
         if (is_default) {
             if (np->is_default)
                 break;
-        } else if (np->val == val) {
+        } else if (!np->is_default && np->val==val) {
             break;
         }
         np = np->next;
