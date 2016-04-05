@@ -1,0 +1,23 @@
+src/tests/execute/other/ELFkickers/test_elf* (Intel 386)
+Dependencies: libselinux.so.1 librt.so.1 libacl.so.1 libc.so.6
+Program header table entries: 9 (34 - 154)
+ 0 P r-x    34   120 08048034       5 N "GNU"
+ 1 I "/lib/ld-linux.so.2"           6 U r-- 15F7C   6F4 0805DF7C
+ 2 B r-s     0 18D24 08048000       7 . rw-     0     0 00000000
+ 3 B rw- 18EF8   3E8 08061EF8 +C20  8 R r-- 18EF8   108 08061EF8
+ 4 D rw- 18F0C    E0 08061F0C
+Section header table entries: 28 (193DC - 1983C)
+ 0 (null)                               14 B r-x 1202C    1A .fini
+ 1 I "/lib/ld-linux.so.2"               15 B r-- 12060  3F1B .rodata
+ 2 N "GNU"                              16 U r-- 15F7C   6F4 .eh_frame_hdr
+ 3 N "GNU"                              17 U r-- 16670  26B4 .eh_frame
+ 4 H r--   1AC    6C .gnu.hash [5]      18 B rw- 18EF8     8 .ctors
+ 5 S r--   218   7A0 .dynsym [6]        19 B rw- 18F00     8 .dtors
+ 6 $ r--   9B8   58C .dynstr            20 B rw- 18F08     4 .jcr
+ 7 V r--   F44    F4 .gnu.version [5]   21 D rw- 18F0C    E0 .dynamic [6]
+ 8 V r--  1038    E0 .gnu.version_r [6] 22 O rw- 18FEC     8 .got
+ 9 R r--  1118    38 .rel.dyn:0 [5]     23 P rw- 18FF4   1B4 .got.plt
+10 R r--  1150   350 .rel.plt:12 [5]    24 B rw- 191C0   120 .data
+11 B r-x  14A0    2E .init              25 0 rw- 192E0   C20 .bss
+12 P r-x  14D0   6B0 .plt               26 B --- 192E0     8 .gnu_debuglink
+13 B r-x  1B80 104AC .text              27 $ --- 192E8    F2 .shstrtab [S]
