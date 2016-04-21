@@ -2812,7 +2812,7 @@ void x86_allocate_static_objects(void)
             TypeExp *scs;
 
             if ((scs=get_sto_class_spec(np->decl_specs))==NULL || scs->op!=TOK_STATIC)
-                emit_declln("global %s", np->declarator->str);
+                emit_declln("global $%s", np->declarator->str);
             emit_declln("$%s:", np->declarator->str);
         }
         if (initzr != NULL)
