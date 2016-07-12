@@ -15,7 +15,7 @@
 #define SHRT_MAX    32767
 #define USHRT_MAX   65535
 
-#define INT_MIN     (-2147483648)
+#define INT_MIN     (-2147483647-1)
 #define INT_MAX     2147483647
 #define UINT_MAX    4294967295U
 
@@ -24,7 +24,7 @@
 #define LONG_MAX    9223372036854775807L
 #define ULONG_MAX   18446744073709551615UL
 #else
-#define LONG_MIN    (-2147483648L)
+#define LONG_MIN    (-2147483647L-1L)
 #define LONG_MAX    2147483647L
 #define ULONG_MAX   4294967295UL
 #endif
