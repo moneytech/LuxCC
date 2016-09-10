@@ -59,3 +59,7 @@ Note that in order to run tests for an architecture different than the host one,
 ## Documentation
 
 See `doc/index.html` for in-depth information on usage, internals, and more.
+
+## License
+
+BSD license.
