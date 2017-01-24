@@ -307,6 +307,7 @@ int main(int argc, char *argv[])
     File *infiles;
     char asm_tmp[] = "/tmp/luxXXXXXX.s";
     char obj_tmp[] = "/tmp/luxXXXXXX.o";
+	int got_arch = FALSE;
 
     prog_name = argv[0];
     if (argc == 1) {
@@ -450,6 +451,8 @@ int main(int argc, char *argv[])
             case 'm': {
                 char *m;
 
+				if (got_arch)
+					break;
                 string_printf(cc_cmd, " %s", argv[i]);
                 if (argv[i][2] == '\0') {
                     if (argv[i+1] == NULL)
@@ -478,6 +481,7 @@ int main(int argc, char *argv[])
                     driver_flags &= ~DVR_TARGETS;
                     driver_flags |= DVR_ARM_TARGET;
                 }
+                got_arch = TRUE;
             }
                 break;
             case 'o':
@@ -528,6 +532,12 @@ int main(int argc, char *argv[])
             }
         }
     }
+	if (!got_arch)
+#ifdef __LP64__
+        string_printf(cc_cmd, " -mx64");
+#else
+        string_printf(cc_cmd, " -mx86");
+#endif
     if (outpath!=NULL && (driver_flags & (DVR_PREP_ONLY|DVR_COMP_ONLY|DVR_NOLINK))) {
         if (nasmfls != 0) {
             if (nasmfls>1 || ncfls!=0)
