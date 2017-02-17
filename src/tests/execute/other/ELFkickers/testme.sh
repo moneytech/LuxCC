@@ -46,14 +46,14 @@ else
 		$TESTDIR/ebfc/rel.o \
 		$TESTDIR/ebfc/got.o \
 		$TESTDIR/ebfc/dynamic.o
-	
+
 	if ! $CC -i$TESTDIR/elfrw $TESTDIR/ebfc/ebfc.o $TESTDIR/ebfc/brainfuck.o $TESTDIR/ebfc/libelfparts.a -o $TESTDIR/out1 ; then
 		echo "Failed to link ebfc"
 	fi
 
 	for file in $TESTDIR/ebfc/bf/*.b ; do
 		$TESTDIR/out1 -o $TESTDIR/out2 $file
-		$TESTDIR/out2 >>$TESTDIR/ebfc.output		
+		$TESTDIR/out2 >>$TESTDIR/ebfc.output
 	done
 
 	if ! cmp -s $TESTDIR/ebfc.output $TESTDIR/ebfc.expect ; then
@@ -68,19 +68,19 @@ rm -f $TESTDIR/ebfc/*.o $TESTDIR/ebfc/libelfparts.a $TESTDIR/ebfc.output $TESTDI
 #
 # objres
 #
-if ! $CC -i$TESTDIR/elfrw $TESTDIR/objres/objres.c -o $TESTDIR/out1 $TESTDIR/libelfrw.a &>/dev/null ; then
-	echo "Failed to compile objres"
-else
+# if ! $CC -i$TESTDIR/elfrw $TESTDIR/objres/objres.c -o $TESTDIR/out1 $TESTDIR/libelfrw.a &>/dev/null ; then
+	# echo "Failed to compile objres"
+# else
 	# test with its own readme
-	$TESTDIR/out1 -o $TESTDIR/objres.output $TESTDIR/objres/README.txt
-	if ! cmp -s $TESTDIR/objres.output $TESTDIR/objres.expect ; then
-		echo "objres failed!"
-		FAILEDONCE="1"
-	elif [ ! "$LUX_QUIET" = "1" ] ; then
-		echo "objres succeeded!"
-	fi
-fi
-rm -f $TESTDIR/objres.output $TESTDIR/objres.output.h
+	# $TESTDIR/out1 -o $TESTDIR/objres.output $TESTDIR/objres/README.txt
+	# if ! cmp -s $TESTDIR/objres.output $TESTDIR/objres.expect ; then
+		# echo "objres failed!"
+		# FAILEDONCE="1"
+	# elif [ ! "$LUX_QUIET" = "1" ] ; then
+		# echo "objres succeeded!"
+	# fi
+# fi
+# rm -f $TESTDIR/objres.output $TESTDIR/objres.output.h
 
 #
 # rebind
@@ -107,3 +107,8 @@ fi
 #
 rm -f $TESTDIR/out1 $TESTDIR/libelfrw.a $TESTDIR/elfrw/*.o
 
+if [ "$FAILEDONCE" = "0" ] ; then
+	exit 0
+else
+	exit 1
+fi
